@@ -53,7 +53,7 @@ def make_vertical_video(
     ffmpeg = _require("ffmpeg")
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    safe = headline.replace("\", "\\").replace(":", "\:").replace("'", "\'")
+    safe = headline.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
     vf = (
         "scale=1080:1920:force_original_aspect_ratio=increase,"
         "crop=1080:1920,"
