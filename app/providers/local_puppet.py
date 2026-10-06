@@ -22,6 +22,24 @@ DARK = (22, 24, 29)
 SUIT = (37, 43, 58)
 
 
+def _font(size: int):
+    """Resolve a platform-available font for local and CI rendering."""
+    candidates = (
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    )
+    for candidate in candidates:
+        path = Path(candidate)
+        if path.exists():
+            try:
+                return ImageFont.truetype(str(path), size)
+            except OSError:
+                continue
+    return ImageFont.load_default()
+
+
 def _audio_envelope(audio: Path, fps: int, frames: int) -> list[float]:
     try:
         with wave.open(str(audio), "rb") as wav:
@@ -71,7 +89,7 @@ def _caption_text(caption: str, progress: float) -> str:
 def _draw_social_caption(draw: ImageDraw.ImageDraw, frame: Image.Image, caption: str) -> None:
     if not caption:
         return
-    font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", 32)
+    font = _font(32)
     max_width = 480
     words = caption.split()
     lines = []
@@ -171,7 +189,7 @@ def _rig_frame(base: Image.Image, amp: float, t: float, shot_index: int, perform
     visible_caption = _caption_text(caption, caption_progress)
     _draw_social_caption(draw, frame, visible_caption)
     disclosure = "AI-generated • fictional creator"
-    disclosure_font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", 18)
+    disclosure_font = _font(18)
     width = draw.textbbox((0, 0), disclosure, font=disclosure_font)[2]
     draw.rounded_rectangle((W - width - 30, H - 34, W - 20, H - 10), radius=8, fill=(8, 10, 15, 185))
     draw.text((W - width - 22, H - 31), disclosure, font=disclosure_font, fill=(225, 228, 236, 255))
