@@ -33,3 +33,11 @@ def test_process_drafts_selects_one_of_three_variants(tmp_path, monkeypatch):
     stored = db.query(ContentItem).first()
     assert "variant_pool_size" in stored.content_json
     db.close()
+
+
+def test_audio_stage_accepts_blender_embedded_audio(tmp_path):
+    from app.cartoon_factory_orchestrator import CartoonFactoryOrchestrator
+    from types import SimpleNamespace
+    run = SimpleNamespace(payload={"video": str(tmp_path / "clip.mp4"), "audio_embedded": True})
+    result = CartoonFactoryOrchestrator()._audio_engine(run)
+    assert result["audio_embedded"] is True

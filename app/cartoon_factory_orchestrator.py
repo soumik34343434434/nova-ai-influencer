@@ -23,6 +23,7 @@ from app.agents.cartoon_research import discover, rank, ResearchSignal
 from app.agents.storyboard import build_storyboard
 from app.cartoon_control import CartoonControlPlane, CartoonRun, CartoonRunStore, CartoonStage
 from app.providers.cartoon_animation import render_cartoon_motion, rerender_cartoon_shots
+from app.providers.blender_animation import BlenderAnimationProvider
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -231,16 +232,28 @@ class CartoonFactoryOrchestrator:
         durations = [float(beat.get("duration", 2.0)) for beat in candidate["beats"]]
         slug = candidate["premise_slug"] + "_factory"
         output = ARTIFACTS / f"{slug}.mp4"
-        render_cartoon_motion(
-            images,
-            captions,
-            durations,
-            beats,
-            output,
-            voice_lines=captions,
-            sfx_kinds=sfx,
-            fps=24,
-        )
+        backend = __import__("os").environ.get("NOVA_CARTOON_ANIMATION_BACKEND", "pillow").strip().lower()
+        if backend == "blender" and candidate.get("character") == "PIP":
+            provider = BlenderAnimationProvider()
+            if not provider.available():
+                raise RuntimeError("NOVA_CARTOON_ANIMATION_BACKEND=blender but Blender is unavailable")
+            blender_output = ARTIFACTS / f"{slug}_blender.mp4"
+            info = provider.render_episode(
+                ROOT, blender_output, captions, beats, durations, sfx,
+                resolution_percent=int(__import__("os").environ.get("NOVA_BLENDER_RESOLUTION", "100")),
+            )
+            output = Path(info["video"])
+        else:
+            render_cartoon_motion(
+                images,
+                captions,
+                durations,
+                beats,
+                output,
+                voice_lines=captions,
+                sfx_kinds=sfx,
+                fps=24,
+            )
         motion_metadata = output.with_suffix(".motion.json")
         effective_durations = durations
         try:
@@ -254,7 +267,7 @@ class CartoonFactoryOrchestrator:
             render_durations=effective_durations,
             animation_metadata=str(motion_metadata),
         )
-        return {"video": str(output), "renderer": "cartoon-motion-3.6", "fps": 24}
+        return {"video": str(output), "renderer": "blender-pip-cutout-rig-v2" if backend == "blender" and candidate.get("character") == "PIP" else "cartoon-motion-3.6", "fps": 24}
 
     def _rerender_for_motion_qa(self, run: CartoonRun, motion_result: dict[str, Any]) -> dict[str, Any]:
         """Surgically rerender failed shots plus their dependent outgoing bridges."""
@@ -318,6 +331,8 @@ class CartoonFactoryOrchestrator:
 
     def _audio_engine(self, run: CartoonRun) -> dict[str, Any]:
         video = Path(run.payload["video"])
+        if run.payload.get("audio_embedded") or run.payload.get("animation_backend") == "blender":
+            return {"voice_sfx_mixed": True, "audio_embedded": True, "audio_source": str(video)}
         audio_candidates = list(video.parent.glob(video.stem + "_frames/episode_audio.wav"))
         has_audio_source = bool(audio_candidates and audio_candidates[0].exists())
         if not has_audio_source:

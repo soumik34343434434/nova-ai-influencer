@@ -40,7 +40,7 @@ TARGETS={
   'right_shoulder':(775,1095),'right_elbow':(800,1165),'right_wrist':(815,1220),
   'head_rot':1.5,'root_rot':0.5,'eye_open':0.88,'gaze':(0.0,0.0),'mouth':'flat'}
 }
-BEATS=[('setup',1,42),('escalation',43,88),('reaction',89,134),('punchline',135,190)]
+BEATS_DEFAULT=[('setup',1,42),('escalation',43,88),('reaction',89,134),('punchline',135,190)]
 
 
 def px(p): return Vector(((p[0]-W/2)/PX,(H/2-p[1])/PX,0.0))
@@ -169,8 +169,60 @@ def key_face(face,frame,spec):
  mouth=face['mouth']; mouth.scale={'smile':(1,1,1),'open':(.90,1.70,1),'frown':(.88,.60,1),'flat':(.82,.30,1)}[spec['mouth']]; mouth.keyframe_insert('scale',frame=frame)
 
 
-def build(frames=190):
- clear(); scene=bpy.context.scene; scene.render.engine='BLENDER_EEVEE'; scene.render.resolution_x=W; scene.render.resolution_y=H; scene.render.resolution_percentage=int(os.environ.get('NOVA_BLENDER_RESOLUTION','35')); scene.render.fps=24; scene.world.color=(0.0,0.0,0.0); scene.view_settings.view_transform='Standard'; scene.view_settings.look='None'; scene.view_settings.exposure=0; scene.view_settings.gamma=1
+def load_voice_rows(voice_json):
+    if not voice_json:
+        return []
+    path=Path(voice_json)
+    if not path.exists():
+        return []
+    try:
+        data=json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    return list((data.get('audio_sync',{}).get('voice_performance') or data.get('voice_performance') or []))
+
+
+def build_beats(frames, voice_json=None):
+    rows=load_voice_rows(voice_json)
+    if not rows:
+        return BEATS_DEFAULT
+    durations=[float(r.get('duration',0.0) or 0.0) for r in rows[:4]]
+    # Preserve enough reaction tail for each line while making frame positions track
+    # the real voice performance clock.
+    tails=[0.48,0.58,0.60,0.82]
+    weights=[max(1.2,d+t) for d,t in zip(durations,tails)]
+    total=sum(weights) or 1.0
+    ranges=[]; start=1
+    names=['setup','escalation','reaction','punchline']
+    for i,name in enumerate(names):
+        end=frames if i==len(names)-1 else start+max(18,round((frames-1)*weights[i]/total))
+        ranges.append((name,start,min(frames,end)))
+        start=min(frames,end+1)
+    return ranges
+
+
+def camera_performance_keys(arm, cam, beats):
+    """Key a damped camera from the same character root clock."""
+    for beat,start,end in beats:
+        frames=(start, max(start,start+(end-start)//2), end)
+        for frame in sorted(set(frames)):
+            bpy.context.scene.frame_set(frame)
+            root=arm.pose.bones['root']
+            loc=root.matrix.to_translation()
+            cam.location.x=loc.x*0.24
+            cam.location.y=loc.y*0.18
+            cam.location.z=30.0
+            # Tiny impact punch-in; keep the stage readable.
+            zoom=0.985 if beat in ('escalation','reaction') and frame>start+(end-start)//3 else 1.0
+            cam.data.ortho_scale=WORLD_H*(zoom if zoom<1 else 1.0)
+            cam.rotation_euler.z=root.rotation_euler.z*0.035
+            cam.keyframe_insert('location',frame=frame)
+            cam.keyframe_insert('rotation_euler',index=2,frame=frame)
+            cam.data.keyframe_insert('ortho_scale',frame=frame)
+
+
+def build(frames=190, voice_json=None):
+ clear(); scene=bpy.context.scene; BEATS=build_beats(frames,voice_json); scene.render.engine='BLENDER_EEVEE'; scene.render.resolution_x=W; scene.render.resolution_y=H; scene.render.resolution_percentage=int(os.environ.get('NOVA_BLENDER_RESOLUTION','35')); scene.render.fps=24; scene.world.color=(0.0,0.0,0.0); scene.view_settings.view_transform='Standard'; scene.view_settings.look='None'; scene.view_settings.exposure=0; scene.view_settings.gamma=1
  # background
  bgmesh=bpy.data.meshes.new('BackgroundMesh'); bgmesh.from_pydata([(-WORLD_W/2,-WORLD_H/2,-.3),(WORLD_W/2,-WORLD_H/2,-.3),(WORLD_W/2,WORLD_H/2,-.3),(-WORLD_W/2,WORLD_H/2,-.3)],[],[(0,1,2,3)]); bgmesh.update(); uv=bgmesh.uv_layers.new(name='UVMap');
  for poly in bgmesh.polygons:
@@ -189,24 +241,38 @@ def build(frames=190):
    spec=dict(spec); spec['_beat']=beat; write_pose(arm,frame,spec); key_face(face,frame,spec)
   prev=target
  # Add speech-reactive mouth shape cues: fast micro-open/close around each phrase center.
- for beat,start,end in BEATS:
-  spec=TARGETS[beat]; mid=start+round((end-start)*.45)
-  for f,sy in [(mid-2,.55),(mid,.95),(mid+2,.38),(mid+4,1.0)]:
-   face['mouth'].scale.y={'smile':1,'open':1.5,'frown':.7,'flat':.3}[spec['mouth']]*sy; face['mouth'].keyframe_insert('scale',frame=f)
+ rows=load_voice_rows(voice_json)
+ for idx,(beat,start,end) in enumerate(BEATS):
+  spec=TARGETS[beat]
+  row=rows[idx] if idx < len(rows) else {}
+  activity=row.get('activity') or []
+  if activity:
+   for f in range(start,end+1,2):
+    q=(f-start)/max(1,end-start); ai=min(len(activity)-1,int(round(q*(len(activity)-1))))
+    try: energy=max(0.0,min(1.0,float(activity[ai])))
+    except (TypeError,ValueError): energy=0.0
+    base_m={'smile':1.0,'open':1.5,'frown':.7,'flat':.3}[spec['mouth']]
+    face['mouth'].scale.y=base_m*(0.30+0.90*energy); face['mouth'].keyframe_insert('scale',frame=f)
+  else:
+   mid=start+round((end-start)*.45)
+   for f,sy in [(mid-2,.55),(mid,.95),(mid+2,.38),(mid+4,1.0)]:
+    face['mouth'].scale.y={'smile':1,'open':1.5,'frown':.7,'flat':.3}[spec['mouth']]*sy; face['mouth'].keyframe_insert('scale',frame=f)
  # Blink on non-impact moments.
  for beat,start,end in BEATS:
   f=start+round((end-start)*.34)
   for eye,pupil in zip(face['eyes'],face['pupils']):
    eye.scale.y=.10; pupil.scale.y=.06; eye.keyframe_insert('scale',index=1,frame=f); pupil.keyframe_insert('scale',index=1,frame=f); eye.scale.y=1; pupil.scale.y=1; eye.keyframe_insert('scale',index=1,frame=f+2); pupil.keyframe_insert('scale',index=1,frame=f+2)
  bpy.ops.object.camera_add(location=(0,0,30)); cam=bpy.context.object; cam.name='PIP_Camera'; cam.data.type='ORTHO'; cam.data.ortho_scale=WORLD_H; scene.camera=cam
+ camera_performance_keys(arm,cam,BEATS)
  scene.frame_start=1; scene.frame_end=frames; scene.render.image_settings.file_format='PNG'; scene.render.filepath=str(OUTDIR/'frame_####')
- meta={'engine':'blender-pip-cutout-rig-v2','resolution':[W,H],'fps':24,'frames':frames,'deformable_layers':['torso','head','left_arm','right_arm','backpack'],'armature_bones':['root','head','arm.L','forearm.L','arm.R','forearm.R','backpack'],'facial_controls':['blink','gaze','mouth_shape','speech_micro_motion'],'in_between':'overshoot-and-settle-bezier','source':'clean-pip-master-cutout'}
+ rows=load_voice_rows(voice_json); effective_shot_durations=[round(max(1.0,float(r.get('duration',0.0) or 0.0))+tail,3) for r,tail in zip(rows[:4],(0.48,0.58,0.60,0.82))] if rows else [round((b-a)/24,3) for _,a,b in BEATS]
+ meta={'engine':'blender-pip-cutout-rig-v2','beats':BEATS,'voice_json':str(voice_json) if voice_json else None,'effective_shot_durations':effective_shot_durations,'resolution':[W,H],'fps':24,'frames':frames,'deformable_layers':['torso','head','left_arm','right_arm','backpack'],'armature_bones':['root','head','arm.L','forearm.L','arm.R','forearm.R','backpack'],'facial_controls':['blink','gaze','mouth_shape','speech_micro_motion'],'in_between':'overshoot-and-settle-bezier','source':'clean-pip-master-cutout'}
  t=bpy.data.texts.new('NOVA_BLENDER_RIG_METADATA.json'); t.write(json.dumps(meta,indent=2)); return scene,meta
 
 
 def main():
- ap=argparse.ArgumentParser(); ap.add_argument('--build',action='store_true'); ap.add_argument('--render',action='store_true'); ap.add_argument('--frames',type=int,default=190); ap.add_argument('--blend-output',type=Path,default=BLEND); args=ap.parse_args(sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else [])
- OUTDIR.mkdir(parents=True,exist_ok=True); scene,meta=build(args.frames); bpy.ops.wm.save_as_mainfile(filepath=str(args.blend_output))
+ ap=argparse.ArgumentParser(); ap.add_argument('--build',action='store_true'); ap.add_argument('--render',action='store_true'); ap.add_argument('--frames',type=int,default=190); ap.add_argument('--blend-output',type=Path,default=BLEND); ap.add_argument('--voice-json',type=Path,default=None); args=ap.parse_args(sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else [])
+ OUTDIR.mkdir(parents=True,exist_ok=True); scene,meta=build(args.frames,args.voice_json); bpy.ops.wm.save_as_mainfile(filepath=str(args.blend_output))
  if args.render:
   selected=os.environ.get('NOVA_KEY_FRAMES','').strip()
   if selected:
