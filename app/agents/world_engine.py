@@ -1,0 +1,71 @@
+"""Recurring visual-world planner for NOVA."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+WORLD_PATH = ROOT / "config" / "world.json"
+
+
+class WorldEngine:
+    def __init__(self, path: Path = WORLD_PATH):
+        self.data = json.loads(path.read_text())
+
+    def choose_scene(self, text: str, shot_index: int = 0) -> str:
+        lower = text.lower()
+        scenes = self.data["scenes"]
+        direct = {
+            "office": ("meeting", "manager", "calendar", "presentation", "deadline", "office"),
+            "home": ("tabs", "browser", "late night", "doomscrolling", "bedroom", "home desk"),
+            "cafe": ("coffee", "cafe", "caffeine", "weekend"),
+            "metro": ("metro", "commute", "notification", "earbuds", "train carriage"),
+        }
+        hits = [(sum(term in lower for term in terms), name) for name, terms in direct.items()]
+        hits.sort(reverse=True)
+        if hits[0][0] > 0:
+            return hits[0][1]
+
+        ranked = []
+        for name, scene in scenes.items():
+            count = sum(term in lower for term in scene["best_for"])
+            ranked.append((count, name))
+        ranked.sort(reverse=True)
+        if ranked[0][0] > 0:
+            return ranked[0][1]
+        names = list(scenes)
+        return names[shot_index % len(names)]
+
+    def wardrobe(self, scene: str) -> str:
+        return self.data["wardrobes"].get(f"{scene}_default", self.data["wardrobes"]["office_default"])
+
+    def prop(self, scene: str, text: str, shot_index: int = 0) -> str:
+        lower = text.lower()
+        props = self.data["scenes"][scene]["props"]
+        aliases = {
+            "laptop": ("laptop", "tab", "tabs", "browser", "screen"),
+            "phone": ("phone", "notification", "message", "call"),
+            "coffee": ("coffee", "cafe", "caffeine"),
+            "calendar": ("calendar", "meeting", "invite", "schedule"),
+            "headphones": ("headphone", "earbud", "earbuds"),
+            "notebook": ("notebook", "notes", "write"),
+            "metro card": ("metro card", "transit card"),
+            "earbuds": ("earbud", "earbuds", "headphone"),
+        }
+        for prop in props:
+            if any(term in lower for term in aliases.get(prop, (prop,))):
+                return prop
+        return props[shot_index % len(props)]
+
+    def plan_shot(self, text: str, shot_index: int = 0) -> dict:
+        scene = self.choose_scene(text, shot_index)
+        return {
+            "scene": scene,
+            "scene_label": self.data["scenes"][scene]["label"],
+            "setting": self.data["scenes"][scene]["setting"],
+            "wardrobe": self.wardrobe(scene),
+            "prop": self.prop(scene, text, shot_index),
+            "mood": self.data["scenes"][scene]["mood"],
+        }

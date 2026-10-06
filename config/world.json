@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "default_scene": "office",
+  "scenes": {
+    "office": {
+      "label": "NOVA Tech Office",
+      "setting": "modern Indian technology office with glass meeting rooms, laptop monitors and subtle cobalt accents",
+      "best_for": ["meeting", "manager", "workplace", "ai coworker", "presentation", "deadline"],
+      "props": ["laptop", "calendar", "phone", "coffee"],
+      "mood": "dry corporate comedy"
+    },
+    "home": {
+      "label": "NOVA Home Desk",
+      "setting": "minimalist apartment workspace at night with a laptop, warm practical lamp and distant city lights",
+      "best_for": ["tabs", "late night", "productivity", "internet", "research", "doomscrolling"],
+      "props": ["laptop", "phone", "coffee", "headphones"],
+      "mood": "quiet late-night observation"
+    },
+    "cafe": {
+      "label": "NOVA Cafe",
+      "setting": "modern quiet cafe in India with natural daylight, laptop and coffee",
+      "best_for": ["coffee", "experiment", "life advice", "creator", "weekend", "productivity"],
+      "props": ["coffee", "laptop", "phone", "notebook"],
+      "mood": "casual creator lifestyle"
+    },
+    "metro": {
+      "label": "NOVA Metro",
+      "setting": "clean modern Indian metro carriage with softly blurred commuters and practical overhead light",
+      "best_for": ["phone", "notification", "commute", "social media", "awkward", "people"],
+      "props": ["phone", "earbuds", "metro card"],
+      "mood": "observational urban comedy"
+    }
+  },
+  "wardrobes": {
+    "office_default": "cream blouse, structured black blazer, dark trousers, thin silver rectangular glasses",
+    "home_default": "oversized cream knit, relaxed dark trousers, thin silver rectangular glasses",
+    "cafe_default": "black fitted jacket over a cream top, dark jeans, thin silver rectangular glasses",
+    "metro_default": "muted cobalt overshirt over a cream top, dark trousers, thin silver rectangular glasses"
+  },
+  "rules": [
+    "Keep NOVA's face, hairstyle, glasses and body proportions consistent.",
+    "Use the same palette: black, cream and muted cobalt.",
+    "Choose one primary prop per shot.",
+    "Do not introduce logos or recognizable brands.",
+    "Do not change age, identity or physical characteristics between episodes."
+  ]
+}

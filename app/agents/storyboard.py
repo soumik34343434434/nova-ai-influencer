@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+from app.agents.world_engine import WorldEngine
+
 
 @dataclass(frozen=True)
 class Shot:
@@ -17,6 +19,7 @@ class Shot:
     action: str
     dialogue: str
     visual: str
+    world: dict
 
 
 @dataclass(frozen=True)
@@ -81,10 +84,12 @@ def build_storyboard(draft: dict) -> Storyboard:
     if not selected:
         selected = [hook]
 
+    world_engine = WorldEngine()
     shots: list[Shot] = []
     for index, text in enumerate(selected):
         camera = _camera_for(index, text)
         action = _action_for(camera, text)
+        world = world_engine.plan_shot(text, index)
         duration = max(2.6, min(4.8, 2.6 + len(text) / 45.0))
         shots.append(
             Shot(
@@ -93,7 +98,11 @@ def build_storyboard(draft: dict) -> Storyboard:
                 camera=camera,
                 action=action,
                 dialogue=text,
-                visual=f"NOVA {action.replace('_', ' ')} in a {camera.replace('_', ' ')} shot.",
+                visual=(
+                    f"NOVA {action.replace('_', ' ')} in a {camera.replace('_', ' ')} shot "
+                    f"at {world['scene_label']}, with {world['prop']}."
+                ),
+                world=world,
             )
         )
 
@@ -102,7 +111,15 @@ def build_storyboard(draft: dict) -> Storyboard:
     if total > 18 and shots:
         factor = 18 / total
         shots = [
-            Shot(s.index, round(max(2.4, s.duration * factor), 2), s.camera, s.action, s.dialogue, s.visual)
+            Shot(
+                s.index,
+                round(max(2.4, s.duration * factor), 2),
+                s.camera,
+                s.action,
+                s.dialogue,
+                s.visual,
+                s.world,
+            )
             for s in shots
         ]
         total = round(sum(shot.duration for shot in shots), 2)

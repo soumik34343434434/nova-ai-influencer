@@ -4,7 +4,7 @@ NOVA is an original fictional virtual-influencer automation stack designed to ke
 
 ## Current pipeline
 
-Public RSS trends → Trend Scout → Original Content Director → canonical NOVA character asset → storyboard/shot engine → motion provider router → local voice + motion fallback → FFmpeg vertical Reel → approval/publishing adapter → analytics → feedback loop.
+Public RSS trends → Trend Scout → Original Content Director → canonical NOVA character asset → recurring visual-world planner → storyboard/shot engine → motion provider router → local voice + motion fallback → FFmpeg vertical Reel → approval/publishing adapter → analytics → feedback loop.
 
 The code intentionally does **not** download and repost creators' videos or impersonate real people.
 
