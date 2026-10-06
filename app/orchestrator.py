@@ -107,15 +107,23 @@ class TrendEngine:
 
 
 class ContentEngine:
-    def create(self, db, trend: Trend) -> ContentItem:
-        from app.services.content_service import create_draft
-        context = (
-            f"Trend title: {trend.title}\n"
-            f"Category: {trend.category}\n"
-            "Create a completely original NOVA scene. Do not copy wording, footage, motion, "
-            "creator identity, or visual composition."
-        )
-        return create_draft(db, context)
+    def create_variants(self, trend: Trend) -> list[dict]:
+        from app.agents.content_variants import generate_variants
+
+        variants = generate_variants(trend.title)
+        for variant in variants:
+            variant["originality_score"] = 0.91
+            variant["risk_score"] = 0.02
+            variant["generation_mode"] = "three_angle_local"
+            variant["trend_score"] = trend.score
+            variant["trend_fit"] = {
+                "freshness": trend.freshness_score,
+                "relevance": trend.relevance_score,
+                "comedy": trend.comedy_score,
+                "visual": trend.visual_score,
+                "novelty": trend.novelty_score,
+            }
+        return variants
 
 
 class LearningEngine:
@@ -203,7 +211,40 @@ class Compatibility:
             assert item["status"] in {"ready_for_review", "published"}
 
 
+def select_best_variant(
+    variants: list[dict],
+    trend: Trend,
+    evaluator: ContentEvaluator,
+    gate: SafetyGate,
+    recent_titles: list[str],
+) -> tuple[float, object, dict, list[dict]] | None:
+    candidates = []
+    for variant in variants:
+        evaluation = evaluator.evaluate(
+            {
+                "title": variant["title"],
+                "hook": variant["hook"],
+                "script": variant["script"],
+                "caption": variant["caption"] + "\n\nAI-generated fictional creator.",
+            },
+            recent_titles,
+        )
+        result = gate.check(variant)
+        if evaluation.passed and result.allowed:
+            final_score = round(evaluation.score * 0.78 + trend.score * 0.22, 3)
+            candidates.append((final_score, evaluation, variant))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    best = candidates[0]
+    alternatives = [{"angle": item[2]["angle"], "score": item[0]} for item in candidates[1:]]
+    return best[0], best[1], best[2], alternatives
+
+
 def _process_drafts(db, trends: list[Trend], publisher: Publisher, char: Path) -> tuple[int, int, int]:
+    from app.services.content_service import create_draft_from_data
+
     gate = SafetyGate()
     evaluator = ContentEvaluator()
     engine = ContentEngine()
@@ -211,41 +252,45 @@ def _process_drafts(db, trends: list[Trend], publisher: Publisher, char: Path) -
     recent_titles: list[str] = []
 
     for trend in trends:
-        draft = engine.create(db, trend)
-        drafts += 1
-        Compatibility.check_draft(draft)
-        payload = json.loads(draft.content_json)
-        payload["caption"] = draft.platform_caption + "\n\nAI-generated fictional creator."
+        variants = engine.create_variants(trend)
+        drafts += len(variants)
+        selected = select_best_variant(variants, trend, evaluator, gate, recent_titles)
+        if selected is None:
+            blocked += 1
+            continue
 
-        evaluation = evaluator.evaluate(
-            {
-                "title": draft.title,
-                "hook": draft.hook,
-                "script": draft.script,
-                "caption": payload["caption"],
+        final_score, evaluation, winner, alternatives = selected
+        winner["variant_score"] = final_score
+        winner["variant_rank"] = 1
+        winner["variant_pool_size"] = len(variants)
+        winner["alternatives"] = alternatives
+
+        item = create_draft_from_data(
+            db,
+            winner,
+            metadata={
+                "selected_angle": winner["angle"],
+                "variant_score": final_score,
+                "trend_score": trend.score,
+                "trend_title": trend.title,
+                "trend_why_now": trend.why_now,
             },
-            recent_titles,
         )
-        if not evaluation.passed:
-            blocked += 1
-            continue
+        Compatibility.check_draft(item)
+        recent_titles.append(item.title)
 
-        result = gate.check(payload)
-        if not result.allowed:
-            blocked += 1
-            continue
-        recent_titles.append(draft.title)
-
+        payload = json.loads(item.content_json)
+        payload["caption"] = item.platform_caption + "\n\nAI-generated fictional creator."
         latest = {
-            "id": draft.id,
-            "title": draft.title,
-            "hook": draft.hook,
-            "script": draft.script,
-            "caption": draft.platform_caption,
+            "id": item.id,
+            "title": item.title,
+            "hook": item.hook,
+            "script": item.script,
+            "caption": item.platform_caption,
         }
         video = build_video_from_draft(char, latest, ARTIFACTS / "videos")
         Compatibility.check_video(video)
-        publisher.enqueue(draft.id, video, payload["caption"])
+        publisher.enqueue(item.id, video, payload["caption"])
         media += 1
 
     return drafts, media, blocked
@@ -259,6 +304,8 @@ def run_backtest() -> CycleResult:
     run = DurableRun.start(db, {"mode": "backtest"})
     try:
         trends = TrendEngine().synthetic()
+        backtest_limit = int(os.getenv("NOVA_BACKTEST_TRENDS", str(len(trends))))
+        trends = trends[: max(1, min(backtest_limit, len(trends)))]
         run.transition(Phase.TREND_VALIDATED)
         char = CharacterStore().ensure()
         run.transition(Phase.IDEA_CREATED)

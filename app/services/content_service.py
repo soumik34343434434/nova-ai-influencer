@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 
 from sqlalchemy.orm import Session
@@ -22,6 +24,26 @@ def create_draft(db: Session, trend_context: str = "") -> ContentItem:
     db.commit()
     db.refresh(item)
     return item
+
+def create_draft_from_data(db: Session, data: dict, metadata: dict | None = None) -> ContentItem:
+    payload = dict(data)
+    if metadata:
+        payload["intelligence"] = metadata
+    item = ContentItem(
+        status="pending_approval" if settings.approval_required else "approved",
+        title=payload["title"],
+        hook=payload["hook"],
+        script=payload["script"],
+        content_json=json.dumps(payload),
+        platform_caption=payload["caption"],
+        originality_score=payload.get("originality_score", 0.87),
+        risk_score=payload.get("risk_score", 0.03),
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
 
 def latest_draft(db: Session):
     row = db.query(ContentItem).order_by(ContentItem.created_at.desc()).first()
