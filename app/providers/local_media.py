@@ -1,11 +1,14 @@
-"""Local zero-cost media pipeline using FFmpeg + eSpeak."""
+"""Local zero-cost media pipeline using macOS say or Linux espeak-ng + FFmpeg."""
 
 from pathlib import Path
 import shutil
 import subprocess
+import sys
+
 
 class LocalMediaError(RuntimeError):
     pass
+
 
 def _require(binary: str) -> str:
     path = shutil.which(binary)
@@ -13,22 +16,44 @@ def _require(binary: str) -> str:
         raise LocalMediaError(f"Required local binary not found: {binary}")
     return path
 
+
 def _run(cmd: list[str]) -> None:
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode:
         raise LocalMediaError(result.stderr[-4000:] or "Media command failed")
 
-def make_voiceover(text: str, output_wav: Path, voice: str = "en-us") -> Path:
-    espeak = _require("espeak")
-    output_wav.parent.mkdir(parents=True, exist_ok=True)
-    _run([espeak, "-v", voice, "-s", "155", "-w", str(output_wav), text])
-    return output_wav
 
-def make_vertical_video(image: Path, audio: Path, output: Path, headline: str, duration_seconds: int = 12) -> Path:
+def make_voiceover(text: str, output_wav: Path, voice: str = "en-US") -> Path:
+    """Create speech with only OS tools; no paid API."""
+    output_wav.parent.mkdir(parents=True, exist_ok=True)
+
+    say = shutil.which("say")
+    if sys.platform == "darwin" and say:
+        aiff = output_wav.with_suffix(".aiff")
+        _run([say, "-v", voice, "-r", "170", "-o", str(aiff), text])
+        _run([_require("ffmpeg"), "-y", "-i", str(aiff), "-ar", "44100", "-ac", "1", str(output_wav)])
+        aiff.unlink(missing_ok=True)
+        return output_wav
+
+    espeak = shutil.which("espeak-ng") or shutil.which("espeak")
+    if espeak:
+        _run([espeak, "-v", voice.lower(), "-s", "155", "-w", str(output_wav), text])
+        return output_wav
+
+    raise LocalMediaError("Install no package on macOS: built-in 'say' is expected. On Linux CI install espeak-ng.")
+
+
+def make_vertical_video(
+    image: Path,
+    audio: Path,
+    output: Path,
+    headline: str,
+    duration_seconds: int = 12,
+) -> Path:
     ffmpeg = _require("ffmpeg")
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    safe = headline.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    safe = headline.replace("\", "\\").replace(":", "\:").replace("'", "\'")
     vf = (
         "scale=1080:1920:force_original_aspect_ratio=increase,"
         "crop=1080:1920,"
@@ -46,6 +71,7 @@ def make_vertical_video(image: Path, audio: Path, output: Path, headline: str, d
         "-c:a", "aac", "-b:a", "128k", "-shortest", str(output),
     ])
     return output
+
 
 def build_video_from_draft(image: Path, draft: dict, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
