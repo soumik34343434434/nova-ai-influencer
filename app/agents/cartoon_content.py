@@ -51,13 +51,14 @@ PREMISES = (
     },
     {
         "topic": "homework robot",
-        "title": "The Homework Robot",
-        "hook": "PIP bought a robot to do homework faster.",
+        "character": "MOMO",
+        "title": "MOMO vs the Homework Robot",
+        "hook": "MOMO asked a homework robot for ONE answer. Big mistake.",
         "beats": (
             ("setup", "PIP hands the robot one tiny math problem.", "confident"),
             ("escalation", "The robot prints a 300-page solution.", "shocked"),
             ("reaction", "PIP hugs the calculator in confusion.", "overloaded"),
-            ("punchline", "PIP: I asked for help, not a library.", "deadpan"),
+            ("punchline", "MOMO: I asked for help—not a textbook.", "deadpan"),
         ),
     },
     {
@@ -82,7 +83,8 @@ def pick_episode(topic_hint: str | None = None) -> CartoonEpisode:
     key = (topic_hint or "default").strip().lower()
     matching = [p for p in PREMISES if p["topic"] in key or key in p["topic"]]
     premise = matching[0] if matching else PREMISES[_seed(key) % len(PREMISES)]
-    character = CHARACTERS[_seed(key + ":character") % len(CHARACTERS)]
+    character_name = premise.get("character")
+    character = next((c for c in CHARACTERS if c["name"] == character_name), CHARACTERS[_seed(key + ":character") % len(CHARACTERS)])
     beats = tuple(
         {
             "beat": name,
@@ -97,5 +99,5 @@ def pick_episode(topic_hint: str | None = None) -> CartoonEpisode:
         title=premise["title"],
         hook=premise["hook"],
         beats=beats,
-        caption="Funny original cartoon short. AI-generated fictional characters.",
+        caption=f"{premise['hook']} {premise['beats'][-1][1]} · AI-generated fictional characters.",
     )

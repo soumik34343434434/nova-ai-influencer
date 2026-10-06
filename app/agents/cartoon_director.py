@@ -64,7 +64,7 @@ class CartoonDirector:
         "You write wholesome original cartoon shorts. Return ONLY JSON. "
         "Use one supplied premise and keep exactly four beats. No real people, "
         "no copyrighted characters, no dangerous imitation, no hateful or sexual content. "
-        "Make the hook immediate and the last beat a clear punchline."
+        "Make the hook immediate, visual and specific. Escalate the visible problem twice, then land a short reversal or deadpan punchline. Favor concrete props and reactions over explanatory dialogue."
     )
 
     def __init__(self, llm: LocalLLM | None = None):

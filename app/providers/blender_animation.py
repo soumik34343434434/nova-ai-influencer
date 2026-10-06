@@ -90,7 +90,7 @@ class BlenderAnimationProvider:
         self, repo_root: Path, output_mp4: Path, voice_lines: list[str],
         beats: list[str], durations: list[float], sfx_kinds: list[str],
         resolution_percent: int = 100, action_assets: list[Path] | None = None,
-        background_path: Path | None = None, character: str = "PIP", actions: list[str] | None = None,
+        background_path: Path | None = None, character: str = "PIP", actions: list[str] | None = None, hook_text: str = "",
     ) -> dict:
         """Render a complete PIP performance clip and return its media/metadata paths."""
         output_mp4.parent.mkdir(parents=True, exist_ok=True)
@@ -121,13 +121,16 @@ class BlenderAnimationProvider:
             if missing:
                 raise FileNotFoundError("Missing Blender action assets: " + ", ".join(missing))
         blend = self.build_rig(repo_root, voice_json=voice_json, frames=frames, resolution_percent=resolution_percent, character=character, background_path=background_path)
+        frame_dir = repo_root / "artifacts" / "cartoon" / "blender" / "pip_cutout_rig"
+        frame_dir.mkdir(parents=True, exist_ok=True)
+        for stale in (*frame_dir.glob("frame_*.png"), *frame_dir.glob("key_*.png")):
+            stale.unlink(missing_ok=True)
         env = {"NOVA_REPO": str(repo_root), "NOVA_BLENDER_RESOLUTION": str(resolution_percent)}
         render_cmd = [self.blender_bin, "--background", "--python", str(self._script(repo_root)), "--", "--build", "--render", "--frames", str(frames), "--character", character, "--voice-json", str(voice_json), "--blend-output", str(blend)]
         if background_path:
             render_cmd.extend(["--background", str(background_path)])
         subprocess.run(render_cmd, cwd=str(repo_root), env={**os.environ, **env}, check=True, capture_output=True, text=True)
 
-        frame_dir = repo_root / "artifacts" / "cartoon" / "blender" / "pip_cutout_rig"
         frames_found = sorted(frame_dir.glob("frame_*.png"))
         if len(frames_found) < frames:
             raise RuntimeError(f"Blender rendered {len(frames_found)} frames; expected {frames}")
@@ -138,8 +141,9 @@ class BlenderAnimationProvider:
         captioned_dir.mkdir(exist_ok=True)
         cumulative = []
         cursor = 0
-        total = sum(durations) or 1.0
-        for duration in durations:
+        caption_durations = effective_shot_durations if effective_shot_durations else durations
+        total = sum(caption_durations) or 1.0
+        for duration in caption_durations:
             count = round(frames * float(duration) / total)
             cumulative.append((cursor, min(frames, cursor + max(1, count))))
             cursor += count
@@ -151,6 +155,37 @@ class BlenderAnimationProvider:
             img = Image.open(frame).convert("RGB")
             draw = ImageDraw.Draw(img, "RGBA")
             font = _font(66)
+            # A short top hook is shown only during the first ~0.9 seconds. It
+            # front-loads the premise for silent scroll viewers while the normal
+            # dialogue caption remains at the bottom.
+            if shot == 0 and hook_text:
+                hook = " ".join(str(hook_text).split())
+                hook = hook.replace("Big mistake.", "BIG MISTAKE").replace("Big mistake", "BIG MISTAKE")
+                # Prefer the whole hook when it fits; otherwise wrap it to two
+                # balanced lines and reduce the font until the card fits the frame.
+                hf_size=48
+                while hf_size > 30:
+                    hf=_font(hf_size)
+                    words=hook.split(); lines=[]; line=""
+                    max_width=img.width-90
+                    for word in words:
+                        candidate=(line+" "+word).strip()
+                        if draw.textbbox((0,0),candidate,font=hf,stroke_width=2)[2] <= max_width or not line:
+                            line=candidate
+                        else:
+                            lines.append(line); line=word
+                    if line: lines.append(line)
+                    if len(lines)<=2 and all(draw.textbbox((0,0),ln,font=hf,stroke_width=2)[2] <= max_width for ln in lines):
+                        break
+                    hf_size-=2
+                if len(lines)>2:
+                    lines=["ONE ANSWER.","BIG MISTAKE."]; hf=_font(min(hf_size,44))
+                line_boxes=[draw.textbbox((0,0),ln,font=hf,stroke_width=2) for ln in lines]
+                card_w=max(box[2]-box[0] for box in line_boxes); line_h=max(box[3]-box[1] for box in line_boxes); gap=8; card_h=line_h*len(lines)+gap*(len(lines)-1)
+                x=max(34,(img.width-card_w)//2); y=64; pad_x=22; pad_y=14
+                draw.rounded_rectangle((x-pad_x,y-pad_y,x+card_w+pad_x,y+card_h+pad_y),radius=22,fill=(8,20,28,210),outline=(235,240,245,180),width=2)
+                for li,ln in enumerate(lines):
+                    draw.text((x,y+li*(line_h+gap)),ln,font=hf,fill=(255,255,255,255),stroke_width=3,stroke_fill=(0,0,0,220))
             lines = _caption_lines(caption)
             for row,line in enumerate(lines):
                 box=draw.textbbox((0,0),line,font=font,stroke_width=2); tw=box[2]-box[0]
@@ -169,9 +204,13 @@ class BlenderAnimationProvider:
             raise RuntimeError("Blender episode audio generation failed")
         subprocess.run([ffmpeg,"-y","-i",str(video_only),"-i",str(audio),"-map","0:v:0","-map","1:a:0","-c:v","copy","-c:a","aac","-b:a","192k","-shortest",str(output_mp4)],check=True,capture_output=True,text=True)
         metadata={
-            "engine":"blender-cutout-performance-rig-v4",
+            "engine":"blender-cutout-performance-rig-v5",
             "character":character,
             "frames":frames,
+            "shots":[
+                {"beat":beat,"frames":max(1,round(float(duration)*24.0)),"duration":round(float(duration),3)}
+                for beat,duration in zip(beats,effective_shot_durations)
+            ],
             "resolution_percent":resolution_percent,
             "action_assets":[str(p) for p in (action_assets or [])],
             "background_path":str(background_path) if background_path else None,
@@ -182,9 +221,10 @@ class BlenderAnimationProvider:
                 "effective_shot_durations":effective_shot_durations,
                 "sfx_peak_fractions":[row.get("performance_peak_fraction",0.4) for row in voice_performance],
             },
-            "camera":"keyframed-damped-root-follow",
+            "camera":"phase-driven-damped-follow-with-impact-push",
             "deformable_limbs":True,
-            "facial_controls":["blink","gaze","mouth_shape","speech_micro_motion"],
+            "world_stage":"procedural-desk-and-action-prop-kit",
+            "facial_controls":["multi_blink","gaze_dart","eye_asymmetry","mouth_shape","speech_head_bob","impact_reaction"],
         }
         meta_path=output_mp4.with_suffix('.motion.json'); meta_path.write_text(json.dumps(metadata,indent=2),encoding='utf-8')
         return {"video":str(output_mp4),"metadata":str(meta_path),"frames":frames,"resolution_percent":resolution_percent}

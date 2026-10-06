@@ -48,3 +48,10 @@ def test_blender_animation_records_embedded_audio_state():
     root=Path(__file__).resolve().parents[1]
     text=(root/'app'/'cartoon_factory_orchestrator.py').read_text(encoding='utf-8')
     assert 'animation_backend="blender", audio_embedded=True' in text
+
+
+def test_blender_render_receives_social_hook_text():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'app'/'cartoon_factory_orchestrator.py').read_text(encoding='utf-8')
+    assert 'hook_text=candidate.get("hook", "")' in text
+    assert 'blender-cutout-performance-rig-v5' in text

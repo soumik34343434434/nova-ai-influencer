@@ -246,6 +246,7 @@ class CartoonFactoryOrchestrator:
                 background_path=bg,
                 character=candidate.get("character", "PIP"),
                 actions=[b.get("asset_action", "") for b in candidate.get("beats", [])],
+                hook_text=candidate.get("hook", ""),
             )
             output = Path(info["video"])
             self.plane.store.set_payload(run, animation_backend="blender", audio_embedded=True)
@@ -273,7 +274,7 @@ class CartoonFactoryOrchestrator:
             render_durations=effective_durations,
             animation_metadata=str(motion_metadata),
         )
-        return {"video": str(output), "renderer": "blender-cutout-performance-rig-v4" if backend == "blender" and candidate.get("character") in {"PIP", "MOMO", "BUBU"} else "cartoon-motion-3.6", "fps": 24}
+        return {"video": str(output), "renderer": "blender-cutout-performance-rig-v5" if backend == "blender" and candidate.get("character") in {"PIP", "MOMO", "BUBU"} else "cartoon-motion-3.6", "fps": 24}
 
     def _rerender_for_motion_qa(self, run: CartoonRun, motion_result: dict[str, Any]) -> dict[str, Any]:
         """Surgically rerender failed shots plus their dependent outgoing bridges."""

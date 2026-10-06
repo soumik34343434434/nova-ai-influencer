@@ -102,7 +102,7 @@ def test_blender_source_declares_secondary_motion_and_profile_driven_chain():
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
     for marker in ('transition_profiles','secondary','head_lag','hand_follow','accessory_follow','impact_eye_open','_motion','_phase'):
         assert marker in text
-    assert "'engine':'blender-cutout-performance-rig-v4'" in text
+    assert "'engine':'blender-cutout-performance-rig-v5'" in text
 
 
 def test_blender_episode_audio_helper_creates_missing_work_directory(tmp_path):
@@ -155,3 +155,30 @@ def test_action_profiles_define_impact_translation():
         profile=data['characters'][character]['transition_profiles']
         assert profile['default']['impact_translate_px'] > 0
         assert profile['shock']['impact_translate_px'] > 0
+
+
+def test_blender_provider_cleans_stale_frames_and_uses_effective_caption_clock():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'app'/'providers'/'blender_animation.py').read_text(encoding='utf-8')
+    assert 'stale in (*frame_dir.glob("frame_*.png"), *frame_dir.glob("key_*.png"))' in text
+    assert 'caption_durations = effective_shot_durations if effective_shot_durations else durations' in text
+
+
+def test_blender_metadata_declares_cinematic_camera_and_world_stage():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'app'/'providers'/'blender_animation.py').read_text(encoding='utf-8')
+    assert 'phase-driven-damped-follow-with-impact-push' in text
+    assert 'procedural-desk-and-action-prop-kit' in text
+    assert 'multi_blink' in text
+
+
+def test_blender_social_hook_and_visual_prop_reveal_are_declared():
+    root=Path(__file__).resolve().parents[1]
+    provider=(root/'app'/'providers'/'blender_animation.py').read_text(encoding='utf-8')
+    rig=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    orch=(root/'app'/'cartoon_factory_orchestrator.py').read_text(encoding='utf-8')
+    assert 'hook_text: str = ""' in provider
+    assert 'shot == 0 and hook_text' in provider
+    assert 'PropFlyingPaper' in rig
+    assert 'phase-driven-hook-reveal-push-pull-impact-shake' in rig
+    assert 'hook_text=candidate.get("hook", "")' in orch

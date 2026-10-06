@@ -80,11 +80,12 @@ class CartoonIdeaJury:
         markers = (
             any("!" in str(b.get("voice", "")) for b in beats),
             any("?" in str(b.get("voice", "")) for b in beats),
-            any(word in text for word in ("mistake", "oops", "apparently", "why", "too many")),
+            any(word in text for word in ("mistake", "oops", "apparently", "why", "too many", "literally")),
             len(beats) >= 4,
             len({str(b.get("voice", "")).strip() for b in beats}) == len(beats),
         )
-        score = 0.42 + 0.12 * sum(markers)
+        reversal = any(word in text for word in ("not", "instead", "misunderstood", "bad idea", "other plans", "big mistake"))
+        score = 0.42 + 0.12 * sum(markers) + (0.06 if reversal else 0.0)
         if any("punchline" in str(b.get("beat", "")).lower() for b in beats):
             score += 0.10
         reasons = () if score >= 0.70 else ("comedy_has_low_escalation_signal",)
@@ -116,6 +117,8 @@ class CartoonIdeaJury:
             score += 0.20
         if len(set(sfx)) >= 2:
             score += 0.10
+        if len(set(sfx)) >= 3:
+            score += 0.05
         if actions and actions[0]:
             score += 0.05
         reasons = () if score >= 0.70 else ("visual_actions_are_too_similar",)

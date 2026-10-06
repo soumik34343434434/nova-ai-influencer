@@ -54,7 +54,7 @@ PREMISES = (
     {
         "slug": "smart_kitchen",
         "title": "PIP vs the Smart Kitchen",
-        "hook": "PIP asked the smart kitchen for one sandwich.",
+        "hook": "PIP asked a smart kitchen for ONE sandwich. It misunderstood.",
         "character": "PIP",
         "beats": (
             ("setup", "press_button", "One sandwich, please.", "button"),
@@ -66,19 +66,19 @@ PREMISES = (
     {
         "slug": "homework_robot",
         "title": "MOMO vs the Homework Robot",
-        "hook": "MOMO asked a homework robot for one tiny answer.",
+        "hook": "MOMO asked a homework robot for ONE answer. Big mistake.",
         "character": "MOMO",
         "beats": (
             ("setup", "give_homework", "Just one answer.", "button"),
-            ("escalation", "shock", "Why is it printing?!", "chaos"),
-            ("reaction", "overwhelmed", "This is a whole library.", "overwhelmed"),
-            ("punchline", "deadpan", "I asked for help, not a book.", "punchline"),
+            ("escalation", "shock", "WHY IS IT STILL PRINTING?!", "chaos"),
+            ("reaction", "overwhelmed", "This is literally a library.", "overwhelmed"),
+            ("punchline", "deadpan", "I asked for help—not a textbook.", "punchline"),
         ),
     },
     {
         "slug": "bedtime_alarm",
         "title": "BUBU vs the Bedtime Alarm",
-        "hook": "BUBU set one bedtime alarm. Big mistake.",
+        "hook": "BUBU set ONE bedtime alarm. It had other plans.",
         "character": "BUBU",
         "beats": (
             ("setup", "tap_alarm", "Okay. Bedtime.", "button"),
@@ -90,7 +90,7 @@ PREMISES = (
     {
         "slug": "magic_fridge",
         "title": "PIP and the Magic Fridge",
-        "hook": "PIP opened the fridge for one snack.",
+        "hook": "PIP opened the fridge for ONE snack. That was optimistic.",
         "character": "PIP",
         "beats": (
             ("setup", "open_fridge", "Just one snack.", "button"),
@@ -102,7 +102,7 @@ PREMISES = (
     {
         "slug": "automatic_shoes",
         "title": "BUBU and the Automatic Shoes",
-        "hook": "BUBU bought shoes that walk by themselves.",
+        "hook": "BUBU bought shoes that walk by themselves. Bad idea.",
         "character": "BUBU",
         "beats": (
             ("setup", "tap_shoes", "Okay, tiny walk.", "button"),
@@ -136,7 +136,13 @@ def list_episode_specs(limit: int = 5) -> list[EpisodeSpec]:
                 }
                 for i, (name, asset_action, voice, sfx) in enumerate(p["beats"])
             ),
-            caption=f"{p['title']} — funny original cartoon short.",
+            caption={
+                "smart_kitchen": "Asked for ONE sandwich. Got a catering order. 🤖🥪",
+                "homework_robot": "Asked for ONE answer. Got a whole textbook. 🤖📚",
+                "bedtime_alarm": "BUBU wanted bedtime. The alarm wanted a full production. ⏰",
+                "magic_fridge": "One snack became twenty. The fridge won. 🥪",
+                "automatic_shoes": "Bought automatic shoes. Forgot to ask where they were going. 👟",
+            }.get(p["slug"], f"{p['title']} — funny original cartoon short."),
         )
         for p in ordered[: max(1, min(limit, len(PREMISES)))]
     ]

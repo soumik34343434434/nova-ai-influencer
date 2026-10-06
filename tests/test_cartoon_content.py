@@ -16,3 +16,9 @@ def test_cartoon_content_is_family_friendly():
             " ".join(b["visual"] for b in episode.beats)).lower()
     assert "celebrity" not in text
     assert "lookalike" not in text
+
+
+def test_homework_robot_social_caption_has_specific_hook_payoff():
+    episode = pick_episode("homework robot")
+    assert "ONE answer" in episode.hook
+    assert "textbook" in episode.caption.lower()
