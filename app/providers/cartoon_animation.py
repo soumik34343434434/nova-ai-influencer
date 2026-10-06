@@ -17,7 +17,10 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont
+
+from app.providers.cartoon_performance import head_motion
+from app.providers.cartoon_rig import CharacterRig, get_rig
 
 W, H = 1080, 1920
 
@@ -147,8 +150,10 @@ def _performance_accent(frame: Image.Image, progress: float, beat: str, shot_ind
     md = ImageDraw.Draw(mask)
     md.ellipse((cx-rw, cy-rh, cx+rw, cy+rh), fill=225)
     mask = mask.filter(ImageFilter.GaussianBlur(42))
+    layer.putalpha(ImageChops.multiply(layer.getchannel("A"), mask))
     frame_rgba = frame.convert("RGBA")
-    return Image.composite(layer, frame_rgba, mask).convert("RGB")
+    frame_rgba.alpha_composite(layer)
+    return frame_rgba.convert("RGB")
 
 
 def _transition_frame(previous: Image.Image, current: Image.Image, progress: float, direction: int) -> Image.Image:
@@ -255,6 +260,18 @@ def _impact_graphics(frame: Image.Image, intensity: float) -> None:
     frame.alpha_composite(overlay)
 
 
+def _apply_rig_performance(frame: Image.Image, rig: CharacterRig, progress: float, beat: str) -> Image.Image:
+    dx, dy, scale, rotation = head_motion(progress, beat)
+    x0, y0, x1, y1 = rig.head_bbox
+    crop = rig.head_layer.crop((x0, y0, x1, y1))
+    crop = crop.resize((max(2, int(crop.width * scale)), max(2, int(crop.height * scale))), Image.Resampling.BICUBIC)
+    crop = crop.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=False)
+    hx, hy = rig.center
+    layer = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+    layer.alpha_composite(crop, (int(hx - crop.width / 2 + dx), int(hy - crop.height / 2 + dy)))
+    return Image.alpha_composite(rig.cover_plate, layer).convert("RGB")
+
+
 def motion_frame(
     image: Path,
     caption: str,
@@ -262,10 +279,13 @@ def motion_frame(
     shot_index: int,
     duration: float,
     beat: str,
+    rig: CharacterRig | None = None,
 ) -> Image.Image:
     profile = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"])
     base = _load_cover(str(image))
     p = max(0.0, min(1.0, progress))
+    if rig is not None:
+        base = _apply_rig_performance(base, rig, p, beat)
     eased = _ease_in_out(p)
     energy = profile.energy
 
@@ -308,10 +328,11 @@ def motion_frame(
         top = max(0, (frame.height - H) // 2)
         frame = frame.crop((left, top, left + W, top + H))
 
-    # A broad, feathered subject accent creates a small lean/bob/tilt from the
-    # flattened action art. This is deliberately subtle so it reads as motion,
-    # not as a distorted character.
-    frame = _performance_accent(frame, p, beat, shot_index)
+    # For rigged hero assets the head layer already supplies the localized
+    # performance motion. Keep the older broad accent as the generic fallback
+    # for unknown flattened art so we do not double-transform the subject.
+    if rig is None:
+        frame = _performance_accent(frame, p, beat, shot_index)
 
     # Deterministic impact shake around escalation/reaction peaks.
     shake_window = math.sin(math.pi * max(0.0, min(1.0, (p - 0.28) / 0.22)))
@@ -404,7 +425,11 @@ def render_cartoon_motion(
         frame_map.append({"shot": shot, "beat": beat, "frames": count, "duration": duration})
         for i in range(count):
             progress = i / max(1, count - 1)
-            frame = motion_frame(image, caption, progress, shot, duration, beat)
+            try:
+                rig = get_rig(str(image))
+            except ValueError:
+                rig = None
+            frame = motion_frame(image, caption, progress, shot, duration, beat, rig=rig)
             if previous_shot_frame is not None and i < transition_frames:
                 transition_p = i / max(1, transition_frames - 1)
                 frame = _transition_frame(previous_shot_frame, frame, transition_p, 1 if shot % 2 else -1)
@@ -458,7 +483,8 @@ def render_cartoon_motion(
     metadata.write_text(
         json.dumps(
             {
-                "engine": "cartoon-motion-2.1",
+                "engine": "cartoon-motion-3.0",
+                "rig_mode": "flattened-art-performance-proxy",
                 "fps": fps,
                 "source_fps": source_fps,
                 "interpolation": "none",
