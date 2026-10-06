@@ -103,37 +103,53 @@ def _audio_for_shots(
     sfx_kinds: list[str],
     ffmpeg: str,
     sfx_peak_fractions: list[float] | None = None,
+    voice_start_fractions: list[float] | None = None,
 ) -> Path | None:
+    """Build audio from the same per-shot clock used by the animation engine."""
     total = sum(durations)
-    voice_path = work / "episode_voice.wav"
-    # One TTS invocation is substantially more reliable on macOS than
-    # launching a separate speech process for every shot.
-    joined = ". ".join(line.strip() for line in voice_lines if line.strip())
-    make_voice(joined, voice_path)
-
-    sfx_paths: list[Path] = []
-    offsets: list[int] = []
-    elapsed = 0.0
     peak_fractions = sfx_peak_fractions or [0.0] * len(durations)
-    for i, (duration, sfx) in enumerate(zip(durations, sfx_kinds)):
-        path = work / f"sfx_{i:02d}.wav"
-        make_sfx(sfx, duration, path)
-        sfx_paths.append(path)
-        fraction = max(0.0, min(0.95, float(peak_fractions[i]) if i < len(peak_fractions) else 0.0))
-        offsets.append(round((elapsed + duration * fraction) * 1000))
+    voice_starts = voice_start_fractions or [0.04] * len(durations)
+
+    inputs: list[str] = []
+    filters: list[str] = []
+    labels: list[str] = []
+    input_index = 0
+    elapsed = 0.0
+
+    for i, (line, duration) in enumerate(zip(voice_lines, durations)):
+        if line.strip():
+            path = work / f"voice_{i:02d}.wav"
+            made = make_voice(line.strip(), path)
+            if made and path.exists():
+                start = max(0.0, min(0.35, float(voice_starts[i]) if i < len(voice_starts) else 0.04))
+                available = max(0.20, duration - start - 0.04)
+                import wave
+                with wave.open(str(path), "rb") as wav:
+                    source_duration = wav.getnframes() / max(1, wav.getframerate())
+                tempo = max(0.85, min(1.25, source_duration / available))
+                delay = round((elapsed + start) * 1000)
+                filters.append(
+                    f"[{input_index}:a]atempo={tempo:.5f},apad,atrim=0:{available:.3f},adelay={delay}|{delay},volume=0.95[v{i}]"
+                )
+                inputs.extend(["-i", str(path)])
+                labels.append(f"[v{i}]")
+                input_index += 1
         elapsed += duration
 
-    inputs = []
-    filters = []
-    labels = []
-    if voice_path.exists():
-        inputs.extend(["-i", str(voice_path)])
-        filters.append("[0:a]volume=0.95[voice]")
-        labels.append("[voice]")
-    for i, (path, delay) in enumerate(zip(sfx_paths, offsets), start=1 if voice_path.exists() else 0):
-        inputs.extend(["-i", str(path)])
-        filters.append(f"[{i}:a]adelay={delay}|{delay},volume=0.28[s{i}]")
-        labels.append(f"[s{i}]")
+    elapsed = 0.0
+    for i, (duration, sfx) in enumerate(zip(durations, sfx_kinds)):
+        if sfx and sfx != "none":
+            sfx_duration = min(0.36, max(0.10, duration * 0.24))
+            path = work / f"sfx_{i:02d}.wav"
+            make_sfx(sfx, sfx_duration, path)
+            fraction = max(0.0, min(0.90, float(peak_fractions[i]) if i < len(peak_fractions) else 0.0))
+            delay_seconds = elapsed + max(0.0, duration * fraction - sfx_duration * 0.35)
+            delay = round(delay_seconds * 1000)
+            inputs.extend(["-i", str(path)])
+            filters.append(f"[{input_index}:a]adelay={delay}|{delay},volume=0.32[s{i}]")
+            labels.append(f"[s{i}]")
+            input_index += 1
+        elapsed += duration
 
     if not labels:
         return None
@@ -143,11 +159,9 @@ def _audio_for_shots(
     )
     final_audio = work / "episode_audio.wav"
     subprocess.run(
-        [
-            ffmpeg, "-y", *inputs,
-            "-filter_complex", ";".join(filters),
-            "-map", "[mix]", "-ar", "44100", "-ac", "1", str(final_audio),
-        ],
+        [ffmpeg, "-y", *inputs,
+         "-filter_complex", ";".join(filters),
+         "-map", "[mix]", "-ar", "44100", "-ac", "1", str(final_audio)],
         check=True, capture_output=True, text=True,
     )
     return final_audio

@@ -522,7 +522,15 @@ def _audio_for_shots(
     sfx_peak_fractions: list[float] | None = None,
 ) -> Path | None:
     from app.providers.cartoon_media import _audio_for_shots as build_audio
-    return build_audio(work, voice_lines, durations, sfx_kinds, ffmpeg, sfx_peak_fractions)
+    return build_audio(
+        work,
+        voice_lines,
+        durations,
+        sfx_kinds,
+        ffmpeg,
+        sfx_peak_fractions,
+        [0.04, 0.03, 0.03, 0.06],
+    )
 
 
 def render_cartoon_motion(
@@ -605,11 +613,14 @@ def render_cartoon_motion(
 
     video_for_mux = video_silent
 
+    # These are the centers of the visual performance peaks, not arbitrary
+    # audio offsets. SFX are generated around these fractions and therefore
+    # share the same beat clock as the character motion.
     peak_by_beat = {
-        "setup": 0.62,
-        "escalation": 0.43,
-        "reaction": 0.30,
-        "punchline": 0.18,
+        "setup": 0.18,
+        "escalation": 0.46,
+        "reaction": 0.40,
+        "punchline": 0.72,
     }
     audio = _audio_for_shots(
         work, voice_lines, durations, sfx_kinds, ffmpeg,
@@ -644,6 +655,14 @@ def render_cartoon_motion(
                     "character_micro_motion": True,
                     "anticipation_recoil_settle": True,
                     "punchline_hold": True,
+                    "audio_performance_clock": True,
+                    "per_shot_voice": True,
+                    "sfx_peak_sync": True,
+                },
+                "audio_sync": {
+                    "sfx_peak_fractions": [peak_by_beat.get(beat, 0.40) for beat in beats],
+                    "voice_start_fractions": [0.04, 0.03, 0.03, 0.06][:len(beats)],
+                    "sfx_mode": "short_peak_accent",
                 },
                 "frames": frame_index,
                 "shots": frame_map,
