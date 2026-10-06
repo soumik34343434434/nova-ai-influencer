@@ -82,3 +82,30 @@ def test_motion_metadata_declares_delivery_profile(tmp_path: Path):
     assert '"engine": "cartoon-motion-3.1"' in metadata
     assert '"fps": 24' in metadata
     assert '"interpolation": "none"' in metadata
+
+
+def test_transition_direction_follows_pose_centers():
+    from app.providers.cartoon_animation import _transition_direction
+    from app.providers.cartoon_rig import get_rig
+
+    root = Path("assets/cartoon/actions")
+    press = get_rig(str(root / "pip_press_button.png"))
+    shock = get_rig(str(root / "pip_shock.png"))
+    overwhelmed = get_rig(str(root / "pip_overwhelmed.png"))
+    deadpan = get_rig(str(root / "pip_deadpan.png"))
+
+    assert _transition_direction(press, shock) == 1
+    assert _transition_direction(shock, overwhelmed) == -1
+    assert _transition_direction(overwhelmed, deadpan) == 1
+
+
+def test_transition_is_not_identical_at_midpoint(tmp_path: Path):
+    from app.providers.cartoon_animation import _transition_frame
+
+    a = Image.new("RGB", (1080, 1920), "white")
+    b = Image.new("RGB", (1080, 1920), "black")
+    first = _transition_frame(a, b, 0.15, 1)
+    middle = _transition_frame(a, b, 0.50, 1)
+    last = _transition_frame(a, b, 0.95, 1)
+    assert first.tobytes() != middle.tobytes()
+    assert middle.tobytes() != last.tobytes()

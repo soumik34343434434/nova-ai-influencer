@@ -157,28 +157,52 @@ def _performance_accent(frame: Image.Image, progress: float, beat: str, shot_ind
     return frame_rgba.convert("RGB")
 
 
+def _transition_direction(previous: CharacterRig | None, current: CharacterRig | None) -> int:
+    """Choose transition direction from actual character pose movement."""
+    if previous is None or current is None:
+        return 1
+    dx = current.center[0] - previous.center[0]
+    if abs(dx) < W * 0.035:
+        return 1 if current.center[1] >= previous.center[1] else -1
+    return 1 if dx > 0 else -1
+
+
 def _transition_frame(previous: Image.Image, current: Image.Image, progress: float, direction: int) -> Image.Image:
-    """Turn a pose change into a quick snap instead of a simple dissolve."""
-    t = _ease_out(progress)
+    """Snap between poses with directional overlap and a tiny settle overshoot."""
+    t = max(0.0, min(1.0, progress))
+    # Fast arrival: the new pose should appear decisively, not dissolve.
+    arrival = _ease_out(t)
     out = previous.convert("RGBA")
     inc = current.convert("RGBA")
-    out_scale = 1.0 - 0.035 * t
-    inc_scale = 0.965 + 0.035 * t
+    out_scale = 1.0 - 0.025 * arrival
+    inc_scale = 0.975 + 0.025 * arrival
     out = out.resize((int(W*out_scale), int(H*out_scale)), Image.Resampling.BICUBIC)
     inc = inc.resize((int(W*inc_scale), int(H*inc_scale)), Image.Resampling.BICUBIC)
     out_canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     inc_canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    out_canvas.alpha_composite(out, ((W-out.width)//2 + int(direction*22*t), (H-out.height)//2))
-    inc_canvas.alpha_composite(inc, ((W-inc.width)//2 - int(direction*48*(1-t)), (H-inc.height)//2))
+    # Outgoing pose gives way in the direction of the incoming pose.
+    out_dx = int(direction * 28 * arrival)
+    in_dx = int(direction * 54 * (1.0 - arrival))
+    out_canvas.alpha_composite(out, ((W-out.width)//2 + out_dx, (H-out.height)//2))
+    inc_canvas.alpha_composite(inc, ((W-inc.width)//2 - in_dx, (H-inc.height)//2))
+
+    # Slightly curved wipe edge avoids the sterile PowerPoint-slide look.
+    edge = int(W * (0.06 + 0.88 * arrival))
     mask = Image.new("L", (W, H), 0)
     md = ImageDraw.Draw(mask)
-    edge = int(W * (0.10 + 0.82 * t))
     if direction > 0:
         md.rectangle((0, 0, edge, H), fill=255)
     else:
         md.rectangle((W-edge, 0, W, H), fill=255)
-    mask = mask.filter(ImageFilter.GaussianBlur(18))
+    mask = mask.filter(ImageFilter.GaussianBlur(13))
     result = Image.composite(inc_canvas, out_canvas, mask)
+
+    # One-frame-ish impact veil at the handoff makes the new pose read as an
+    # action beat rather than a hidden dissolve.
+    impact = math.sin(math.pi * max(0.0, min(1.0, (t - 0.72) / 0.28)))
+    if impact > 0.0:
+        veil = Image.new("RGBA", (W, H), (255, 255, 255, int(18 * impact)))
+        result.alpha_composite(veil)
     return result.convert("RGB")
 
 
@@ -484,7 +508,9 @@ def render_cartoon_motion(
     frame_index = 0
     frame_map = []
     previous_shot_frame: Image.Image | None = None
-    transition_frames = max(1, round(0.12 * source_fps))
+    previous_shot_rig: CharacterRig | None = None
+    transition_frames = max(1, round(0.16 * source_fps))
+    transition_directions: list[int] = []
     for shot, (image, caption, duration, beat) in enumerate(zip(images, captions, durations, beats)):
         count = max(2, round(duration * source_fps))
         frame_map.append({"shot": shot, "beat": beat, "frames": count, "duration": duration})
@@ -496,11 +522,15 @@ def render_cartoon_motion(
                 rig = None
             frame = motion_frame(image, caption, progress, shot, duration, beat, rig=rig)
             if previous_shot_frame is not None and i < transition_frames:
+                if i == 0:
+                    transition_directions.append(_transition_direction(previous_shot_rig, rig))
                 transition_p = i / max(1, transition_frames - 1)
-                frame = _transition_frame(previous_shot_frame, frame, transition_p, 1 if shot % 2 else -1)
+                direction = transition_directions[-1] if transition_directions else 1
+                frame = _transition_frame(previous_shot_frame, frame, transition_p, direction)
             frame.save(work / f"frame_{frame_index:05d}.jpg", quality=91, optimize=True)
             frame_index += 1
         previous_shot_frame = frame
+        previous_shot_rig = rig
 
     video_silent = output.with_suffix(".silent.mp4")
     subprocess.run(
@@ -555,6 +585,7 @@ def render_cartoon_motion(
                 "interpolation": "none",
                 "performance": {
                     "action_transitions": True,
+                    "pose_aware_transition_direction": True,
                     "character_micro_motion": True,
                     "anticipation_recoil_settle": True,
                     "punchline_hold": True,
