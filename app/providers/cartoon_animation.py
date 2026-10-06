@@ -19,7 +19,8 @@ from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
-from app.providers.cartoon_performance import head_motion
+from app.providers.cartoon_decomposer import load_action_layers
+from app.providers.cartoon_performance import arm_motion, head_motion
 from app.providers.cartoon_rig import CharacterRig, get_rig
 
 W, H = 1080, 1920
@@ -267,9 +268,32 @@ def _apply_rig_performance(frame: Image.Image, rig: CharacterRig, progress: floa
     crop = crop.resize((max(2, int(crop.width * scale)), max(2, int(crop.height * scale))), Image.Resampling.BICUBIC)
     crop = crop.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=False)
     hx, hy = rig.center
-    layer = Image.new("RGBA", frame.size, (0, 0, 0, 0))
-    layer.alpha_composite(crop, (int(hx - crop.width / 2 + dx), int(hy - crop.height / 2 + dy)))
-    return Image.alpha_composite(rig.cover_plate, layer).convert("RGB")
+    cover = frame.filter(ImageFilter.GaussianBlur(11))
+    base = frame.copy()
+    # Feather only the head region, then paste the transformed head crop into
+    # the existing RGB frame. Avoid constructing a full-frame transparent layer.
+    base = Image.composite(cover, base, rig.cover_mask).convert("RGB")
+    rgba = crop.convert("RGBA")
+    mask = rgba.getchannel("A")
+    base.paste(rgba.convert("RGB"), (int(hx - crop.width / 2 + dx), int(hy - crop.height / 2 + dy)), mask)
+    return base
+
+
+def _apply_arm_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, side: str) -> Image.Image:
+    alpha = layer.getchannel("A")
+    bbox = alpha.getbbox()
+    if not bbox:
+        return frame
+    x0, y0, x1, y1 = bbox
+    crop = layer.crop((x0, y0, x1, y1))
+    dx, dy, scale, rotation = arm_motion(progress, beat, side)
+    crop = crop.resize((max(2, int(crop.width * scale)), max(2, int(crop.height * scale))), Image.Resampling.BICUBIC)
+    crop = crop.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=False)
+    ox = int(x0 + dx - (crop.width - (x1 - x0)) / 2)
+    oy = int(y0 + dy - (crop.height - (y1 - y0)) / 2)
+    base = frame.copy()
+    base.paste(crop.convert("RGB"), (ox, oy), crop.getchannel("A"))
+    return base
 
 
 def motion_frame(
@@ -285,6 +309,14 @@ def motion_frame(
     base = _load_cover(str(image))
     p = max(0.0, min(1.0, progress))
     if rig is not None:
+        try:
+            rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v1"
+            layers = load_action_layers(image, rig_dir)
+            base = layers["body_plate"].convert("RGB")
+            base = _apply_arm_layer(base, layers["left_arm"], p, beat, "left")
+            base = _apply_arm_layer(base, layers["right_arm"], p, beat, "right")
+        except (OSError, ValueError):
+            pass
         base = _apply_rig_performance(base, rig, p, beat)
     eased = _ease_in_out(p)
     energy = profile.energy

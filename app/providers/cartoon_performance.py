@@ -69,6 +69,29 @@ def _phase_progress(p: float, start: float, end: float) -> float:
     return max(0.0, min(1.0, (p - start) / (end - start)))
 
 
+def arm_motion(progress: float, beat: str, side: str) -> tuple[float, float, float, float]:
+    """Return dx, dy, scale, rotation for a small independent arm gesture."""
+    p = max(0.0, min(1.0, progress))
+    sign = -1.0 if side == "left" else 1.0
+    if beat == "setup":
+        gesture = math.sin(math.pi * p)
+        return sign * 2.0 * gesture, -2.0 * gesture, 1.0 + 0.008 * gesture, sign * 1.2 * gesture
+    if beat == "escalation":
+        anticipation = max(0.0, 1.0 - p / 0.16)
+        action = math.sin(math.pi * _phase_progress(p, 0.16, 0.46))
+        recoil = math.sin(math.pi * _phase_progress(p, 0.46, 0.70))
+        dx = sign * (-4.0 * anticipation + 15.0 * action - 8.0 * recoil)
+        dy = 3.0 * anticipation - 8.0 * action + 4.0 * recoil
+        rot = sign * (-2.0 * anticipation + 7.0 * action - 3.0 * recoil)
+        scale = 1.0 + 0.030 * action - 0.012 * recoil
+        return dx, dy, scale, rot
+    if beat == "reaction":
+        recoil = math.sin(math.pi * _phase_progress(p, 0.36, 0.66))
+        return sign * 7.0 * recoil, -5.0 * recoil, 1.0 + 0.018 * recoil, sign * 4.0 * recoil
+    sway = math.sin(math.pi * p * 0.8)
+    return sign * 1.0 * sway, 0.6 * sway, 1.0 + 0.004 * sway, sign * 0.7 * sway
+
+
 def head_motion(progress: float, beat: str) -> tuple[float, float, float, float]:
     plan = performance_plan(beat)
     p = max(0.0, min(1.0, progress))

@@ -7,4 +7,5 @@ httpx==0.28.1
 python-dotenv==1.0.1
 Pillow==11.1.0
 numpy==2.2.6
+opencv-python-headless==5.0.0.93
 pytest==8.3.4
