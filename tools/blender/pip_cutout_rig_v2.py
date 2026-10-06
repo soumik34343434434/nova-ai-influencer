@@ -12,6 +12,9 @@ from mathutils import Vector
 
 ROOT = Path(os.environ.get('NOVA_REPO', Path(__file__).resolve().parents[2])).resolve()
 ASSET = ROOT / 'artifacts' / 'cartoon' / 'blender' / 'pip_cutout_layers'
+PROFILE_FILE = ROOT / 'config' / 'cartoon_blender_profiles.json'
+CHARACTER = 'PIP'
+PROFILE = {}
 OUTDIR = ROOT / 'artifacts' / 'cartoon' / 'blender' / 'pip_cutout_rig'
 BLEND = ROOT / 'artifacts' / 'cartoon' / 'blender' / 'pip_cutout_rig_v2.blend'
 W,H=1080,1920
@@ -19,27 +22,9 @@ PX=108.0
 WORLD_H=H/PX
 WORLD_W=W/PX
 
-BASE={
- 'root':(550,1260),'neck':(545,1035),'head_center':(575,815),
- 'left_shoulder':(390,1095),'left_elbow':(305,1125),'left_wrist':(275,1205),
- 'right_shoulder':(770,1080),'right_elbow':(845,1095),'right_wrist':(875,1160),
- 'head_rot':0.0,'root_rot':0.0,'eye_open':1.0,'gaze':(0.10,0.0),'mouth':'smile'
-}
-TARGETS={
- 'setup':BASE,
- 'escalation':{**BASE,'root':(590,1250),'neck':(590,1015),'head_center':(600,800),
-  'left_shoulder':(410,1080),'left_elbow':(330,1000),'left_wrist':(300,925),
-  'right_shoulder':(805,1065),'right_elbow':(890,990),'right_wrist':(930,915),
-  'head_rot':8.0,'root_rot':3.5,'eye_open':1.18,'gaze':(0.48,-0.05),'mouth':'open'},
- 'reaction':{**BASE,'root':(500,1345),'neck':(495,1110),'head_center':(490,900),
-  'left_shoulder':(355,1180),'left_elbow':(275,1255),'left_wrist':(245,1330),
-  'right_shoulder':(700,1165),'right_elbow':(775,1240),'right_wrist':(810,1310),
-  'head_rot':-12.0,'root_rot':-5.0,'eye_open':0.92,'gaze':(0.36,0.02),'mouth':'frown'},
- 'punchline':{**BASE,'root':(575,1270),'neck':(570,1045),'head_center':(570,835),
-  'left_shoulder':(415,1100),'left_elbow':(395,1165),'left_wrist':(385,1220),
-  'right_shoulder':(775,1095),'right_elbow':(800,1165),'right_wrist':(815,1220),
-  'head_rot':1.5,'root_rot':0.5,'eye_open':0.88,'gaze':(0.0,0.0),'mouth':'flat'}
-}
+BASE={}
+TARGETS={}
+FACE_PROFILE={}
 BEATS_DEFAULT=[('setup',1,42),('escalation',43,88),('reaction',89,134),('punchline',135,190)]
 
 
@@ -84,12 +69,12 @@ def make_grid(name,path,segments_x=18,segments_y=24,z=0):
 
 
 def create_armature():
- bpy.ops.object.armature_add(enter_editmode=True,location=(0,0,0)); arm=bpy.context.object; arm.name='PIP_Rig'; eb=arm.data.edit_bones; eb.remove(eb[0]); bones={}
+ bpy.ops.object.armature_add(enter_editmode=True,location=(0,0,0)); arm=bpy.context.object; arm.name=f'{CHARACTER}_Rig'; eb=arm.data.edit_bones; eb.remove(eb[0]); bones={}
  def add(name,head,tail,parent=None,connect=False):
   b=eb.new(name); b.head=px(head); b.tail=px(tail); b.parent=bones.get(parent); b.use_connect=connect; bones[name]=b
  add('root',BASE['root'],BASE['neck']); add('head',BASE['neck'],BASE['head_center'],'root');
- add('arm.L',BASE['left_shoulder'],BASE['left_elbow'],'root'); add('forearm.L',BASE['left_elbow'],BASE['left_wrist'],'arm.L',True)
- add('arm.R',BASE['right_shoulder'],BASE['right_elbow'],'root'); add('forearm.R',BASE['right_elbow'],BASE['right_wrist'],'arm.R',True)
+ add('arm.L',BASE['left_shoulder'],BASE['left_elbow'],'root'); add('forearm.L',BASE['left_elbow'],BASE['left_wrist'],'arm.L',True); add('hand.L',BASE['left_wrist'],(BASE['left_wrist'][0]-28,BASE['left_wrist'][1]+18),'forearm.L',True)
+ add('arm.R',BASE['right_shoulder'],BASE['right_elbow'],'root'); add('forearm.R',BASE['right_elbow'],BASE['right_wrist'],'arm.R',True); add('hand.R',BASE['right_wrist'],(BASE['right_wrist'][0]+28,BASE['right_wrist'][1]+18),'forearm.R',True)
  add('backpack',(250,1135),(250,1000),'root')
  bpy.ops.object.mode_set(mode='POSE')
  for b in arm.pose.bones: b.rotation_mode='XYZ'
@@ -101,19 +86,38 @@ def distance_weight(p,a,b):
 
 
 def bind(obj,arm,part):
- names=('root','head','arm.L','forearm.L','arm.R','forearm.R','backpack')
+ names=('root','head','arm.L','forearm.L','hand.L','arm.R','forearm.R','hand.R','backpack')
  groups={n:obj.vertex_groups.new(name=n) for n in names}
  for v in obj.data.vertices:
   p=Vector((v.co.x,v.co.y,0)); pp=(p.x*PX+W/2,H/2-p.y*PX)
   if part=='head': groups['head'].add([v.index],1,'REPLACE')
   elif part=='backpack': groups['backpack'].add([v.index],1,'REPLACE')
-  elif part=='left_arm':
-   # Stable first-pass deformation: the complete arm/hand silhouette follows the
-   # shoulder bone. This avoids UV tearing while keeping the limb physically
-   # attached to the torso; forearm split is a later refinement.
-   groups['arm.L'].add([v.index],1,'REPLACE')
-  elif part=='right_arm':
-   groups['arm.R'].add([v.index],1,'REPLACE')
+  elif part in ('left_arm','right_arm'):
+   side='L' if part=='left_arm' else 'R'
+   shoulder=BASE['left_shoulder'] if side=='L' else BASE['right_shoulder']
+   elbow=BASE['left_elbow'] if side=='L' else BASE['right_elbow']
+   wrist=BASE['left_wrist'] if side=='L' else BASE['right_wrist']
+   # Smoothly partition the silhouette along the actual shoulder->elbow->wrist
+   # path. This gives upper-arm, forearm and hand controls without duplicating
+   # raster pixels between layers.
+   pxy=pp
+   def seg_t(a,b,p):
+    ax,ay=a; bx,by=b; vx=bx-ax; vy=by-ay; den=max(1.0,vx*vx+vy*vy); return max(0.0,min(1.0,((p[0]-ax)*vx+(p[1]-ay)*vy)/den))
+   t1=seg_t(shoulder,elbow,pxy); t2=seg_t(elbow,wrist,pxy)
+   d1=((pxy[0]-elbow[0])**2+(pxy[1]-elbow[1])**2)**0.5
+   span=max(80.0,((shoulder[0]-elbow[0])**2+(shoulder[1]-elbow[1])**2)**0.5)
+   # Global progress is biased by nearest segment so transparent border vertices
+   # do not create wild weights.
+   if d1 < span*0.18:
+    fore=.65; upper=.35; hand=0.0
+   else:
+    proj=((pxy[0]-shoulder[0])*(wrist[0]-shoulder[0])+(pxy[1]-shoulder[1])*(wrist[1]-shoulder[1]))/max(1.0,(wrist[0]-shoulder[0])**2+(wrist[1]-shoulder[1])**2)
+    g=max(0.0,min(1.0,proj))
+    hand=max(0.0,(g-0.72)/0.28); fore=max(0.0,min(1.0,1.0-abs(g-0.58)/0.22)); upper=max(0.0,1.0-g)
+    total=max(1e-6,upper+fore+hand); upper/=total; fore/=total; hand/=total
+   groups[f'arm.{side}'].add([v.index],upper,'REPLACE')
+   groups[f'forearm.{side}'].add([v.index],fore,'REPLACE')
+   groups[f'hand.{side}'].add([v.index],hand,'REPLACE')
   else: groups['root'].add([v.index],1,'REPLACE')
  mod=obj.modifiers.new('PIP_Armature_Deform','ARMATURE'); mod.object=arm; mod.use_deform_preserve_volume=False
 
@@ -129,10 +133,11 @@ def make_ellipse(name,center,rx,ry,mat,z=.4,n=48):
 
 def face_rig(arm):
  dark=color_material('FaceScreen',(0.025,0.045,0.065)); white=color_material('FaceLED',(0.95,1.0,1.0)); black=color_material('FacePupil',(0.01,0.015,0.02))
- screen=make_ellipse('FaceScreen',(585,815),1.82,1.22,dark,.31)
- eye_l=make_ellipse('Eye.L',(500,805),.34,.42,white,.35); eye_r=make_ellipse('Eye.R',(650,805),.34,.42,white,.35)
- pup_l=make_ellipse('Pupil.L',(500,805),.11,.145,black,.37); pup_r=make_ellipse('Pupil.R',(650,805),.11,.145,black,.37)
- mouth=make_ellipse('Mouth',(585,875),.56,.13,white,.36)
+ f=FACE_PROFILE
+ screen=make_ellipse('FaceScreen',f['screen'][:2],f['screen'][2],f['screen'][3],dark,.31)
+ eye_l=make_ellipse('Eye.L',f['eye_left'][:2],f['eye_left'][2],f['eye_left'][3],white,.35); eye_r=make_ellipse('Eye.R',f['eye_right'][:2],f['eye_right'][2],f['eye_right'][3],white,.35)
+ pup_l=make_ellipse('Pupil.L',f['pupil_left'][:2],f['pupil_left'][2],f['pupil_left'][3],black,.37); pup_r=make_ellipse('Pupil.R',f['pupil_right'][:2],f['pupil_right'][2],f['pupil_right'][3],black,.37)
+ mouth=make_ellipse('Mouth',f['mouth'][:2],f['mouth'][2],f['mouth'][3],white,.36)
  return {'screen':screen,'eyes':(eye_l,eye_r),'pupils':(pup_l,pup_r),'mouth':mouth}
 
 
@@ -152,7 +157,7 @@ def write_pose(arm,frame,spec):
   p1,p2=arm.pose.bones[ab],arm.pose.bones[fb]
   base_a=math.atan2(px(BASE[e]).y-px(BASE[s]).y,px(BASE[e]).x-px(BASE[s]).x); base_b=math.atan2(px(BASE[w]).y-px(BASE[e]).y,px(BASE[w]).x-px(BASE[e]).x)
   ta=math.atan2(px(spec[e]).y-px(spec[s]).y,px(spec[e]).x-px(spec[s]).x); tb=math.atan2(px(spec[w]).y-px(spec[e]).y,px(spec[w]).x-px(spec[e]).x)
-  p1.rotation_euler.z=ta-base_a; p2.rotation_euler.z=(tb-ta)-(base_b-base_a); p1.keyframe_insert('rotation_euler',index=2,frame=frame); p2.keyframe_insert('rotation_euler',index=2,frame=frame)
+  p1.rotation_euler.z=ta-base_a; p2.rotation_euler.z=(tb-ta)-(base_b-base_a); p3=arm.pose.bones[f'hand.{side}']; p3.rotation_euler.z=(tb-ta)*0.12; p1.keyframe_insert('rotation_euler',index=2,frame=frame); p2.keyframe_insert('rotation_euler',index=2,frame=frame); p3.keyframe_insert('rotation_euler',index=2,frame=frame)
  head=arm.pose.bones['head']; head.rotation_euler.z=math.radians(spec['head_rot']); head.keyframe_insert('rotation_euler',index=2,frame=frame)
  scale=1.0+({'setup':0,'escalation':0.035,'reaction':-0.035,'punchline':-0.01}.get(spec.get('_beat','setup'),0)); root.scale=(1/scale,scale,1); root.keyframe_insert('scale',frame=frame)
  bp=arm.pose.bones['backpack']; bp.rotation_euler.z=math.radians(spec['root_rot']*.45); bp.keyframe_insert('rotation_euler',index=2,frame=frame)
@@ -160,7 +165,8 @@ def write_pose(arm,frame,spec):
 
 def key_face(face,frame,spec):
  c=px(spec['head_center']); base_c=px(BASE['head_center']); a=math.radians(spec['head_rot']); co,si=math.cos(a),math.sin(a)
- offsets={'screen':Vector((px((585,815)).x-base_c.x,px((585,815)).y-base_c.y,0)),'Eye.L':px((500,805))-base_c,'Eye.R':px((650,805))-base_c,'Pupil.L':px((500,805))-base_c,'Pupil.R':px((650,805))-base_c,'Mouth':px((585,875))-base_c}
+ f=FACE_PROFILE
+ offsets={'screen':px(f['screen'][:2])-base_c,'Eye.L':px(f['eye_left'][:2])-base_c,'Eye.R':px(f['eye_right'][:2])-base_c,'Pupil.L':px(f['pupil_left'][:2])-base_c,'Pupil.R':px(f['pupil_right'][:2])-base_c,'Mouth':px(f['mouth'][:2])-base_c}
  def world_pos(v): return (c.x + co*v.x-si*v.y, c.y + si*v.x+co*v.y, 0)
  for name,obj in [('screen',face['screen']),('Eye.L',face['eyes'][0]),('Eye.R',face['eyes'][1]),('Pupil.L',face['pupils'][0]),('Pupil.R',face['pupils'][1]),('Mouth',face['mouth'])]:
   obj.location=world_pos(offsets[name]); obj.rotation_euler.z=a; obj.keyframe_insert('location',frame=frame); obj.keyframe_insert('rotation_euler',index=2,frame=frame)
@@ -221,16 +227,36 @@ def camera_performance_keys(arm, cam, beats):
             cam.data.keyframe_insert('ortho_scale',frame=frame)
 
 
-def build(frames=190, voice_json=None):
+def load_profile(character='PIP', profile_path=None):
+    path=Path(profile_path) if profile_path else PROFILE_FILE
+    data=json.loads(path.read_text(encoding='utf-8'))
+    try:
+        profile=dict(data['characters'][character])
+    except KeyError as exc:
+        raise ValueError(f'No Blender performance profile for character: {character}') from exc
+    base=dict(profile['base'])
+    targets={}
+    for name in ('setup','escalation','reaction','punchline'):
+        merged=dict(base); merged.update(profile.get('targets',{}).get(name,{ })); targets[name]=merged
+    return profile,base,targets,dict(profile['face'])
+
+
+def profile_asset_dir(profile):
+    return ROOT / profile['asset_dir']
+
+
+def build(frames=190, voice_json=None, character='PIP', profile_path=None, background_path=None):
+ global ASSET,BASE,TARGETS,FACE_PROFILE,CHARACTER,PROFILE
+ PROFILE,BASE,TARGETS,FACE_PROFILE=load_profile(character,profile_path); CHARACTER=character; ASSET=profile_asset_dir(PROFILE)
  clear(); scene=bpy.context.scene; BEATS=build_beats(frames,voice_json); scene.render.engine='BLENDER_EEVEE'; scene.render.resolution_x=W; scene.render.resolution_y=H; scene.render.resolution_percentage=int(os.environ.get('NOVA_BLENDER_RESOLUTION','35')); scene.render.fps=24; scene.world.color=(0.0,0.0,0.0); scene.view_settings.view_transform='Standard'; scene.view_settings.look='None'; scene.view_settings.exposure=0; scene.view_settings.gamma=1
  # background
  bgmesh=bpy.data.meshes.new('BackgroundMesh'); bgmesh.from_pydata([(-WORLD_W/2,-WORLD_H/2,-.3),(WORLD_W/2,-WORLD_H/2,-.3),(WORLD_W/2,WORLD_H/2,-.3),(-WORLD_W/2,WORLD_H/2,-.3)],[],[(0,1,2,3)]); bgmesh.update(); uv=bgmesh.uv_layers.new(name='UVMap');
  for poly in bgmesh.polygons:
   for li,uvv in zip(poly.loop_indices,[(0,0),(1,0),(1,1),(0,1)]): uv.data[li].uv=uvv
- bg=bpy.data.objects.new('Background',bgmesh); bpy.context.collection.objects.link(bg); bg.data.materials.append(image_material('BG',ASSET/'pip_background.jpg'))
+ bg=bpy.data.objects.new('Background',bgmesh); bpy.context.collection.objects.link(bg); bg_path=Path(background_path) if background_path else ROOT / PROFILE['background']; bg.data.materials.append(image_material('BG',bg_path))
  arm=create_armature()
  for part,z,segx,segy in [('torso',0.0,28,34),('backpack',0.02,20,32),('left_arm',0.04,24,28),('right_arm',0.05,24,28),('head',0.10,32,34)]:
-  obj=make_grid(part,ASSET/f'pip_{part}.png',segx,segy,z); bind(obj,arm,part)
+  filename=PROFILE['layers'].get(part,f'{character.lower()}_{part}.png'); obj=make_grid(part,ASSET/filename,segx,segy,z); bind(obj,arm,part)
  face=face_rig(arm)
  prev=TARGETS['setup']
  for beat,start,end in BEATS:
@@ -262,17 +288,19 @@ def build(frames=190, voice_json=None):
   f=start+round((end-start)*.34)
   for eye,pupil in zip(face['eyes'],face['pupils']):
    eye.scale.y=.10; pupil.scale.y=.06; eye.keyframe_insert('scale',index=1,frame=f); pupil.keyframe_insert('scale',index=1,frame=f); eye.scale.y=1; pupil.scale.y=1; eye.keyframe_insert('scale',index=1,frame=f+2); pupil.keyframe_insert('scale',index=1,frame=f+2)
- bpy.ops.object.camera_add(location=(0,0,30)); cam=bpy.context.object; cam.name='PIP_Camera'; cam.data.type='ORTHO'; cam.data.ortho_scale=WORLD_H; scene.camera=cam
+ bpy.ops.object.camera_add(location=(0,0,30)); cam=bpy.context.object; cam.name=f'{CHARACTER}_Camera'; cam.data.type='ORTHO'; cam.data.ortho_scale=WORLD_H; scene.camera=cam
  camera_performance_keys(arm,cam,BEATS)
+ # Blender's keyed transforms use its default BEZIER interpolation, providing
+ # real continuous in-betweens between performance poses.
  scene.frame_start=1; scene.frame_end=frames; scene.render.image_settings.file_format='PNG'; scene.render.filepath=str(OUTDIR/'frame_####')
  rows=load_voice_rows(voice_json); effective_shot_durations=[round(max(1.0,float(r.get('duration',0.0) or 0.0))+tail,3) for r,tail in zip(rows[:4],(0.48,0.58,0.60,0.82))] if rows else [round((b-a)/24,3) for _,a,b in BEATS]
- meta={'engine':'blender-pip-cutout-rig-v2','beats':BEATS,'voice_json':str(voice_json) if voice_json else None,'effective_shot_durations':effective_shot_durations,'resolution':[W,H],'fps':24,'frames':frames,'deformable_layers':['torso','head','left_arm','right_arm','backpack'],'armature_bones':['root','head','arm.L','forearm.L','arm.R','forearm.R','backpack'],'facial_controls':['blink','gaze','mouth_shape','speech_micro_motion'],'in_between':'overshoot-and-settle-bezier','source':'clean-pip-master-cutout'}
+ meta={'engine':'blender-cutout-performance-rig-v3','character':CHARACTER,'beats':BEATS,'voice_json':str(voice_json) if voice_json else None,'effective_shot_durations':effective_shot_durations,'resolution':[W,H],'fps':24,'frames':frames,'deformable_layers':['torso','head','left_arm','right_arm','backpack'],'armature_bones':['root','head','arm.L','forearm.L','hand.L','arm.R','forearm.R','hand.R','backpack'],'facial_controls':['blink','gaze','mouth_shape','speech_micro_motion'],'in_between':'overshoot-and-settle-bezier','source':'clean-pip-master-cutout'}
  t=bpy.data.texts.new('NOVA_BLENDER_RIG_METADATA.json'); t.write(json.dumps(meta,indent=2)); return scene,meta
 
 
 def main():
- ap=argparse.ArgumentParser(); ap.add_argument('--build',action='store_true'); ap.add_argument('--render',action='store_true'); ap.add_argument('--frames',type=int,default=190); ap.add_argument('--blend-output',type=Path,default=BLEND); ap.add_argument('--voice-json',type=Path,default=None); args=ap.parse_args(sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else [])
- OUTDIR.mkdir(parents=True,exist_ok=True); scene,meta=build(args.frames,args.voice_json); bpy.ops.wm.save_as_mainfile(filepath=str(args.blend_output))
+ ap=argparse.ArgumentParser(); ap.add_argument('--build',action='store_true'); ap.add_argument('--render',action='store_true'); ap.add_argument('--frames',type=int,default=190); ap.add_argument('--blend-output',type=Path,default=BLEND); ap.add_argument('--voice-json',type=Path,default=None); ap.add_argument('--character',default='PIP'); ap.add_argument('--profile',type=Path,default=None); ap.add_argument('--background',type=Path,default=None); args=ap.parse_args(sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else [])
+ OUTDIR.mkdir(parents=True,exist_ok=True); scene,meta=build(args.frames,args.voice_json,args.character,args.profile,args.background); bpy.ops.wm.save_as_mainfile(filepath=str(args.blend_output))
  if args.render:
   selected=os.environ.get('NOVA_KEY_FRAMES','').strip()
   if selected:

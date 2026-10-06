@@ -26,6 +26,7 @@ class BlenderAnimationProvider:
     def build_rig(
         self, repo_root: Path, output_blend: Path | None = None,
         resolution_percent: int = 35, voice_json: Path | None = None, frames: int = 190,
+        character: str = "PIP", background_path: Path | None = None,
     ) -> Path:
         if not self.available():
             raise RuntimeError("Blender is not installed")
@@ -35,9 +36,11 @@ class BlenderAnimationProvider:
             "NOVA_REPO": str(repo_root),
             "NOVA_BLENDER_RESOLUTION": str(resolution_percent),
         }
-        cmd = [self.blender_bin, "--background", "--python", str(self._script(repo_root)), "--", "--build", "--frames", str(frames), "--blend-output", str(output_blend)]
+        cmd = [self.blender_bin, "--background", "--python", str(self._script(repo_root)), "--", "--build", "--frames", str(frames), "--character", character, "--blend-output", str(output_blend)]
         if voice_json:
             cmd.extend(["--voice-json", str(voice_json)])
+        if background_path:
+            cmd.extend(["--background", str(background_path)])
         subprocess.run(cmd, cwd=str(repo_root), env={**__import__("os").environ, **env}, check=True, capture_output=True, text=True)
         return output_blend
 
@@ -66,7 +69,8 @@ class BlenderAnimationProvider:
     def render_episode(
         self, repo_root: Path, output_mp4: Path, voice_lines: list[str],
         beats: list[str], durations: list[float], sfx_kinds: list[str],
-        resolution_percent: int = 100,
+        resolution_percent: int = 100, action_assets: list[Path] | None = None,
+        background_path: Path | None = None, character: str = "PIP",
     ) -> dict:
         """Render a complete PIP performance clip and return its media/metadata paths."""
         output_mp4.parent.mkdir(parents=True, exist_ok=True)
@@ -77,9 +81,15 @@ class BlenderAnimationProvider:
         frames = max(24, round(total_seconds * 24))
         voice_json = work / "voice_performance.json"
         voice_json.write_text(json.dumps({"audio_sync": {"voice_performance": voice_performance}}, indent=2), encoding="utf-8")
-        blend = self.build_rig(repo_root, voice_json=voice_json, frames=frames, resolution_percent=resolution_percent)
+        if action_assets:
+            missing=[str(path) for path in action_assets if not Path(path).exists()]
+            if missing:
+                raise FileNotFoundError("Missing Blender action assets: " + ", ".join(missing))
+        blend = self.build_rig(repo_root, voice_json=voice_json, frames=frames, resolution_percent=resolution_percent, character=character, background_path=background_path)
         env = {"NOVA_REPO": str(repo_root), "NOVA_BLENDER_RESOLUTION": str(resolution_percent)}
-        render_cmd = [self.blender_bin, "--background", "--python", str(self._script(repo_root)), "--", "--build", "--render", "--frames", str(frames), "--voice-json", str(voice_json), "--blend-output", str(blend)]
+        render_cmd = [self.blender_bin, "--background", "--python", str(self._script(repo_root)), "--", "--build", "--render", "--frames", str(frames), "--character", character, "--voice-json", str(voice_json), "--blend-output", str(blend)]
+        if background_path:
+            render_cmd.extend(["--background", str(background_path)])
         subprocess.run(render_cmd, cwd=str(repo_root), env={**os.environ, **env}, check=True, capture_output=True, text=True)
 
         frame_dir = repo_root / "artifacts" / "cartoon" / "blender" / "pip_cutout_rig"
@@ -125,9 +135,12 @@ class BlenderAnimationProvider:
         subprocess.run([ffmpeg,"-y","-i",str(video_only),"-i",str(audio),"-map","0:v:0","-map","1:a:0","-c:v","copy","-c:a","aac","-b:a","192k","-shortest",str(output_mp4)],check=True,capture_output=True,text=True)
         effective_shot_durations=[round(max(1.0,float(row.get("duration",0.0) or 0.0))+tail,3) for row,tail in zip(voice_performance,(0.48,0.58,0.60,0.82))]
         metadata={
-            "engine":"blender-pip-cutout-rig-v2",
+            "engine":"blender-cutout-performance-rig-v4",
+            "character":character,
             "frames":frames,
             "resolution_percent":resolution_percent,
+            "action_assets":[str(p) for p in (action_assets or [])],
+            "background_path":str(background_path) if background_path else None,
             "voice_performance":voice_performance,
             "captions":True,
             "audio_sync":{

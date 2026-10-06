@@ -238,9 +238,12 @@ class CartoonFactoryOrchestrator:
             if not provider.available():
                 raise RuntimeError("NOVA_CARTOON_ANIMATION_BACKEND=blender but Blender is unavailable")
             blender_output = ARTIFACTS / f"{slug}_blender.mp4"
+            bg = Path(__import__("os").environ["NOVA_BLENDER_BACKGROUND"]) if __import__("os").environ.get("NOVA_BLENDER_BACKGROUND") else None
             info = provider.render_episode(
                 ROOT, blender_output, captions, beats, durations, sfx,
                 resolution_percent=int(__import__("os").environ.get("NOVA_BLENDER_RESOLUTION", "100")),
+                action_assets=images,
+                background_path=bg,
             )
             output = Path(info["video"])
         else:

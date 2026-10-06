@@ -13,7 +13,7 @@ def test_blender_provider_contract():
 def test_blender_rig_script_has_performance_features():
     root = Path(__file__).resolve().parents[1]
     text = (root / "tools" / "blender" / "pip_cutout_rig_v2.py").read_text(encoding="utf-8")
-    for marker in ("PIP_Rig", "ARMATURE", "vertex_groups", "TARGETS", "Eye.L", "Pupil.L", "overshoot-and-settle-bezier"):
+    for marker in ("Rig", "ARMATURE", "vertex_groups", "TARGETS", "Eye.L", "Pupil.L", "overshoot-and-settle-bezier"):
         assert marker in text
 
 
@@ -31,3 +31,11 @@ def test_blender_episode_metadata_contract_in_source():
     assert 'effective_shot_durations' in text
     assert 'sfx_peak_fractions' in text
     assert 'voice_performance' in text
+
+
+def test_provider_source_supports_action_assets_and_background():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'app'/'providers'/'blender_animation.py').read_text(encoding='utf-8')
+    assert 'action_assets' in text
+    assert 'background_path' in text
+    assert 'Missing Blender action assets' in text
