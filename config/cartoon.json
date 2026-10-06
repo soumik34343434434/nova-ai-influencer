@@ -1,0 +1,38 @@
+{
+  "format": {
+    "width": 1080,
+    "height": 1920,
+    "max_seconds": 15,
+    "fps": 30,
+    "transition_seconds": 0.08
+  },
+  "style_rules": [
+    "original cartoon characters only",
+    "family-friendly humor",
+    "no realistic private people",
+    "no celebrity lookalikes",
+    "no dangerous imitation instructions",
+    "no logos or copyrighted character replicas",
+    "AI disclosure on every final render"
+  ],
+  "cast": [
+    {
+      "name": "PIP",
+      "description": "tiny sky-blue mischievous robot with oversized expressive eyes and orange backpack"
+    },
+    {
+      "name": "MOMO",
+      "description": "sleepy orange cartoon cat with dramatic reactions"
+    },
+    {
+      "name": "BUBU",
+      "description": "round blue cartoon bird with energetic movement"
+    }
+  ],
+  "publishing": {
+    "instagram_type": "REEL",
+    "youtube_type": "short",
+    "is_ai_generated": true,
+    "made_for_kids_requires_platform_classification": true
+  }
+}

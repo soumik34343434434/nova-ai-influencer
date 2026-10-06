@@ -59,3 +59,17 @@ Endpoints include:
 3. Add optional local/open-source image-to-video providers behind the media interface.
 4. Ingest platform analytics and automatically select winning formats.
 5. Add affiliate/revenue attribution.
+
+## Cartoon comedy lane
+
+The project also includes a production lane for original, family-friendly cartoon shorts. The initial recurring cast is PIP (tiny mischievous robot), MOMO (sleepy orange cat), and BUBU (round blue bird).
+
+The first production episode is **PIP vs the Smart Kitchen**. It is rendered locally from action-specific character frames, with captions, local voiceover, AI disclosure, and 9:16 video QA.
+
+Run it with:
+
+```bash
+python3 -m app.cartoon_pipeline
+```
+
+The final publishing layer remains approval-first. Audience classification is kept as a platform-specific review step rather than assuming a single classification for every platform.
