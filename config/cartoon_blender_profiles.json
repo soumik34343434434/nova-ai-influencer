@@ -584,7 +584,7 @@
         }
       },
       "face": {
-        "mode": "organic",
+        "mode": "static",
         "box": [
           411,
           753,

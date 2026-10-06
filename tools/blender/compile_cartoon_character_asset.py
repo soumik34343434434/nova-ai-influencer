@@ -128,8 +128,12 @@ def compile_character(name: str) -> dict:
     bgr=cv2.cvtColor(rgb,cv2.COLOR_RGB2BGR); neutral_rgb=cv2.cvtColor(cv2.inpaint(bgr,(face_parts>35).astype(np.uint8)*255,5,cv2.INPAINT_TELEA),cv2.COLOR_BGR2RGB)
     head_neutral=np.minimum(head,np.where(face_parts>35,0,255).astype(np.uint8))
     face_base=np.minimum(fmask,head); head_neutral=np.maximum(head_neutral,np.where((face_base>35)&(face_parts<=35),face_base,0).astype(np.uint8))
-    Image.fromarray(np.dstack([neutral_rgb,head_neutral]),'RGBA').save(out/f'{name.lower()}_head.png')
-    Image.fromarray(np.dstack([neutral_rgb,head_neutral]),'RGBA').save(out/f'{name.lower()}_head_neutral.png')
+    # MOMO's source head already has a high-quality organic facial expression.
+    # Keep that face intact for the production rig instead of cutting rectangular
+    # eye/mouth holes and re-compositing small patches over the fur.
+    head_out = head if name == 'MOMO' else head_neutral
+    Image.fromarray(np.dstack([rgb,head_out]),'RGBA').save(out/f'{name.lower()}_head.png')
+    Image.fromarray(np.dstack([rgb,head_out]),'RGBA').save(out/f'{name.lower()}_head_neutral.png')
     Image.fromarray(np.dstack([rgb,eye_lm]),'RGBA').save(out/f'{name.lower()}_eye_left.png')
     Image.fromarray(np.dstack([rgb,eye_rm]),'RGBA').save(out/f'{name.lower()}_eye_right.png')
     Image.fromarray(np.dstack([rgb,mouth_m]),'RGBA').save(out/f'{name.lower()}_mouth.png')

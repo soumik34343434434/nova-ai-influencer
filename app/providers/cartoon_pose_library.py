@@ -162,16 +162,36 @@ def build_pose_library(base: dict[str, Any], character: str) -> dict[str, dict[s
         p["present"]["head_center"] = _shift(base["head_center"], -6, -16)
         _arm(p["present"], "left", -4, -58, -34, -112, -54)
         _arm(p["present"], "right", 6, 62, -34, 116, -50)
-        p["shock"]["root"] = _shift(base["root"], 0, 8)
-        p["shock"]["head_center"] = _shift(base["head_center"], 2, -2)
-        p["shock"]["head_rot"] = 2.5
-        _arm(p["shock"], "left", -8, -46, -92, -76, -138)
-        _arm(p["shock"], "right", 8, 46, -92, 76, -138)
-        p["overwhelmed"]["root"] = _shift(base["root"], -14, 66)
-        p["overwhelmed"]["head_center"] = _shift(base["head_center"], -30, 48)
-        p["overwhelmed"]["head_rot"] = -14.0
-        _arm(p["overwhelmed"], "left", -20, -62, 46, -92, 118)
-        _arm(p["overwhelmed"], "right", -2, 70, 46, 118, 120)
+        p["present"]["root"] = _shift(base["root"], 18, -18)
+        p["present"]["head_center"] = _shift(base["head_center"], 22, -28)
+        p["present"]["head_rot"] = 4.5
+        _arm(p["present"], "left", -4, -24, -48, -52, -82)
+        _arm(p["present"], "right", 10, 110, -58, 175, -104)
+        p["shock"]["root"] = _shift(base["root"], 0, 18)
+        p["shock"]["neck"] = _shift(base["neck"], 0, 8)
+        p["shock"]["head_center"] = _shift(base["head_center"], 4, -12)
+        p["shock"]["head_rot"] = 3.5
+        p["shock"]["root_rot"] = 2.0
+        p["shock"]["eye_open"] = 1.12
+        p["shock"]["gaze"] = [0.12, -0.08]
+        _arm(p["shock"], "left", -10, -58, -118, -96, -198)
+        _arm(p["shock"], "right", 10, 58, -118, 96, -198)
+        p["overwhelmed"]["root"] = _shift(base["root"], -22, 78)
+        p["overwhelmed"]["neck"] = _shift(base["neck"], -24, 52)
+        p["overwhelmed"]["head_center"] = _shift(base["head_center"], -34, 54)
+        p["overwhelmed"]["head_rot"] = -16.0
+        p["overwhelmed"]["root_rot"] = -6.0
+        p["overwhelmed"]["eye_open"] = 0.66
+        p["overwhelmed"]["gaze"] = [0.28, 0.08]
+        _arm(p["overwhelmed"], "left", -26, -80, 54, -124, 110)
+        _arm(p["overwhelmed"], "right", 4, 82, 54, 142, 112)
+        p["deadpan"]["root"] = _shift(base["root"], 12, 14)
+        p["deadpan"]["neck"] = _shift(base["neck"], 8, 8)
+        p["deadpan"]["head_center"] = _shift(base["head_center"], 14, 16)
+        p["deadpan"]["head_rot"] = 2.0
+        p["deadpan"]["gaze"] = [-0.10, 0.0]
+        _arm(p["deadpan"], "left", -2, -14, 22, -22, 30)
+        _arm(p["deadpan"], "right", 8, 28, -62, 56, -126)
     elif character.upper() == "BUBU":
         p["excited"]["root"] = _shift(p["excited"]["root"], 0, -18)
         p["excited"]["eye_open"] = 1.24

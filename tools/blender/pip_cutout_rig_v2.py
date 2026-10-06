@@ -142,6 +142,25 @@ def make_image_patch(name,path,box,z=.4):
 
 
 def face_rig(arm):
+ if FACE_PROFILE.get('mode')=='static':
+  # Keep a hidden compatibility face rig so the downstream speech/blink
+  # performance code can still run without ever compositing patches over MOMO's
+  # intact organic face.
+  saved_mode=FACE_PROFILE.get('mode')
+  FACE_PROFILE['mode']='organic'
+  compat=face_rig(arm)
+  FACE_PROFILE['mode']=saved_mode
+  def hide(node):
+   if isinstance(node, dict):
+    for child in node.values(): hide(child)
+   elif isinstance(node, (tuple,list)):
+    for child in node: hide(child)
+   elif node is not None:
+    try: node.hide_render=True
+    except AttributeError: pass
+  hide(compat)
+  compat['mode']='static'
+  return compat
  if FACE_PROFILE.get('mode')=='organic':
   assets=FACE_PROFILE['assets']; f=FACE_PROFILE
   eye_l=make_image_patch('Eye.L',ASSET/assets['eye_left'],f['eye_left'],.35); eye_r=make_image_patch('Eye.R',ASSET/assets['eye_right'],f['eye_right'],.35); mouth=make_image_patch('Mouth',ASSET/assets['mouth'],f['mouth'],.36)
@@ -251,6 +270,8 @@ def write_pose(arm,frame,spec):
  bp.keyframe_insert('location',frame=kframe(accessory_lag))
 
 def key_face(face,frame,spec):
+ if face.get('mode')=='static':
+  return
  phase=spec.get('_phase','settle')
  c=px(spec['head_center']); base_c=px(BASE['head_center']); a=math.radians(spec['head_rot']); co,si=math.cos(a),math.sin(a)
  if face.get('mode')=='organic':
@@ -351,7 +372,7 @@ def camera_performance_keys(arm, cam, beats, rows=None):
     rows=rows or []
     phase_points=(0.00,0.18,0.42,0.58,0.72,0.84,1.00)
     phase_names=('approach','anticipation','contact_approach','contact','overshoot','recoil','settle')
-    base_scale={'setup':14.0,'escalation':12.7,'reaction':14.3,'punchline':12.8}
+    base_scale={'setup':11.8,'escalation':10.6,'reaction':11.2,'punchline':11.4}
     action_scale={'give_homework':0.96,'press_button':0.96,'shock':0.90,'overwhelmed':0.97,'deadpan':0.95,'tap_alarm':0.92,'open_fridge':0.94,'tap_shoes':0.92}
     previous_state=None
     for idx,(beat,start,end) in enumerate(beats):
@@ -482,6 +503,8 @@ def build_story_world(rows,beats):
             slot=prop_box(f'PropPrinterSlot.{idx}',(x,y+0.42),(1.20,0.12,0.06),mats['dark']); objs.append(slot)
             tray=prop_box(f'PropPrinterTray.{idx}',(x,y-0.58),(1.55,0.28,0.12),mats['warm'],z=0.24); objs.append(tray)
             status=make_ellipse(f'PropPrinterStatus.{idx}',(W/2+x*PX,H/2-y*PX-18),0.08,0.08,mats['accent'],z=0.37,n=24); objs.append(status)
+            label_font=bpy.data.curves.new(f'PrinterReadoutCurve.{idx}','FONT'); label_font.body='PRINTING 300 PAGES'; label_font.align_x='CENTER'; label_font.size=0.18; label_font.extrude=0.004
+            label=bpy.data.objects.new(f'PrinterReadout.{idx}',label_font); bpy.context.collection.objects.link(label); label.location=(x,y+0.14,0.38); label.data.materials.append(mats['paper']); objs.append(label)
             paper=prop_box(f'PropPaper.{idx}',(x,y+0.73),(0.86,0.70,0.035),mats['paper'],z=0.30); objs.append(paper)
             paper.keyframe_insert('location',frame=start); paper.location.y += 0.25; paper.keyframe_insert('location',frame=round(start+(end-start)*0.32)); paper.location.y += 0.18; paper.keyframe_insert('location',frame=round(start+(end-start)*0.58)); paper.location.y += 0.12; paper.keyframe_insert('location',frame=end)
             if action=='shock':
