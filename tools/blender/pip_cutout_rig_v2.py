@@ -166,27 +166,66 @@ def pose_spec(a,b,t):
 
 def action_pose_chain(prev, target, beat, action, start, end):
     """Adapt the shared physical action-chain primitive to absolute frame numbers."""
-    chain=make_action_pose_chain(prev,target,action,span=max(8,end-start))
-    return [(start+offset,spec,phase) for offset,spec,phase in chain]
+    profiles=PROFILE.get('transition_profiles') or {}
+    chain=make_action_pose_chain(prev,target,action,span=max(8,end-start),transition_profiles=profiles)
+    dx=float(target['root'][0]-prev['root'][0]); dy=float(target['root'][1]-prev['root'][1])
+    return [(start+offset,{**spec,'_motion':(dx,dy),'_action':action},phase) for offset,spec,phase in chain]
 
 
 def write_pose(arm,frame,spec):
  bpy.context.scene.frame_set(frame)
- root=arm.pose.bones['root']; root.location=px(spec['root'])-px(BASE['root']); root.rotation_euler.z=math.radians(spec['root_rot']); root.keyframe_insert('location',frame=frame); root.keyframe_insert('rotation_euler',index=2,frame=frame)
+ root=arm.pose.bones['root']
+ root.location=px(spec['root'])-px(BASE['root'])
+ root.rotation_euler.z=math.radians(spec['root_rot'])
+ root.keyframe_insert('location',frame=frame)
+ root.keyframe_insert('rotation_euler',index=2,frame=frame)
  for side,s,e,w,ab,fb in [('L','left_shoulder','left_elbow','left_wrist','arm.L','forearm.L'),('R','right_shoulder','right_elbow','right_wrist','arm.R','forearm.R')]:
   p1,p2=arm.pose.bones[ab],arm.pose.bones[fb]
-  base_a=math.atan2(px(BASE[e]).y-px(BASE[s]).y,px(BASE[e]).x-px(BASE[s]).x); base_b=math.atan2(px(BASE[w]).y-px(BASE[e]).y,px(BASE[w]).x-px(BASE[e]).x)
-  ta=math.atan2(px(spec[e]).y-px(spec[s]).y,px(spec[e]).x-px(spec[s]).x); tb=math.atan2(px(spec[w]).y-px(spec[e]).y,px(spec[w]).x-px(spec[e]).x)
-  p1.rotation_euler.z=ta-base_a; p2.rotation_euler.z=(tb-ta)-(base_b-base_a); p3=arm.pose.bones[f'hand.{side}']; p3.rotation_euler.z=(tb-ta)*0.12; p1.keyframe_insert('rotation_euler',index=2,frame=frame); p2.keyframe_insert('rotation_euler',index=2,frame=frame); p3.keyframe_insert('rotation_euler',index=2,frame=frame)
- head=arm.pose.bones['head']; head.rotation_euler.z=math.radians(spec['head_rot']); head.keyframe_insert('rotation_euler',index=2,frame=frame)
- beat_scale={'setup':1.0,'escalation':1.035,'reaction':0.965,'punchline':0.99}.get(spec.get('_beat','setup'),1.0)
+  base_a=math.atan2(px(BASE[e]).y-px(BASE[s]).y,px(BASE[e]).x-px(BASE[s]).x)
+  base_b=math.atan2(px(BASE[w]).y-px(BASE[e]).y,px(BASE[w]).x-px(BASE[e]).x)
+  ta=math.atan2(px(spec[e]).y-px(spec[s]).y,px(spec[e]).x-px(spec[s]).x)
+  tb=math.atan2(px(spec[w]).y-px(spec[e]).y,px(spec[w]).x-px(spec[e]).x)
+  p1.rotation_euler.z=ta-base_a
+  p2.rotation_euler.z=(tb-ta)-(base_b-base_a)
+  p3=arm.pose.bones[f'hand.{side}']
+  p3.rotation_euler.z=(tb-ta)*0.12
+  p1.keyframe_insert('rotation_euler',index=2,frame=frame)
+  p2.keyframe_insert('rotation_euler',index=2,frame=frame)
+  p3.keyframe_insert('rotation_euler',index=2,frame=frame)
+ transition=PROFILE.get('transition_profiles') or {}
+ default_transition=transition.get('default',{})
+ action_transition=transition.get(spec.get('_action',''),{})
+ secondary=dict(default_transition.get('secondary',{}))
+ secondary.update(action_transition.get('secondary',{}))
+ motion=spec.get('_motion',(0.0,0.0))
+ drive=max(-1.0,min(1.0,float(motion[0])/140.0 + float(motion[1])/220.0*0.45))
  phase=spec.get('_phase','settle')
+ phase_weight={'approach':0.0,'anticipation':0.32,'contact_approach':0.68,'contact':1.0,'overshoot':1.25,'recoil':0.82,'settle':0.20}.get(phase,0.0)
+ # Secondary motion intentionally lags the main pose. Keeping it small prevents
+ # the generated cutout layers from separating while giving the motion a hand-
+ # animated "follow-through" instead of a rigid puppet feel.
+ head_lag_deg=float(secondary.get('head_lag_deg',0.0))
+ hand_follow_deg=float(secondary.get('hand_follow_deg',0.0))
+ accessory_follow_deg=float(secondary.get('accessory_follow_deg',0.0))
+ head=arm.pose.bones['head']
+ head.rotation_euler.z=math.radians(spec['head_rot']-head_lag_deg*drive*phase_weight)
+ head.keyframe_insert('rotation_euler',index=2,frame=frame)
+ hand_follow=math.radians(hand_follow_deg*drive*phase_weight)
+ for side in ('L','R'):
+  hand=arm.pose.bones[f'hand.{side}']
+  hand.rotation_euler.z += hand_follow*(1.0 if side=='R' else -1.0)
+  hand.keyframe_insert('rotation_euler',index=2,frame=frame)
+ beat_scale={'setup':1.0,'escalation':1.035,'reaction':0.965,'punchline':0.99}.get(spec.get('_beat','setup'),1.0)
  phase_scale={'approach':1.0,'anticipation':0.975,'contact_approach':1.015,'contact':1.055,'overshoot':0.94,'recoil':1.02,'settle':1.0}.get(phase,1.0)
- scale=beat_scale*phase_scale; root.scale=(1/scale,scale,1); root.keyframe_insert('scale',frame=frame)
- bp=arm.pose.bones['backpack']; bp.rotation_euler.z=math.radians(spec['root_rot']*.45); bp.keyframe_insert('rotation_euler',index=2,frame=frame)
-
+ scale=beat_scale*phase_scale
+ root.scale=(1/scale,scale,1)
+ root.keyframe_insert('scale',frame=frame)
+ bp=arm.pose.bones['backpack']
+ bp.rotation_euler.z=math.radians(spec['root_rot']*.45-accessory_follow_deg*drive*phase_weight)
+ bp.keyframe_insert('rotation_euler',index=2,frame=frame)
 
 def key_face(face,frame,spec):
+ phase=spec.get('_phase','settle')
  c=px(spec['head_center']); base_c=px(BASE['head_center']); a=math.radians(spec['head_rot']); co,si=math.cos(a),math.sin(a)
  if face.get('mode')=='organic':
   f=FACE_PROFILE; offsets={'Eye.L':px(((f['eye_left'][0]+f['eye_left'][2])//2,(f['eye_left'][1]+f['eye_left'][3])//2))-base_c,'Eye.R':px(((f['eye_right'][0]+f['eye_right'][2])//2,(f['eye_right'][1]+f['eye_right'][3])//2))-base_c,'Mouth':px(((f['mouth'][0]+f['mouth'][2])//2,(f['mouth'][1]+f['mouth'][3])//2))-base_c}
@@ -194,7 +233,10 @@ def key_face(face,frame,spec):
   for obj,name in [(face['eyes'][0],'Eye.L'),(face['eyes'][1],'Eye.R'),(face['mouth'],'Mouth')]:
    obj.location=wp(offsets[name]); obj.rotation_euler.z=a; obj.keyframe_insert('location',frame=frame); obj.keyframe_insert('rotation_euler',index=2,frame=frame)
   for i,(eye,sign) in enumerate(zip(face['eyes'],(-1,1))):
-   eye.scale.y=spec['eye_open']; eye.location.x += spec['gaze'][0]*0.075*sign; eye.location.y += spec['gaze'][1]*0.055; eye.keyframe_insert('scale',index=1,frame=frame); eye.keyframe_insert('location',frame=frame)
+   impact_eye=float((PROFILE.get('transition_profiles') or {}).get('default',{}).get('secondary',{}).get('impact_eye_open',0.06))
+   reaction_boost=impact_eye*(1.0 if phase=='contact' else 0.65 if phase=='overshoot' else 0.35 if phase=='recoil' else 0.0)
+   eye_open=max(0.35,min(1.35,spec['eye_open']+reaction_boost))
+   eye.scale.y=eye_open; eye.location.x += spec['gaze'][0]*0.075*sign; eye.location.y += spec['gaze'][1]*0.055; eye.keyframe_insert('scale',index=1,frame=frame); eye.keyframe_insert('location',frame=frame)
   mouth=face['mouth']; mouth.scale=(1, {'smile':1.0,'open':1.28,'frown':0.80,'flat':0.68}[spec['mouth']],1); mouth.keyframe_insert('scale',frame=frame); return
  f=FACE_PROFILE
  offsets={'screen':px(f['screen'][:2])-base_c,'Eye.L':px(f['eye_left'][:2])-base_c,'Eye.R':px(f['eye_right'][:2])-base_c,'Pupil.L':px(f['pupil_left'][:2])-base_c,'Pupil.R':px(f['pupil_right'][:2])-base_c,'Mouth':px(f['mouth'][:2])-base_c}
@@ -202,7 +244,7 @@ def key_face(face,frame,spec):
  for name,obj in [('screen',face['screen']),('Eye.L',face['eyes'][0]),('Eye.R',face['eyes'][1]),('Pupil.L',face['pupils'][0]),('Pupil.R',face['pupils'][1]),('Mouth',face['mouth'])]:
   obj.location=world_pos(offsets[name]); obj.rotation_euler.z=a; obj.keyframe_insert('location',frame=frame); obj.keyframe_insert('rotation_euler',index=2,frame=frame)
  for eye,pupil,side in [(face['eyes'][0],face['pupils'][0],-1),(face['eyes'][1],face['pupils'][1],1)]:
-  eye.scale.y=spec['eye_open']; pupil.scale.y=max(.12,spec['eye_open']); pupil.location.x=world_pos(offsets['Pupil.L' if side<0 else 'Pupil.R'])[0]+spec['gaze'][0]*.18; pupil.location.y=world_pos(offsets['Pupil.L' if side<0 else 'Pupil.R'])[1]+spec['gaze'][1]*.14; eye.keyframe_insert('scale',index=1,frame=frame); pupil.keyframe_insert('scale',index=1,frame=frame); pupil.keyframe_insert('location',frame=frame)
+  impact_eye=float((PROFILE.get('transition_profiles') or {}).get('default',{}).get('secondary',{}).get('impact_eye_open',0.06)); reaction_boost=impact_eye*(1.0 if phase=='contact' else 0.65 if phase=='overshoot' else 0.35 if phase=='recoil' else 0.0); eye_open=max(.35,min(1.35,spec['eye_open']+reaction_boost)); eye.scale.y=eye_open; pupil.scale.y=max(.12,eye_open); pupil.location.x=world_pos(offsets['Pupil.L' if side<0 else 'Pupil.R'])[0]+spec['gaze'][0]*.18; pupil.location.y=world_pos(offsets['Pupil.L' if side<0 else 'Pupil.R'])[1]+spec['gaze'][1]*.14; eye.keyframe_insert('scale',index=1,frame=frame); pupil.keyframe_insert('scale',index=1,frame=frame); pupil.keyframe_insert('location',frame=frame)
  mouth=face['mouth']; mouth.scale={'smile':(1,1,1),'open':(.90,1.70,1),'frown':(.88,.60,1),'flat':(.82,.30,1)}[spec['mouth']]; mouth.keyframe_insert('scale',frame=frame)
 
 
@@ -346,7 +388,7 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
  # real continuous in-betweens between performance poses.
  scene.frame_start=1; scene.frame_end=frames; scene.render.image_settings.file_format='PNG'; scene.render.filepath=str(OUTDIR/'frame_####')
  effective_rows=load_voice_rows(voice_json); effective_shot_durations=[round(max(1.0,float(r.get('duration',0.0) or 0.0))+tail,3) for r,tail in zip(effective_rows[:4],(0.48,0.58,0.60,0.82))] if rows else [round((b-a)/24,3) for _,a,b in BEATS]
- meta={'engine':'blender-cutout-performance-rig-v3','character':CHARACTER,'beats':BEATS,'voice_json':str(voice_json) if voice_json else None,'effective_shot_durations':effective_shot_durations,'actions':[r.get('action') for r in effective_rows[:4]],'resolution':[W,H],'fps':24,'frames':frames,'deformable_layers':['torso','head','left_arm','right_arm','backpack'],'armature_bones':['root','head','arm.L','forearm.L','hand.L','arm.R','forearm.R','hand.R','backpack'],'facial_controls':['blink','gaze','mouth_shape','speech_micro_motion','organic_face_patches'],'pose_library':list(PROFILE.get('_pose_library',{}).keys()),'pose_map':dict(PROFILE.get('_pose_map',{})),'in_between':'action-chain-anticipation-contact-overshoot-recoil-settle','action_chain':['approach','anticipation','contact_approach','contact','overshoot','recoil','settle'],'source':'clean-pip-master-cutout'}
+ meta={'engine':'blender-cutout-performance-rig-v4','character':CHARACTER,'beats':BEATS,'voice_json':str(voice_json) if voice_json else None,'effective_shot_durations':effective_shot_durations,'actions':[r.get('action') for r in effective_rows[:4]],'resolution':[W,H],'fps':24,'frames':frames,'deformable_layers':['torso','head','left_arm','right_arm','backpack'],'armature_bones':['root','head','arm.L','forearm.L','hand.L','arm.R','forearm.R','hand.R','backpack'],'facial_controls':['blink','gaze','mouth_shape','speech_micro_motion','organic_face_patches'],'pose_library':list(PROFILE.get('_pose_library',{}).keys()),'pose_map':dict(PROFILE.get('_pose_map',{})),'in_between':'action-chain-anticipation-contact-overshoot-recoil-settle','action_chain':['approach','anticipation','contact_approach','contact','overshoot','recoil','settle'],'source':'character-profile-cutout-assets'}
  t=bpy.data.texts.new('NOVA_BLENDER_RIG_METADATA.json'); t.write(json.dumps(meta,indent=2)); return scene,meta
 
 

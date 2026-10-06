@@ -173,27 +173,96 @@ DEFAULT_ACTION_POSES = {
     "deadpan": "deadpan",
 }
 
+# These are intentionally data-shaped rather than baked into Blender. A character
+# profile can override any timing or pose displacement while the pure-Python
+# helper remains deterministic and testable.
+DEFAULT_ACTION_TRANSITION_PROFILES: dict[str, dict[str, float]] = {
+    "default": {
+        "anticipation_at": 0.22,
+        "anticipation_t": -0.18,
+        "contact_approach_at": 0.46,
+        "contact_approach_t": 0.72,
+        "contact_at": 0.60,
+        "contact_t": 1.00,
+        "overshoot_at": 0.70,
+        "overshoot_t": 1.10,
+        "recoil_at": 0.82,
+        "recoil_t": 0.93,
+        "settle_at": 1.00,
+        "settle_t": 1.00,
+    },
+    "press_button": {
+        "anticipation_t": -0.24,
+        "contact_approach_t": 0.76,
+        "overshoot_t": 1.16,
+        "recoil_t": 0.90,
+    },
+    "tap_alarm": {
+        "anticipation_t": -0.20,
+        "contact_approach_t": 0.78,
+        "overshoot_t": 1.14,
+        "recoil_t": 0.90,
+    },
+    "shock": {
+        "anticipation_t": -0.14,
+        "contact_approach_t": 0.76,
+        "overshoot_t": 1.10,
+        "recoil_t": 0.91,
+    },
+    "overwhelmed": {
+        "anticipation_t": -0.14,
+        "contact_approach_t": 0.74,
+        "overshoot_t": 1.07,
+        "recoil_t": 0.93,
+    },
+    "reach": {"anticipation_t": -0.18, "overshoot_t": 1.12, "recoil_t": 0.92},
+    "present": {"anticipation_t": -0.10, "overshoot_t": 1.06, "recoil_t": 0.95},
+    "tap": {"anticipation_t": -0.18, "overshoot_t": 1.10, "recoil_t": 0.92},
+    "deadpan": {"anticipation_t": -0.08, "overshoot_t": 1.02, "recoil_t": 0.97},
+    "sleepy": {"anticipation_t": -0.06, "overshoot_t": 1.02, "recoil_t": 0.98},
+}
 
-def make_action_pose_chain(prev: dict[str, Any], target: dict[str, Any], action: str,
-                           span: int = 100) -> list[tuple[int, dict[str, Any], str]]:
-    """Build the deterministic physical action phases shared by Blender and tests."""
+
+def make_action_pose_chain(
+    prev: dict[str, Any],
+    target: dict[str, Any],
+    action: str,
+    span: int = 100,
+    transition_profiles: dict[str, dict[str, float]] | None = None,
+) -> list[tuple[int, dict[str, Any], str]]:
+    """Build deterministic anticipation/contact/impact motion for Blender and tests."""
+    profiles = transition_profiles or DEFAULT_ACTION_TRANSITION_PROFILES
+    profile = dict(profiles.get("default", DEFAULT_ACTION_TRANSITION_PROFILES["default"]))
+    profile.update(profiles.get(action, {}))
+
     def blend(a: dict[str, Any], b: dict[str, Any], t: float) -> dict[str, Any]:
-        out=deepcopy(a)
-        for k in ('root','neck','head_center','left_shoulder','left_elbow','left_wrist','right_shoulder','right_elbow','right_wrist'):
-            out[k]=[a[k][i]+(b[k][i]-a[k][i])*t for i in (0,1)]
-        for k in ('head_rot','root_rot','eye_open'):
-            out[k]=a[k]+(b[k]-a[k])*t
-        out['gaze']=[a['gaze'][i]+(b['gaze'][i]-a['gaze'][i])*t for i in (0,1)]
-        out['mouth']=b['mouth'] if t>=0.65 else a['mouth']
+        # Smooth the normal in-range travel, but preserve true extrapolation for
+        # anticipation (<0) and overshoot (>1). This gives a soft acceleration
+        # into contact without erasing the physical opposition and follow-through.
+        u = float(t)
+        if 0.0 < u < 1.0:
+            u = u * u * (3.0 - 2.0 * u)
+        out = deepcopy(a)
+        for k in (
+            "root", "neck", "head_center",
+            "left_shoulder", "left_elbow", "left_wrist",
+            "right_shoulder", "right_elbow", "right_wrist",
+        ):
+            out[k] = [a[k][i] + (b[k][i] - a[k][i]) * u for i in (0, 1)]
+        for k in ("head_rot", "root_rot", "eye_open"):
+            out[k] = a[k] + (b[k] - a[k]) * u
+        out["gaze"] = [a["gaze"][i] + (b["gaze"][i] - a["gaze"][i]) * u for i in (0, 1)]
+        out["mouth"] = b["mouth"] if u >= 0.65 else a["mouth"]
         return out
-    span=max(8,int(span)); accent=1.0 if action in {'press_button','tap_alarm','shock','overwhelmed'} else 0.72
-    phases=[
-        (0, 0.0, 'approach'),
-        (0.24, -0.16*accent, 'anticipation'),
-        (0.46, 0.72, 'contact_approach'),
-        (0.60, 1.0, 'contact'),
-        (0.70, 1.08+0.04*accent, 'overshoot'),
-        (0.82, 0.93, 'recoil'),
-        (1.00, 1.0, 'settle'),
+
+    span = max(8, int(span))
+    phases = [
+        (0.0, 0.00, "approach"),
+        (profile["anticipation_at"], profile["anticipation_t"], "anticipation"),
+        (profile["contact_approach_at"], profile["contact_approach_t"], "contact_approach"),
+        (profile["contact_at"], profile["contact_t"], "contact"),
+        (profile["overshoot_at"], profile["overshoot_t"], "overshoot"),
+        (profile["recoil_at"], profile["recoil_t"], "recoil"),
+        (profile["settle_at"], profile["settle_t"], "settle"),
     ]
-    return [(round(span*when), blend(prev,target,t), phase) for when,t,phase in phases]
+    return [(round(span * when), blend(prev, target, t), phase) for when, t, phase in phases]

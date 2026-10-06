@@ -98,7 +98,14 @@ class BlenderAnimationProvider:
         work = output_mp4.parent / (output_mp4.stem + "_blender_work")
         work.mkdir(parents=True, exist_ok=True)
         voice_performance = prepare_voice_performance(work / "voice", voice_lines, beats, durations)
-        total_seconds = sum(max(1.0, float(x.get("duration", 0.0))) + tail for x, tail in zip(voice_performance, (0.48,0.58,0.60,0.82)))
+        reaction_tails = (0.48,0.58,0.60,0.82)
+        # Keep the same effective clock for Blender, captions and audio: each
+        # voice beat owns a small reaction tail after the spoken line.
+        effective_shot_durations = [
+            round(max(1.0, float(row.get("duration", 0.0) or 0.0)) + tail, 3)
+            for row, tail in zip(voice_performance[:4], reaction_tails)
+        ]
+        total_seconds = sum(effective_shot_durations)
         frames = max(24, round(total_seconds * 24))
         voice_json = work / "voice_performance.json"
         rows=[]
@@ -157,11 +164,10 @@ class BlenderAnimationProvider:
         if not ffmpeg:
             raise RuntimeError("ffmpeg is required")
         subprocess.run([ffmpeg,"-y","-framerate","24","-i",str(captioned_dir/'frame_%05d.png'),"-c:v","libx264","-pix_fmt","yuv420p","-crf","18",str(video_only)],check=True,capture_output=True,text=True)
-        audio = _audio_for_shots(work / "audio", voice_lines, durations, sfx_kinds, ffmpeg, [row.get("performance_peak_fraction",0.4) for row in voice_performance], [0.0]*len(durations), voice_performance=voice_performance)
+        audio = _audio_for_shots(work / "audio", voice_lines, effective_shot_durations, sfx_kinds, ffmpeg, [row.get("performance_peak_fraction",0.4) for row in voice_performance], [0.0]*len(effective_shot_durations), voice_performance=voice_performance)
         if not audio:
             raise RuntimeError("Blender episode audio generation failed")
         subprocess.run([ffmpeg,"-y","-i",str(video_only),"-i",str(audio),"-map","0:v:0","-map","1:a:0","-c:v","copy","-c:a","aac","-b:a","192k","-shortest",str(output_mp4)],check=True,capture_output=True,text=True)
-        effective_shot_durations=[round(max(1.0,float(row.get("duration",0.0) or 0.0))+tail,3) for row,tail in zip(voice_performance,(0.48,0.58,0.60,0.82))]
         metadata={
             "engine":"blender-cutout-performance-rig-v4",
             "character":character,

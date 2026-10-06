@@ -72,3 +72,64 @@ def test_pose_chain_is_deterministic_and_overshoots():
     assert [x[2] for x in chain]==['approach','anticipation','contact_approach','contact','overshoot','recoil','settle']
     assert chain[1][1]['root'][0] < 0
     assert chain[4][1]['root'][0] > target['root'][0]
+
+
+def test_action_pose_chain_accepts_data_driven_transition_profile():
+    from app.providers.cartoon_pose_library import make_action_pose_chain
+    base={"root":[0,0],"neck":[0,0],"head_center":[0,0],"left_shoulder":[0,0],"left_elbow":[0,0],"left_wrist":[0,0],"right_shoulder":[0,0],"right_elbow":[0,0],"right_wrist":[0,0],"head_rot":0,"root_rot":0,"eye_open":1,"gaze":[0,0],"mouth":"flat"}
+    target={**base,"root":[100,0],"neck":[100,0],"head_center":[100,0]}
+    profiles={"default": {"anticipation_at":0.20,"anticipation_t":-0.10,"contact_approach_at":0.45,"contact_approach_t":0.70,"contact_at":0.60,"contact_t":1.0,"overshoot_at":0.72,"overshoot_t":1.08,"recoil_at":0.84,"recoil_t":0.94,"settle_at":1.0,"settle_t":1.0}, "press_button":{"anticipation_t":-0.35,"overshoot_t":1.22}}
+    chain=make_action_pose_chain(base,target,'press_button',span=100,transition_profiles=profiles)
+    assert chain[1][0] == 20
+    assert chain[1][1]["root"][0] == -35
+    assert chain[4][1]["root"][0] == 122
+
+
+def test_transition_profiles_exist_for_all_cartoon_characters():
+    import json
+    root=Path(__file__).resolve().parents[1]
+    data=json.loads((root/'config'/'cartoon_blender_profiles.json').read_text(encoding='utf-8'))
+    for character in ('PIP','MOMO','BUBU'):
+        profile=data['characters'][character]['transition_profiles']
+        assert 'default' in profile
+        assert 'secondary' in profile['default']
+        assert profile['default']['secondary']['head_lag_deg'] > 0
+        assert profile['default']['secondary']['accessory_follow_deg'] > 0
+
+
+def test_blender_source_declares_secondary_motion_and_profile_driven_chain():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    for marker in ('transition_profiles','secondary','head_lag','hand_follow','accessory_follow','impact_eye_open','_motion','_phase'):
+        assert marker in text
+    assert "'engine':'blender-cutout-performance-rig-v4'" in text
+
+
+def test_blender_episode_audio_helper_creates_missing_work_directory(tmp_path):
+    import shutil
+    import wave
+    from app.providers.cartoon_media import _audio_for_shots
+
+    wav = tmp_path / "voice.wav"
+    with wave.open(str(wav), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44100)
+        handle.writeframes(b"\x00\x00" * 2205)
+
+    work = tmp_path / "missing" / "audio"
+    out = _audio_for_shots(
+        work, ["hello"], [1.0], ["none"], shutil.which("ffmpeg"),
+        voice_performance=[{"path": str(wav)}],
+    )
+    assert out is not None
+    assert out.exists()
+
+
+def test_blender_episode_audio_uses_the_effective_voice_clock():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'app'/'providers'/'blender_animation.py').read_text(encoding='utf-8')
+    assert 'reaction_tails = (0.48,0.58,0.60,0.82)' in text
+    assert 'effective_shot_durations' in text
+    assert '_audio_for_shots(work / "audio", voice_lines, effective_shot_durations' in text
+    assert 'total_seconds = sum(effective_shot_durations)' in text

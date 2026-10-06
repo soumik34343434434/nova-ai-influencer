@@ -235,6 +235,86 @@
           0.56,
           0.13
         ]
+      },
+      "transition_profiles": {
+        "default": {
+          "anticipation_at": 0.22,
+          "anticipation_t": -0.18,
+          "contact_approach_at": 0.46,
+          "contact_approach_t": 0.72,
+          "contact_at": 0.6,
+          "contact_t": 1.0,
+          "overshoot_at": 0.7,
+          "overshoot_t": 1.1,
+          "recoil_at": 0.82,
+          "recoil_t": 0.93,
+          "settle_at": 1.0,
+          "settle_t": 1.0,
+          "secondary": {
+            "head_lag_deg": 4.5,
+            "hand_follow_deg": 3.0,
+            "accessory_follow_deg": 3.0,
+            "impact_eye_open": 0.06
+          }
+        },
+        "press_button": {
+          "anticipation_t": -0.24,
+          "contact_approach_t": 0.76,
+          "overshoot_t": 1.16,
+          "recoil_t": 0.9,
+          "secondary": {}
+        },
+        "tap_alarm": {
+          "anticipation_t": -0.2,
+          "contact_approach_t": 0.78,
+          "overshoot_t": 1.14,
+          "recoil_t": 0.9,
+          "secondary": {}
+        },
+        "shock": {
+          "anticipation_t": -0.14,
+          "contact_approach_t": 0.76,
+          "overshoot_t": 1.1,
+          "recoil_t": 0.91,
+          "secondary": {}
+        },
+        "overwhelmed": {
+          "anticipation_t": -0.14,
+          "contact_approach_t": 0.74,
+          "overshoot_t": 1.07,
+          "recoil_t": 0.93,
+          "secondary": {}
+        },
+        "reach": {
+          "anticipation_t": -0.18,
+          "overshoot_t": 1.12,
+          "recoil_t": 0.92,
+          "secondary": {}
+        },
+        "present": {
+          "anticipation_t": -0.1,
+          "overshoot_t": 1.06,
+          "recoil_t": 0.95,
+          "secondary": {}
+        },
+        "tap": {
+          "anticipation_t": -0.18,
+          "overshoot_t": 1.1,
+          "recoil_t": 0.92,
+          "secondary": {}
+        },
+        "deadpan": {
+          "anticipation_t": -0.08,
+          "overshoot_t": 1.02,
+          "recoil_t": 0.97,
+          "secondary": {}
+        },
+        "sleepy": {
+          "anticipation_t": -0.06,
+          "overshoot_t": 1.02,
+          "recoil_t": 0.98,
+          "secondary": {}
+        }
       }
     },
     "MOMO": {
@@ -469,7 +549,87 @@
         }
       },
       "compiler_source": "/private/tmp/nova-ai-influencer/assets/cartoon/characters/momo.png",
-      "compiler_manifest": "artifacts/cartoon/blender/momo_cutout_layers/manifest.json"
+      "compiler_manifest": "artifacts/cartoon/blender/momo_cutout_layers/manifest.json",
+      "transition_profiles": {
+        "default": {
+          "anticipation_at": 0.22,
+          "anticipation_t": -0.15,
+          "contact_approach_at": 0.46,
+          "contact_approach_t": 0.72,
+          "contact_at": 0.6,
+          "contact_t": 1.0,
+          "overshoot_at": 0.7,
+          "overshoot_t": 1.06,
+          "recoil_at": 0.82,
+          "recoil_t": 0.93,
+          "settle_at": 1.0,
+          "settle_t": 1.0,
+          "secondary": {
+            "head_lag_deg": 3.0,
+            "hand_follow_deg": 2.2,
+            "accessory_follow_deg": 4.0,
+            "impact_eye_open": 0.05
+          }
+        },
+        "press_button": {
+          "anticipation_t": -0.24,
+          "contact_approach_t": 0.76,
+          "overshoot_t": 1.16,
+          "recoil_t": 0.9,
+          "secondary": {}
+        },
+        "tap_alarm": {
+          "anticipation_t": -0.2,
+          "contact_approach_t": 0.78,
+          "overshoot_t": 1.14,
+          "recoil_t": 0.9,
+          "secondary": {}
+        },
+        "shock": {
+          "anticipation_t": -0.14,
+          "contact_approach_t": 0.76,
+          "overshoot_t": 1.1,
+          "recoil_t": 0.91,
+          "secondary": {}
+        },
+        "overwhelmed": {
+          "anticipation_t": -0.14,
+          "contact_approach_t": 0.74,
+          "overshoot_t": 1.07,
+          "recoil_t": 0.93,
+          "secondary": {}
+        },
+        "reach": {
+          "anticipation_t": -0.18,
+          "overshoot_t": 1.12,
+          "recoil_t": 0.92,
+          "secondary": {}
+        },
+        "present": {
+          "anticipation_t": -0.1,
+          "overshoot_t": 1.06,
+          "recoil_t": 0.95,
+          "secondary": {}
+        },
+        "tap": {
+          "anticipation_t": -0.18,
+          "overshoot_t": 1.1,
+          "recoil_t": 0.92,
+          "secondary": {}
+        },
+        "deadpan": {
+          "anticipation_t": -0.08,
+          "overshoot_t": 1.02,
+          "recoil_t": 0.97,
+          "secondary": {}
+        },
+        "sleepy": {
+          "anticipation_t": -0.06,
+          "overshoot_t": 1.02,
+          "recoil_t": 0.98,
+          "secondary": {}
+        }
+      }
     },
     "BUBU": {
       "asset_dir": "artifacts/cartoon/blender/bubu_cutout_layers",
@@ -703,7 +863,87 @@
         }
       },
       "compiler_source": "/private/tmp/nova-ai-influencer/assets/cartoon/characters/bubu.png",
-      "compiler_manifest": "artifacts/cartoon/blender/bubu_cutout_layers/manifest.json"
+      "compiler_manifest": "artifacts/cartoon/blender/bubu_cutout_layers/manifest.json",
+      "transition_profiles": {
+        "default": {
+          "anticipation_at": 0.22,
+          "anticipation_t": -0.2,
+          "contact_approach_at": 0.46,
+          "contact_approach_t": 0.72,
+          "contact_at": 0.6,
+          "contact_t": 1.0,
+          "overshoot_at": 0.7,
+          "overshoot_t": 1.11,
+          "recoil_at": 0.82,
+          "recoil_t": 0.93,
+          "settle_at": 1.0,
+          "settle_t": 1.0,
+          "secondary": {
+            "head_lag_deg": 4.0,
+            "hand_follow_deg": 3.4,
+            "accessory_follow_deg": 3.6,
+            "impact_eye_open": 0.08
+          }
+        },
+        "press_button": {
+          "anticipation_t": -0.24,
+          "contact_approach_t": 0.76,
+          "overshoot_t": 1.16,
+          "recoil_t": 0.9,
+          "secondary": {}
+        },
+        "tap_alarm": {
+          "anticipation_t": -0.2,
+          "contact_approach_t": 0.78,
+          "overshoot_t": 1.14,
+          "recoil_t": 0.9,
+          "secondary": {}
+        },
+        "shock": {
+          "anticipation_t": -0.14,
+          "contact_approach_t": 0.76,
+          "overshoot_t": 1.1,
+          "recoil_t": 0.91,
+          "secondary": {}
+        },
+        "overwhelmed": {
+          "anticipation_t": -0.14,
+          "contact_approach_t": 0.74,
+          "overshoot_t": 1.07,
+          "recoil_t": 0.93,
+          "secondary": {}
+        },
+        "reach": {
+          "anticipation_t": -0.18,
+          "overshoot_t": 1.12,
+          "recoil_t": 0.92,
+          "secondary": {}
+        },
+        "present": {
+          "anticipation_t": -0.1,
+          "overshoot_t": 1.06,
+          "recoil_t": 0.95,
+          "secondary": {}
+        },
+        "tap": {
+          "anticipation_t": -0.18,
+          "overshoot_t": 1.1,
+          "recoil_t": 0.92,
+          "secondary": {}
+        },
+        "deadpan": {
+          "anticipation_t": -0.08,
+          "overshoot_t": 1.02,
+          "recoil_t": 0.97,
+          "secondary": {}
+        },
+        "sleepy": {
+          "anticipation_t": -0.06,
+          "overshoot_t": 1.02,
+          "recoil_t": 0.98,
+          "secondary": {}
+        }
+      }
     }
   }
 }

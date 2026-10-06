@@ -108,6 +108,7 @@ def _audio_for_shots(
     voice_performance: list[dict] | None = None,
 ) -> Path | None:
     """Build audio from the same per-shot clock used by the animation engine."""
+    work.mkdir(parents=True, exist_ok=True)
     total = sum(durations)
     peak_fractions = sfx_peak_fractions or [0.0] * len(durations)
     voice_starts = voice_start_fractions or [0.04] * len(durations)
