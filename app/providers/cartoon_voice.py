@@ -1,0 +1,227 @@
+"""Local-first character voice performance for cartoon shorts.
+
+The goal is not merely to synthesize words.  Each line gets a tiny acting
+profile, natural pauses, a character voice, and timing telemetry that the
+animation engine can consume on the same performance clock.
+"""
+from __future__ import annotations
+
+import math
+import re
+import shutil
+import subprocess
+import wave
+from dataclasses import dataclass, asdict
+from pathlib import Path
+
+RATE = 44100
+
+
+@dataclass(frozen=True)
+class VoiceProfile:
+    voice: str
+    rate: int
+    pitch: float
+    gain: float
+    pre_pause: float
+    post_pause: float
+
+
+BEAT_VOICE_PROFILES: dict[str, VoiceProfile] = {
+    "setup": VoiceProfile("Eddy (English (US))", 172, 1.01, 0.97, 0.035, 0.070),
+    "escalation": VoiceProfile("Eddy (English (US))", 192, 1.055, 1.00, 0.025, 0.095),
+    "reaction": VoiceProfile("Eddy (English (US))", 164, 0.995, 0.99, 0.035, 0.085),
+    "punchline": VoiceProfile("Eddy (English (US))", 148, 0.955, 0.98, 0.060, 0.180),
+}
+
+
+def _available_say_voices() -> set[str]:
+    say = shutil.which("say")
+    if not say:
+        return set()
+    try:
+        result = subprocess.run([say, "-v", "?"], check=True, capture_output=True, text=True)
+    except (OSError, subprocess.CalledProcessError):
+        return set()
+    names: set[str] = set()
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        names.add(line.rsplit("  ", 1)[0].strip() if "  " in line else line.split()[0])
+    return names
+
+
+def _resolve_voice(preferred: str) -> str:
+    available = _available_say_voices()
+    if preferred in available:
+        return preferred
+    for fallback in ("Samantha", "Tara", "Aman", "Daniel"):
+        if fallback in available:
+            return fallback
+    return preferred
+
+
+def performance_text(text: str, beat: str) -> str:
+    """Add punctuation that guides natural TTS timing without changing words."""
+    clean = " ".join(text.split())
+    if not clean:
+        return clean
+    if beat == "setup":
+        return clean.rstrip(".!?") + "."
+    if beat == "escalation":
+        if len(clean.split()) <= 4:
+            return clean.rstrip(".!?") + "?!"
+        # Create a brief anticipation pause before the stressed ending.
+        words = clean.rstrip(".!?").split()
+        if len(words) >= 3 and not any(p in clean for p in ("...", "…")):
+            return " ".join(words[:-1]) + "... " + words[-1] + "?!"
+        return clean.rstrip(".") + "?!"
+    if beat == "reaction":
+        clean = clean.replace("?", "")
+        if "," in clean:
+            clean = clean.replace(",", "...", 1)
+        return clean.rstrip(".!?") + "?"
+    # Deadpan: a slightly longer lead-in pause improves the final look-to-camera beat.
+    if "," in clean:
+        clean = clean.replace(",", "…", 1)
+    return clean.rstrip(".!?") + "."
+
+
+def _duration(path: Path) -> float:
+    with wave.open(str(path), "rb") as wav:
+        return wav.getnframes() / max(1, wav.getframerate())
+
+
+def _rms_activity(path: Path, points: int = 96) -> tuple[list[float], float, float]:
+    with wave.open(str(path), "rb") as wav:
+        data = wav.readframes(wav.getnframes())
+        channels = wav.getnchannels()
+        width = wav.getsampwidth()
+        rate = wav.getframerate()
+    if width != 2 or not data:
+        return [0.0] * points, 0.0, 0.0
+    import array
+    samples = array.array("h")
+    samples.frombytes(data)
+    values = [abs(v) / 32768.0 for v in samples]
+    if channels > 1:
+        values = [sum(values[i:i + channels]) / channels for i in range(0, len(values), channels)]
+    n = len(values)
+    if n == 0:
+        return [0.0] * points, 0.0, 0.0
+    window = max(1, n // points)
+    raw: list[float] = []
+    for i in range(points):
+        start = i * window
+        end = min(n, (i + 1) * window)
+        chunk = values[start:end] or [0.0]
+        rms = math.sqrt(sum(v * v for v in chunk) / len(chunk))
+        raw.append(rms)
+    peak = max(raw) or 1.0
+    norm = [min(1.0, v / peak) for v in raw]
+    # Smooth the activity curve so animation follows speech energy without jitter.
+    smooth: list[float] = []
+    for i in range(points):
+        a = max(0, i - 2)
+        b = min(points, i + 3)
+        smooth.append(sum(norm[a:b]) / max(1, b - a))
+    threshold = max(0.018, peak * 0.10)
+    onset_index = next((i for i, v in enumerate(raw) if v >= threshold), 0)
+    peak_index = max(range(points), key=lambda i: raw[i])
+    return smooth, onset_index / max(1, points - 1), peak_index / max(1, points - 1)
+
+
+def _render_say(text: str, path: Path, profile: VoiceProfile, rate_override: int | None = None) -> None:
+    say = shutil.which("say")
+    ffmpeg = shutil.which("ffmpeg")
+    if not say or not ffmpeg:
+        raise RuntimeError("macOS 'say' and ffmpeg are required for local voice performance")
+    aiff = path.with_suffix(".aiff")
+    rate = int(rate_override or profile.rate)
+    voice = _resolve_voice(profile.voice)
+    subprocess.run([say, "-v", voice, "-r", str(rate), "-o", str(aiff), text], check=True)
+
+    pitch = profile.pitch
+    pitch_filter = ""
+    if abs(pitch - 1.0) > 0.005:
+        pitch_filter = f"asetrate={RATE * pitch:.2f},aresample={RATE},atempo={1.0 / pitch:.6f},"
+    af = (
+        f"{pitch_filter}highpass=f=70,lowpass=f=12500,"
+        "acompressor=threshold=-20dB:ratio=2.2:attack=6:release=95:makeup=1.2dB,"
+        f"volume={profile.gain:.3f}"
+    )
+    subprocess.run(
+        [ffmpeg, "-y", "-i", str(aiff), "-af", af, "-ar", str(RATE), "-ac", "1", str(path)],
+        check=True, capture_output=True, text=True,
+    )
+    aiff.unlink(missing_ok=True)
+
+
+def _add_padding(path: Path, output: Path, pre: float, post: float) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg is required")
+    delay_ms = round(max(0.0, pre) * 1000)
+    pad = max(0.0, post)
+    af = f"adelay={delay_ms}|{delay_ms},apad=pad_dur={pad:.3f},atrim=0:999"
+    subprocess.run(
+        [ffmpeg, "-y", "-i", str(path), "-af", af, "-ar", str(RATE), "-ac", "1", str(output)],
+        check=True, capture_output=True, text=True,
+    )
+
+
+def prepare_voice_performance(
+    work: Path,
+    voice_lines: list[str],
+    beats: list[str],
+    target_durations: list[float] | None = None,
+) -> list[dict]:
+    """Generate once, measure once, then expose timing telemetry to animation/audio."""
+    if len(voice_lines) != len(beats):
+        raise ValueError("voice_lines and beats must match")
+    work.mkdir(parents=True, exist_ok=True)
+    target_durations = target_durations or [None] * len(beats)
+    results: list[dict] = []
+    for i, (line, beat, target) in enumerate(zip(voice_lines, beats, target_durations)):
+        profile = BEAT_VOICE_PROFILES.get(beat, BEAT_VOICE_PROFILES["setup"])
+        text = performance_text(line, beat)
+        raw = work / f"voice_{i:02d}_raw.wav"
+        final = work / f"voice_{i:02d}.wav"
+        _render_say(text, raw, profile)
+        natural_duration = _duration(raw)
+        available = None
+        rate_used = profile.rate
+        if target:
+            available = max(0.35, float(target) - profile.pre_pause - profile.post_pause - 0.035)
+            if natural_duration > available * 1.05:
+                adjusted = round(profile.rate * natural_duration / available)
+                adjusted = max(135, min(235, adjusted))
+                _render_say(text, raw, profile, rate_override=adjusted)
+                natural_duration = _duration(raw)
+                rate_used = adjusted
+        _add_padding(raw, final, profile.pre_pause, profile.post_pause)
+        duration = _duration(final)
+        activity, onset, peak = _rms_activity(final)
+        results.append({
+            "shot": i,
+            "beat": beat,
+            "text": text,
+            "voice": _resolve_voice(profile.voice),
+            "rate": rate_used,
+            "pitch": profile.pitch,
+            "gain": profile.gain,
+            "pre_pause": profile.pre_pause,
+            "post_pause": profile.post_pause,
+            "natural_duration": round(natural_duration, 4),
+            "duration": round(duration, 4),
+            "target_duration": target,
+            "onset_fraction": round(onset, 4),
+            "peak_fraction": round(peak, 4),
+            "activity": [round(v, 4) for v in activity],
+            "path": str(final),
+        })
+        raw.unlink(missing_ok=True)
+    (work / "voice_performance.json").write_text(
+        __import__("json").dumps(results, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    return results

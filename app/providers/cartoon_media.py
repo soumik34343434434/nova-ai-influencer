@@ -9,6 +9,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from app.providers.cartoon_audio import make_sfx, make_voice
+from app.providers.cartoon_voice import prepare_voice_performance
 
 
 W, H = 1080, 1920
@@ -104,6 +105,7 @@ def _audio_for_shots(
     ffmpeg: str,
     sfx_peak_fractions: list[float] | None = None,
     voice_start_fractions: list[float] | None = None,
+    voice_performance: list[dict] | None = None,
 ) -> Path | None:
     """Build audio from the same per-shot clock used by the animation engine."""
     total = sum(durations)
@@ -118,15 +120,20 @@ def _audio_for_shots(
 
     for i, (line, duration) in enumerate(zip(voice_lines, durations)):
         if line.strip():
-            path = work / f"voice_{i:02d}.wav"
-            made = make_voice(line.strip(), path)
+            path = Path(voice_performance[i]["path"]) if voice_performance and i < len(voice_performance) else work / f"voice_{i:02d}.wav"
+            made = path if path.exists() else make_voice(line.strip(), path)
             if made and path.exists():
-                start = max(0.0, min(0.35, float(voice_starts[i]) if i < len(voice_starts) else 0.04))
+                start = 0.0 if voice_performance else max(0.0, min(0.35, float(voice_starts[i]) if i < len(voice_starts) else 0.04))
                 available = max(0.20, duration - start - 0.04)
                 import wave
                 with wave.open(str(path), "rb") as wav:
                     source_duration = wav.getnframes() / max(1, wav.getframerate())
-                tempo = max(0.85, min(1.25, source_duration / available))
+                # Natural-rate rendering happens in cartoon_voice.py. Only use a
+                # tiny safety correction here for pathological overrun; never
+                # stretch a normal line to fit a shot.
+                tempo = 1.0
+                if source_duration > available * 1.08:
+                    tempo = min(1.06, source_duration / available)
                 delay = round((elapsed + start) * 1000)
                 filters.append(
                     f"[{input_index}:a]atempo={tempo:.5f},apad,atrim=0:{available:.3f},adelay={delay}|{delay},volume=0.95[v{i}]"

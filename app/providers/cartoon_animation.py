@@ -23,6 +23,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFo
 from app.providers.cartoon_decomposer import load_action_layers
 from app.providers.cartoon_performance import arm_motion, head_motion
 from app.providers.cartoon_rig import CharacterRig, get_rig
+from app.providers.cartoon_voice import prepare_voice_performance
 
 W, H = 1080, 1920
 
@@ -527,37 +528,51 @@ def _impact_graphics(frame: Image.Image, intensity: float) -> None:
     frame.alpha_composite(overlay)
 
 
-def _face_motion(progress: float, beat: str) -> tuple[float, float, float, float, float]:
+def _speech_pulse(progress: float, performance: dict | None) -> float:
+    if not performance:
+        return 0.0
+    activity = performance.get("activity") or []
+    if not activity:
+        return 0.0
+    p = max(0.0, min(1.0, progress))
+    idx = min(len(activity) - 1, int(round(p * (len(activity) - 1))))
+    a = float(activity[idx])
+    # Suppress tiny room-tone fluctuations; keep articulation pulses visible.
+    return max(0.0, min(1.0, (a - 0.18) / 0.62))
+
+
+def _face_motion(progress: float, beat: str, performance: dict | None = None) -> tuple[float, float, float, float, float]:
     """Return face dx/dy, x/y scale and blink strength."""
     p = max(0.0, min(1.0, progress))
     energy = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"]).energy
+    speech = _speech_pulse(p, performance)
     if beat == "escalation":
         snap = math.sin(math.pi * max(0.0, min(1.0, (p - 0.16) / 0.34)))
         dx, dy = 7.0 * snap * energy, -4.0 * snap * energy
-        sx, sy = 1.0 + 0.010 * snap, 1.0 + 0.030 * snap
+        sx, sy = 1.0 + 0.010 * snap + 0.010 * speech, 1.0 + 0.030 * snap + 0.014 * speech
         blink = max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.10) / 0.08))))
     elif beat == "reaction":
         snap = math.sin(math.pi * max(0.0, min(1.0, (p - 0.10) / 0.30)))
         dx, dy = -8.0 * snap * energy, 3.0 * snap * energy
-        sx, sy = 1.0 + 0.016 * snap, 1.0 + 0.038 * snap
+        sx, sy = 1.0 + 0.016 * snap + 0.009 * speech, 1.0 + 0.038 * snap + 0.018 * speech
         blink = max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.18) / 0.09))))
     elif beat == "punchline":
         sway = math.sin(math.pi * p * 0.8)
         dx, dy = 2.0 * sway, -1.0 * sway
-        sx, sy = 1.0, 1.0 + 0.012 * sway
+        sx, sy = 1.0 + 0.004 * speech, 1.0 + 0.012 * sway + 0.010 * speech
         blink = 0.72 * max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.25) / 0.08))))
     else:
         breathe = math.sin(math.tau * p)
         dx, dy = 1.5 * breathe * energy, -0.8 * breathe * energy
-        sx, sy = 1.0, 1.0 + 0.008 * breathe * energy
+        sx, sy = 1.0 + 0.002 * speech, 1.0 + 0.008 * breathe * energy + 0.008 * speech
         blink = 0.65 * max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.32) / 0.08))))
     return dx, dy, sx, sy, blink
 
 
-def _apply_face_performance(frame: Image.Image, rig: CharacterRig, progress: float, beat: str, motion_gain: float = 1.0) -> Image.Image:
+def _apply_face_performance(frame: Image.Image, rig: CharacterRig, progress: float, beat: str, motion_gain: float = 1.0, performance: dict | None = None) -> Image.Image:
     fx0, fy0, fx1, fy1 = rig.face_bbox
     face = rig.face_layer.crop((fx0, fy0, fx1, fy1)).convert("RGBA")
-    dx, dy, sx, sy, blink = _face_motion(progress, beat)
+    dx, dy, sx, sy, blink = _face_motion(progress, beat, performance)
     dx *= motion_gain
     dy *= motion_gain
     sx = 1.0 + (sx - 1.0) * motion_gain
@@ -592,8 +607,13 @@ def _apply_rig_performance(
     progress: float,
     beat: str,
     motion_gain: float = 1.0,
+    performance: dict | None = None,
 ) -> Image.Image:
     dx, dy, scale, rotation = head_motion(progress, beat)
+    speech = _speech_pulse(progress, performance)
+    dx += 1.8 * math.sin(progress * math.tau * 3.0) * speech
+    dy -= 1.5 * speech
+    scale += 0.008 * speech
     dx *= motion_gain
     dy *= motion_gain
     scale = 1.0 + (scale - 1.0) * motion_gain
@@ -611,7 +631,7 @@ def _apply_rig_performance(
     rgba = crop.convert("RGBA")
     mask = rgba.getchannel("A")
     base.paste(rgba.convert("RGB"), (int(hx - crop.width / 2 + dx), int(hy - crop.height / 2 + dy)), mask)
-    return _apply_face_performance(base, rig, progress, beat, motion_gain=motion_gain)
+    return _apply_face_performance(base, rig, progress, beat, motion_gain=motion_gain, performance=performance)
 
 
 def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, motion_gain: float = 1.0) -> Image.Image:
@@ -668,6 +688,7 @@ def motion_frame(
     beat: str,
     rig: CharacterRig | None = None,
     render_tuning: dict | None = None,
+    voice_performance: dict | None = None,
 ) -> Image.Image:
     tuning = render_tuning or {}
     motion_gain = float(tuning.get("motion_gain", 1.0))
@@ -692,7 +713,7 @@ def motion_frame(
             base = _apply_arm_layer(base, layers["right_arm"], p, beat, "right", motion_gain=motion_gain)
         except (OSError, ValueError):
             pass
-        base = _apply_rig_performance(base, rig, p, beat, motion_gain=motion_gain)
+        base = _apply_rig_performance(base, rig, p, beat, motion_gain=motion_gain, performance=voice_performance)
     eased = _ease_in_out(p)
     energy = profile.energy * motion_gain
 
@@ -764,7 +785,9 @@ def motion_frame(
     # White impact flash makes the escalation read as an event, not just a zoom.
     flash = 0.0
     if beat == "escalation":
-        flash = max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.35) / 0.12))))
+        peak = float((voice_performance or {}).get("peak_fraction", 0.46))
+        start = max(0.18, peak - 0.10)
+        flash = max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - start) / 0.12))))
     if flash > 0.0:
         veil = Image.new("RGBA", (W, H), (255, 255, 255, int(45 * flash)))
         rgba.alpha_composite(veil)
@@ -788,6 +811,7 @@ def _audio_for_shots(
     sfx_kinds: list[str],
     ffmpeg: str,
     sfx_peak_fractions: list[float] | None = None,
+    voice_performance: list[dict] | None = None,
 ) -> Path | None:
     from app.providers.cartoon_media import _audio_for_shots as build_audio
     return build_audio(
@@ -798,7 +822,37 @@ def _audio_for_shots(
         ffmpeg,
         sfx_peak_fractions,
         [0.04, 0.03, 0.03, 0.06],
+        voice_performance=voice_performance,
     )
+
+
+def _performance_durations(
+    voice_performance: list[dict],
+    requested: list[float],
+    beats: list[str],
+) -> list[float]:
+    """Retime shots around natural speech instead of forcing speech into long fixed cards."""
+    tails = {
+        "setup": 0.58,       # thought / setup breath
+        "escalation": 0.62, # visual reveal + shock read
+        "reaction": 0.62,   # body reaction after the line
+        "punchline": 0.86,  # deadpan hold after delivery
+    }
+    minimums = {
+        "setup": 1.55,
+        "escalation": 1.20,
+        "reaction": 1.50,
+        "punchline": 2.00,
+    }
+    result = []
+    for i, beat in enumerate(beats):
+        perf = voice_performance[i] if i < len(voice_performance) else {}
+        spoken = float(perf.get("duration", 0.0) or 0.0)
+        requested_duration = float(requested[i])
+        target = max(minimums.get(beat, 1.35), spoken + tails.get(beat, 0.55))
+        # Never collapse a pre-authored beat just because TTS is extremely short.
+        result.append(round(min(requested_duration, target) if target < requested_duration else target, 3))
+    return result
 
 
 def render_cartoon_motion(
@@ -845,6 +899,11 @@ def render_cartoon_motion(
         shutil.rmtree(work)
     work.mkdir(parents=True, exist_ok=True)
 
+    # Voice performance is generated before frames so visual acting can lock to
+    # real speech onset/energy/peak rather than an assumed beat fraction.
+    voice_performance = prepare_voice_performance(work, voice_lines, beats, durations)
+    effective_durations = _performance_durations(voice_performance, durations, beats)
+
     # Render at the requested delivery cadence directly. The old implementation
     # rendered 12fps and used minterpolate to synthesize 24fps, which could create
     # rubbery motion around captions and pose changes. Deterministic 24fps frames
@@ -861,7 +920,7 @@ def render_cartoon_motion(
     transition_frames = max(2, round(tuning["transition_seconds"] * source_fps))
     transition_directions: list[int] = []
     character_bboxes: list[list[int] | None] = []
-    for shot, (image, caption, duration, beat) in enumerate(zip(images, captions, durations, beats)):
+    for shot, (image, caption, duration, beat) in enumerate(zip(images, captions, effective_durations, beats)):
         count = max(2, round(duration * source_fps))
         frame_map.append({"shot": shot, "beat": beat, "frames": count, "duration": duration})
         for i in range(count):
@@ -876,7 +935,10 @@ def render_cartoon_motion(
                 character_bboxes.append(list(rig.head_bbox))
             elif i == 0:
                 character_bboxes.append(None)
-            frame = motion_frame(image, caption, progress, shot, duration, beat, rig=rig, render_tuning=tuning)
+            frame = motion_frame(
+                image, caption, progress, shot, duration, beat, rig=rig,
+                render_tuning=tuning, voice_performance=voice_performance[shot],
+            )
             if (
                 previous_shot_frame is not None
                 and previous_shot_image is not None
@@ -943,8 +1005,9 @@ def render_cartoon_motion(
         "punchline": 0.72,
     }
     audio = _audio_for_shots(
-        work, voice_lines, durations, sfx_kinds, ffmpeg,
+        work, voice_lines, effective_durations, sfx_kinds, ffmpeg,
         [peak_by_beat.get(beat, 0.40) for beat in beats],
+        voice_performance=voice_performance,
     )
     if audio:
         subprocess.run(
@@ -964,8 +1027,9 @@ def render_cartoon_motion(
     metadata.write_text(
         json.dumps(
             {
-                "engine": "cartoon-motion-3.4",
+                "engine": "cartoon-motion-3.6",
                 "rig_mode": "flattened-art-performance-proxy",
+                "performance_engine": "character-performance-v1",
                 "fps": fps,
                 "source_fps": source_fps,
                 "interpolation": "none",
@@ -992,8 +1056,11 @@ def render_cartoon_motion(
                 },
                 "audio_sync": {
                     "sfx_peak_fractions": [peak_by_beat.get(beat, 0.40) for beat in beats],
-                    "voice_start_fractions": [0.04, 0.03, 0.03, 0.06][:len(beats)],
+                    "voice_start_fractions": [0.0 for _ in voice_performance],
                     "sfx_mode": "short_peak_accent",
+                    "voice_engine": "local-mac-say-character-performance-v1",
+                    "voice_performance": voice_performance,
+                    "effective_shot_durations": effective_durations,
                 },
                 "frames": frame_index,
                 "shots": frame_map,
@@ -1041,6 +1108,8 @@ def rerender_cartoon_shots(
         raise FileNotFoundError(f"Motion metadata missing: {metadata_path}")
     source_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     shot_ranges = CartoonMotionQA._shot_frame_ranges(source_metadata)
+    source_voice_performance = list(source_metadata.get("audio_sync", {}).get("voice_performance", []))
+    effective_durations = list(source_metadata.get("audio_sync", {}).get("effective_shot_durations", durations))
     if len(shot_ranges) != len(images):
         raise ValueError("Motion metadata shot count does not match render inputs")
 
@@ -1168,6 +1237,7 @@ def rerender_cartoon_shots(
                     beat,
                     rig=rig,
                     render_tuning=tuning,
+                    voice_performance=source_voice_performance[shot_index] if shot_index < len(source_voice_performance) else None,
                 )
                 frame = make_transition_frame(shot_index, local_index, frame)
                 save_frame(frame, frame_index)
@@ -1192,6 +1262,7 @@ def rerender_cartoon_shots(
                     beat,
                     rig=rig,
                     render_tuning=tuning,
+                    voice_performance=source_voice_performance[shot_index] if shot_index < len(source_voice_performance) else None,
                 )
                 frame = make_transition_frame(shot_index, local_index, frame)
                 save_frame(frame, frame_index)
@@ -1247,10 +1318,11 @@ def rerender_cartoon_shots(
         shutil.copy2(muxed, output)
 
     new_metadata = dict(source_metadata)
-    new_metadata["engine"] = "cartoon-motion-3.5"
+    new_metadata["engine"] = "cartoon-motion-3.6"
     new_metadata["transition_seconds"] = round(transition_frames / fps, 3)
     new_metadata["caption_y"] = tuning["caption_y"]
     new_metadata["caption_zone"] = tuning["caption_zone"]
+    new_metadata["performance_engine"] = "character-performance-v1"
     repair = dict(new_metadata.get("repair", {}))
     repair.update(
         {
@@ -1274,6 +1346,9 @@ def rerender_cartoon_shots(
         }
     )
     new_metadata["repair"] = repair
+    if effective_durations:
+        new_metadata.setdefault("audio_sync", {})["effective_shot_durations"] = effective_durations
+
     new_metadata["shots"] = [
         {**row, "repaired": index in full_targets}
         for index, row in enumerate(new_metadata.get("shots", []))

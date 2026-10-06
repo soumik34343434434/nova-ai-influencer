@@ -242,13 +242,19 @@ class CartoonFactoryOrchestrator:
             fps=24,
         )
         motion_metadata = output.with_suffix(".motion.json")
+        effective_durations = durations
+        try:
+            meta = json.loads(motion_metadata.read_text(encoding="utf-8"))
+            effective_durations = list(meta.get("audio_sync", {}).get("effective_shot_durations", durations))
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
         self.plane.store.set_payload(
             run,
             video=str(output),
-            render_durations=durations,
+            render_durations=effective_durations,
             animation_metadata=str(motion_metadata),
         )
-        return {"video": str(output), "renderer": "cartoon-motion-3.4", "fps": 24}
+        return {"video": str(output), "renderer": "cartoon-motion-3.6", "fps": 24}
 
     def _rerender_for_motion_qa(self, run: CartoonRun, motion_result: dict[str, Any]) -> dict[str, Any]:
         """Surgically rerender failed shots plus their dependent outgoing bridges."""
