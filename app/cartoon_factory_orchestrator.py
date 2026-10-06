@@ -13,6 +13,10 @@ from typing import Any
 
 from app.agents.cartoon_director import CartoonDirector
 from app.agents.cartoon_factory import action_asset, coverage
+from app.agents.cartoon_format_intelligence import best_format, format_to_dict
+from app.agents.cartoon_jury import CartoonIdeaJury, jury_to_dict
+from app.agents.cartoon_animatic import render_animatic
+from app.agents.cartoon_animatic_judge import AnimaticJudge
 from app.agents.cartoon_quality import CartoonQuality
 from app.agents.cartoon_research import discover, rank, ResearchSignal
 from app.agents.storyboard import build_storyboard
@@ -33,9 +37,12 @@ def _save(path: Path, value: Any) -> None:
 class CartoonFactoryOrchestrator:
     """End-to-end stage wiring with durable checkpoints and repair."""
 
-    def __init__(self, director: CartoonDirector | None = None, quality: CartoonQuality | None = None):
+    def __init__(self, director: CartoonDirector | None = None, quality: CartoonQuality | None = None,
+                 jury: CartoonIdeaJury | None = None, animatic_judge: AnimaticJudge | None = None):
         self.director = director or CartoonDirector()
         self.quality = quality or CartoonQuality()
+        self.jury = jury or CartoonIdeaJury()
+        self.animatic_judge = animatic_judge or AnimaticJudge()
         self.plane = CartoonControlPlane(max_retries=1)
         self._register()
 
@@ -86,11 +93,20 @@ class CartoonFactoryOrchestrator:
     def _trend_intelligence(self, run: CartoonRun) -> dict[str, Any]:
         signals = rank(self._signals(run), run.payload.get("recent_topics", []))
         chosen = signals[:8]
-        self.plane.store.set_payload(run, ranked_signals=[asdict(x) for x in chosen])
-        return {"ranked_count": len(chosen), "top_score": chosen[0].score if chosen else 0.0}
+        enriched = []
+        for signal in chosen:
+            pattern = best_format(signal.title, signal.category, [x.title for x in chosen[:5]])
+            enriched.append({**asdict(signal), "format": format_to_dict(pattern)})
+        self.plane.store.set_payload(run, ranked_signals=enriched)
+        return {
+            "ranked_count": len(enriched),
+            "top_score": chosen[0].score if chosen else 0.0,
+            "format_intelligence": True,
+        }
 
     def _idea_generator(self, run: CartoonRun) -> dict[str, Any]:
-        ranked = [ResearchSignal(**row) for row in run.payload.get("ranked_signals", [])]
+        ranked_rows = list(run.payload.get("ranked_signals", []))
+        ranked = [ResearchSignal(**{k: row[k] for k in ("title", "source", "category", "url", "published_at", "score")}) for row in ranked_rows]
         topic = run.payload.get("topic") or (ranked[0].title if ranked else "evergreen cartoon")
         learning = {}
         learning_file = ARTIFACTS / "learning.json"
@@ -101,9 +117,15 @@ class CartoonFactoryOrchestrator:
                 learning = {}
         strategy = str(learning.get("strategy", ""))
         candidates: list[dict[str, Any]] = []
+        format_by_title = {row["title"]: row.get("format", {}) for row in ranked_rows}
         for signal in ranked[:4]:
-            for candidate in self.director.candidates(signal.title, count=2, strategy=strategy):
+            for candidate in self.director.candidates(
+                signal.title,
+                count=2,
+                strategy=json.dumps(format_by_title.get(signal.title, {}), ensure_ascii=False) + " " + strategy,
+            ):
                 candidate["research"] = asdict(signal)
+                candidate["format"] = format_by_title.get(signal.title, {})
                 candidate["asset_ready"] = all(
                     action_asset(candidate["character"], beat["asset_action"]) for beat in candidate["beats"]
                 )
@@ -114,23 +136,57 @@ class CartoonFactoryOrchestrator:
     def _idea_evaluator(self, run: CartoonRun) -> dict[str, Any]:
         candidates = run.payload.get("candidates", [])
         recent = run.payload.get("recent_titles", [])
-        scored = []
+        preselected = []
         for candidate in candidates:
             if not candidate.get("asset_ready"):
                 continue
-            result = self.quality.evaluate(candidate, recent)
-            if result.passed:
-                scored.append({
-                    "score": round(result.score * 0.75 + float(candidate["research"].get("score", 0.0)) * 0.25, 3),
+            deterministic = self.quality.evaluate(candidate, recent)
+            jury = self.jury.judge(candidate)
+            if deterministic.passed and jury.passed:
+                score = round(
+                    deterministic.score * 0.45
+                    + jury.score * 0.35
+                    + float(candidate["research"].get("score", 0.0)) * 0.20,
+                    3,
+                )
+                preselected.append({
+                    "score": score,
                     "candidate": candidate,
-                    "evaluation": asdict(result),
+                    "evaluation": asdict(deterministic),
+                    "jury": jury_to_dict(jury),
                 })
-        if not scored:
-            raise RuntimeError("No candidate passed the idea quality gate")
-        scored.sort(key=lambda item: item["score"], reverse=True)
-        winner = scored[0]
-        self.plane.store.set_payload(run, winner=winner, alternates=scored[1:4])
-        return {"winner_score": winner["score"], "alternates": len(scored[1:4])}
+        preselected.sort(key=lambda item: item["score"], reverse=True)
+        attempts = []
+        winner = None
+        for item in preselected[:8]:
+            candidate = item["candidate"]
+            images = [action_asset(candidate["character"], beat["asset_action"]) for beat in candidate["beats"]]
+            if any(path is None for path in images):
+                continue
+            animatic = ARTIFACTS / "animatics" / f"{candidate['premise_slug']}_{len(attempts)}.mp4"
+            render_animatic([p for p in images if p is not None], [beat["voice"] for beat in candidate["beats"]], animatic)
+            animatic_result = self.animatic_judge.inspect(animatic, expected_shots=4)
+            attempts.append({"candidate": candidate["title"], "animatic": str(animatic), "result": animatic_result})
+            if animatic_result["passed"]:
+                item["animatic"] = str(animatic)
+                item["animatic_evaluation"] = animatic_result
+                winner = item
+                break
+        if winner is None:
+            raise RuntimeError("No candidate passed the idea jury and cheap animatic gate")
+        self.plane.store.set_payload(
+            run,
+            winner=winner,
+            alternates=preselected[1:4],
+            animatic_attempts=attempts,
+        )
+        return {
+            "winner_score": winner["score"],
+            "alternates": len(preselected[1:4]),
+            "jury": True,
+            "cheap_animatic": True,
+            "animatic_attempts": len(attempts),
+        }
 
     def _script_engine(self, run: CartoonRun) -> dict[str, Any]:
         candidate = run.payload["winner"]["candidate"]

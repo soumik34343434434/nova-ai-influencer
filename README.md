@@ -4,7 +4,9 @@ NOVA is an original fictional-character short-form content system designed so th
 
 ## Production loop
 
-Internet research → trend scoring → local AI idea/script rewrite → deterministic quality gate → curated character/action asset selection → local 2.5D animation → local TTS + procedural SFX → captions + AI disclosure → media QA → approval-first publish queue → platform analytics → learning strategy.
+Internet research → trend intelligence → format intelligence → idea generation → independent idea jury → cheap animatic simulation → animatic sanity judge → script → storyboard → asset capability gate → local/optional animation → audio → captions + AI disclosure → final media QA → approval-first publish queue → platform analytics → learning strategy → next experiment.
+
+The key design rule is **do not spend final-render time on weak ideas**. Format intelligence extracts reusable hook/escalation/payoff structures from research, the jury uses separate hook/comedy/retention/visual/safety rubrics, and the cheap animatic gate catches dead or visually repetitive concepts before final production.
 
 Cloud image/video providers are optional adapters, not hard dependencies. A provider can be added or removed without changing the research, scripting, QA, rendering, publishing queue, or learning phases.
 
