@@ -38,3 +38,15 @@ class Metric(Base):
     retention_pct: Mapped[float] = mapped_column(Float, default=0.0)
     revenue: Mapped[float] = mapped_column(Float, default=0.0)
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+class PipelineRun(Base):
+    __tablename__ = "pipeline_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    phase: Mapped[str] = mapped_column(String(64), default="created")
+    status: Mapped[str] = mapped_column(String(32), default="running")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

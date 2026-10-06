@@ -15,6 +15,8 @@ from app.db.init import init_db
 from app.db.models import ContentItem, Metric
 from app.db.session import SessionLocal
 from app.providers.local_media import build_video_from_draft
+from app.agents.content_evaluator import ContentEvaluator
+from app.state_machine import DurableRun, Phase
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -201,8 +203,10 @@ class Compatibility:
 
 def _process_drafts(db, trends: list[Trend], publisher: Publisher, char: Path) -> tuple[int, int, int]:
     gate = SafetyGate()
+    evaluator = ContentEvaluator()
     engine = ContentEngine()
     drafts = media = blocked = 0
+    recent_titles: list[str] = []
 
     for trend in trends:
         draft = engine.create(db, trend)
@@ -210,10 +214,25 @@ def _process_drafts(db, trends: list[Trend], publisher: Publisher, char: Path) -
         Compatibility.check_draft(draft)
         payload = json.loads(draft.content_json)
         payload["caption"] = draft.platform_caption + "\n\nAI-generated fictional creator."
+
+        evaluation = evaluator.evaluate(
+            {
+                "title": draft.title,
+                "hook": draft.hook,
+                "script": draft.script,
+                "caption": payload["caption"],
+            },
+            recent_titles,
+        )
+        if not evaluation.passed:
+            blocked += 1
+            continue
+
         result = gate.check(payload)
         if not result.allowed:
             blocked += 1
             continue
+        recent_titles.append(draft.title)
 
         latest = {
             "id": draft.id,
@@ -235,12 +254,20 @@ def run_backtest() -> CycleResult:
     init_db()
     db = SessionLocal()
     publisher = Publisher()
+    run = DurableRun.start(db, {"mode": "backtest"})
     try:
         trends = TrendEngine().synthetic()
+        run.transition(Phase.TREND_VALIDATED)
         char = CharacterStore().ensure()
+        run.transition(Phase.IDEA_CREATED)
         drafts, media, blocked = _process_drafts(db, trends, publisher, char)
+        run.transition(Phase.SCRIPT_READY)
+        run.transition(Phase.MEDIA_READY)
+        run.transition(Phase.MEDIA_QA)
         queue = publisher.flush()
         Compatibility.check_queue(queue)
+        run.transition(Phase.PUBLISH_READY)
+        run.transition(Phase.PUBLISHED)
 
         # Simulated platform results close the learning loop without contacting a platform.
         for index, row in enumerate(db.query(ContentItem).order_by(ContentItem.id.desc()).limit(3).all()):
@@ -259,6 +286,9 @@ def run_backtest() -> CycleResult:
         winner = LearningEngine().choose_winner(db)
         strategy = LearningEngine().next_strategy(db)
         assert strategy["winner_id"] == winner
+        run.transition(Phase.METRICS_CAPTURED)
+        run.update_payload(winner_id=winner, strategy=strategy)
+        run.transition(Phase.LEARNING_UPDATED)
         return CycleResult(len(trends), drafts, media, len(publisher.queue), blocked, winner, "backtest")
     finally:
         db.close()
@@ -268,13 +298,22 @@ def run_live_cycle(limit: int = 3) -> CycleResult:
     init_db()
     db = SessionLocal()
     publisher = Publisher()
+    run = DurableRun.start(db, {"mode": "live", "limit": limit})
     try:
         trends = TrendEngine().live(limit)
+        run.transition(Phase.TREND_VALIDATED)
         char = CharacterStore().ensure()
+        run.transition(Phase.IDEA_CREATED)
         drafts, media, blocked = _process_drafts(db, trends, publisher, char)
+        run.transition(Phase.SCRIPT_READY)
+        run.transition(Phase.MEDIA_READY)
+        run.transition(Phase.MEDIA_QA)
         queue = publisher.flush()
         Compatibility.check_queue(queue)
+        run.transition(Phase.PUBLISH_READY)
         winner = LearningEngine().choose_winner(db)
+        run.update_payload(winner_id=winner, queued=len(publisher.queue), blocked=blocked)
+        run.mark_waiting("external publisher is pending; resume at publish_ready")
         return CycleResult(len(trends), drafts, media, len(publisher.queue), blocked, winner, "live")
     finally:
         db.close()
