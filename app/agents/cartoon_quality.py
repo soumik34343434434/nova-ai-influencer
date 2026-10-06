@@ -8,6 +8,8 @@ import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from app.agents.cartoon_motion_qa import CartoonMotionQA
+
 
 @dataclass(frozen=True)
 class CartoonEvaluation:
@@ -97,6 +99,10 @@ class CartoonQuality:
             "video_codec": video.get("codec_name") if video else None,
             "audio_codec": audio.get("codec_name") if audio else None,
         }
+
+    def motion_check(self, path: Path) -> dict:
+        """Run the deterministic motion-performance quality gate."""
+        return CartoonMotionQA().inspect(path)
 
 
 def quality_to_dict(result: CartoonEvaluation) -> dict:

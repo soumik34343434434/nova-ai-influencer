@@ -85,9 +85,12 @@ class CartoonAutopilot:
             sfx_kinds=[b["sfx"] for b in candidate["beats"]],
         )
         media_qa = self.quality.render_check(output)
+        motion_qa = self.quality.motion_check(output)
         if not media_qa["passed"]:
             raise RuntimeError("Render QA failed: " + ", ".join(media_qa["reasons"]))
-        metadata = {"video": str(output), "winner": winner, "media_qa": media_qa}
+        if not motion_qa["passed"]:
+            raise RuntimeError("Motion QA failed: " + ", ".join(motion_qa["reasons"]))
+        metadata = {"video": str(output), "winner": winner, "media_qa": media_qa, "motion_qa": motion_qa}
         _save_json(ARTIFACTS / f"{slug}_autopilot.json", metadata)
         return metadata
 

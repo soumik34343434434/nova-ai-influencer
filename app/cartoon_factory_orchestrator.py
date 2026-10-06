@@ -247,7 +247,7 @@ class CartoonFactoryOrchestrator:
             render_durations=durations,
             animation_metadata=str(motion_metadata),
         )
-        return {"video": str(output), "renderer": "cartoon-motion-3.1", "fps": 24}
+        return {"video": str(output), "renderer": "cartoon-motion-3.4", "fps": 24}
 
     def _audio_engine(self, run: CartoonRun) -> dict[str, Any]:
         video = Path(run.payload["video"])
@@ -264,10 +264,13 @@ class CartoonFactoryOrchestrator:
 
     def _video_qa(self, run: CartoonRun) -> dict[str, Any]:
         video = Path(run.payload["video"])
-        result = self.quality.render_check(video)
-        if not result["passed"]:
-            raise RuntimeError("Video QA failed: " + ", ".join(result["reasons"]))
-        return result
+        media = self.quality.render_check(video)
+        motion = self.quality.motion_check(video)
+        if not media["passed"]:
+            raise RuntimeError("Video QA failed: " + ", ".join(media["reasons"]))
+        if not motion["passed"]:
+            raise RuntimeError("Motion QA failed: " + ", ".join(motion["reasons"]))
+        return {"passed": True, "media": media, "motion": motion}
 
     def _publish(self, run: CartoonRun) -> dict[str, Any]:
         candidate = run.payload["winner"]["candidate"]

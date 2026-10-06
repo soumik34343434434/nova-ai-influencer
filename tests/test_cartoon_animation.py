@@ -79,7 +79,7 @@ def test_motion_metadata_declares_delivery_profile(tmp_path: Path):
     finally:
         animation._audio_for_shots = original_audio
     metadata = output.with_suffix(".motion.json").read_text()
-    assert '"engine": "cartoon-motion-3.3"' in metadata
+    assert '"engine": "cartoon-motion-3.4"' in metadata
     assert '"fps": 24' in metadata
     assert '"interpolation": "none"' in metadata
 

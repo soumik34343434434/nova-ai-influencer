@@ -820,6 +820,7 @@ def render_cartoon_motion(
     # still reading as a snappy comedic cut.
     transition_frames = max(2, round(0.20 * source_fps))
     transition_directions: list[int] = []
+    character_bboxes: list[list[int] | None] = []
     for shot, (image, caption, duration, beat) in enumerate(zip(images, captions, durations, beats)):
         count = max(2, round(duration * source_fps))
         frame_map.append({"shot": shot, "beat": beat, "frames": count, "duration": duration})
@@ -829,6 +830,10 @@ def render_cartoon_motion(
                 rig = get_rig(str(image))
             except ValueError:
                 rig = None
+            if rig is not None and i == 0:
+                character_bboxes.append(list(rig.bbox))
+            elif i == 0:
+                character_bboxes.append(None)
             frame = motion_frame(image, caption, progress, shot, duration, beat, rig=rig)
             if (
                 previous_shot_frame is not None
@@ -917,11 +922,14 @@ def render_cartoon_motion(
     metadata.write_text(
         json.dumps(
             {
-                "engine": "cartoon-motion-3.3",
+                "engine": "cartoon-motion-3.4",
                 "rig_mode": "flattened-art-performance-proxy",
                 "fps": fps,
                 "source_fps": source_fps,
                 "interpolation": "none",
+                "character_bboxes": character_bboxes,
+                "caption_zone": [40, 1480, 1040, 1885],
+                "transition_seconds": round(transition_frames / source_fps, 3),
                 "performance": {
                     "action_transitions": True,
                     "pose_aware_transition_direction": True,
