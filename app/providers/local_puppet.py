@@ -64,53 +64,65 @@ def _fit_cover(image: Image.Image) -> Image.Image:
     return src.crop((left, top, left + W, top + H))
 
 
-def _rig_frame(base: Image.Image, amp: float, t: float, shot_index: int) -> Image.Image:
-    # A light whole-character sway gives the static source a living pose.
-    angle = 1.5 * math.sin(t * 2.1 + shot_index * 0.7)
-    sx = 1.0 + 0.015 * math.sin(t * 1.5)
-    sy = 1.0 + 0.012 * math.sin(t * 1.5 + 1.0)
+def _rig_frame(base: Image.Image, amp: float, t: float, shot_index: int, performance: dict | None = None) -> Image.Image:
+    performance = performance or {}
+    expression = performance.get("expression", "neutral")
+    gesture = performance.get("gesture", "talk")
+    attention = performance.get("attention", "scene")
+    movement_scale = float(performance.get("movement_scale", 0.8))
+    if "head" in performance:
+        movement_scale = max(movement_scale, float(performance["head"]))
+
+    # Performance metadata controls how much the whole shot moves.
+    expression_scale = {
+        "deadpan": 0.45,
+        "tired": 0.60,
+        "skeptical": 0.75,
+        "neutral": 0.80,
+        "surprised": 1.00,
+        "overloaded": 1.10,
+        "confident": 0.70,
+        "curious": 0.90,
+        "annoyed": 0.75,
+    }.get(expression, 0.80)
+    gesture_scale = {
+        "freeze": 0.25,
+        "phone_glance": 1.00,
+        "point_calendar": 0.90,
+        "coffee_reach": 0.75,
+        "tab_scan": 1.10,
+        "lean": 0.90,
+        "talk": 0.95,
+    }.get(gesture, 0.95)
+
+    angle = 1.25 * math.sin(t * 1.85 + shot_index * 0.7) * movement_scale * expression_scale * gesture_scale
+    if attention == "camera":
+        angle *= 0.65
+    sx = 1.0 + (0.012 * math.sin(t * 1.45) + amp * 0.006) * movement_scale
+    sy = 1.0 + (0.010 * math.sin(t * 1.45 + 1.0) + amp * 0.004) * movement_scale
     frame = base.resize((int(W * sx), int(H * sy)), Image.Resampling.BICUBIC)
     frame = frame.rotate(angle, resample=Image.Resampling.BICUBIC, expand=True, fillcolor=BG)
     frame = _fit_cover(frame)
 
-    draw = ImageDraw.Draw(frame)
-    # NOVA fallback face rig coordinates, scaled from the original 1080x1920 art.
-    eye_y = 353
-    left_eye = 212
-    right_eye = 328
-    mouth_x = 270
-    mouth_y = 414
+    # Preserve the generated character pixels. Performance is expressed through
+    # camera sway, breathing, push-in and attention rather than repainting features.
+    pan_strength = {
+        "phone_glance": 0.012,
+        "point_calendar": 0.010,
+        "coffee_reach": 0.008,
+        "tab_scan": 0.015,
+        "lean": 0.012,
+        "freeze": 0.003,
+    }.get(gesture, 0.008) * movement_scale
+    if attention == "camera":
+        pan_strength *= 0.55
 
-    # Cover only the simple drawn facial features before redrawing animated ones.
-    draw.ellipse((left_eye - 27, eye_y - 18, left_eye + 27, eye_y + 18), fill=SKIN)
-    draw.ellipse((right_eye - 27, eye_y - 18, right_eye + 27, eye_y + 18), fill=SKIN)
-    draw.rectangle((mouth_x - 48, mouth_y - 17, mouth_x + 48, mouth_y + 21), fill=SKIN)
+    dx = int(math.sin(t * 0.95 + shot_index) * W * pan_strength)
+    dy = int(math.cos(t * 0.8 + shot_index * 0.4) * H * pan_strength * 0.45)
+    if dx or dy:
+        frame = _fit_cover(frame.transform(frame.size, Image.AFFINE, (1, 0, -dx, 0, 1, -dy)))
 
-    blink_period = 3.7
-    blink_phase = (t + shot_index * 0.23) % blink_period
-    blinking = 0.0 < blink_phase < 0.13
-
-    eye_h = 3 if blinking else 10 + int(2 * math.sin(t * 1.7))
-    for x in (left_eye, right_eye):
-        draw.ellipse((x - 16, eye_y - eye_h, x + 16, eye_y + eye_h), fill=DARK)
-
-    mouth_w = int(16 + amp * 26)
-    mouth_h = int(3 + amp * 18)
-    draw.ellipse(
-        (mouth_x - mouth_w, mouth_y - mouth_h, mouth_x + mouth_w, mouth_y + mouth_h),
-        fill=DARK,
-    )
-
-    # Small animated gestures around the torso make each shot read differently.
-    gesture = math.sin(t * 2.3 + shot_index * 1.4)
-    body_left, body_right = 178, 362
-    shoulder_y = 540
-    hand_y = int(690 - gesture * 20)
-    draw.line((body_left, shoulder_y, 130, hand_y), fill=(140, 148, 169), width=8)
-    draw.line((body_right, shoulder_y, 410, 675 + int(gesture * 18)), fill=(140, 148, 169), width=8)
-    draw.ellipse((121, hand_y - 8, 139, hand_y + 10), fill=SKIN)
-    draw.ellipse((402, 667 + int(gesture * 18), 420, 685 + int(gesture * 18)), fill=SKIN)
-
+    draw = ImageDraw.Draw(frame, "RGBA")
     # Minimal visual cue per shot; avoids every shot becoming identical.
     label = {0: "HOOK", 1: "REACTION", 2: "REVEAL", 3: "PUNCHLINE", 4: "LOOP"}.get(shot_index, "NOVA")
     draw.rounded_rectangle((24, 24, 154, 62), radius=14, fill=(10, 12, 18))
@@ -119,7 +131,7 @@ def _rig_frame(base: Image.Image, amp: float, t: float, shot_index: int) -> Imag
     return frame
 
 
-def make_puppet_video(image: Path, audio: Path, output: Path, duration: float, shot_index: int = 0) -> Path:
+def make_puppet_video(image: Path, audio: Path, output: Path, duration: float, shot_index: int = 0, performance: dict | None = None) -> Path:
     """Stream lightweight animated frames directly into FFmpeg."""
     fps = 15
     frames = max(1, int(math.ceil(duration * fps)))
@@ -131,7 +143,7 @@ def make_puppet_video(image: Path, audio: Path, output: Path, duration: float, s
     frame_dir.mkdir(parents=True, exist_ok=True)
 
     for idx in range(frames):
-        frame = _rig_frame(base, envelope[idx], idx / fps, shot_index)
+        frame = _rig_frame(base, envelope[idx], idx / fps, shot_index, performance)
         frame.save(frame_dir / f"frame_{idx:04d}.png", format="PNG", optimize=True)
 
     ffmpeg = "ffmpeg"

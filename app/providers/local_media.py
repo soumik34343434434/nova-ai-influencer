@@ -244,7 +244,14 @@ def build_video_from_storyboard(image: Path, storyboard, output_dir: Path) -> Pa
         make_voiceover(shot.dialogue, audio)
         duration = max(2.4, shot.duration)
         motion = MotionRouter()
-        motion.render(image=frame, audio=audio, output=segment, duration=duration, shot_index=shot.index)
+        motion.render(
+            image=frame,
+            audio=audio,
+            output=segment,
+            duration=duration,
+            shot_index=shot.index,
+            performance=shot.performance,
+        )
         segments.append(segment)
 
     concat_file = shot_dir / "concat.txt"

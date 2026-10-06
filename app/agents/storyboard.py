@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 from app.agents.world_engine import WorldEngine
+from app.agents.performance import plan_performance
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,7 @@ class Shot:
     dialogue: str
     visual: str
     world: dict
+    performance: dict
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,7 @@ def build_storyboard(draft: dict) -> Storyboard:
         camera = _camera_for(index, text)
         action = _action_for(camera, text)
         world = world_engine.plan_shot(text, index)
+        performance = plan_performance(action, text, index)
         duration = max(2.6, min(4.8, 2.6 + len(text) / 45.0))
         shots.append(
             Shot(
@@ -103,6 +106,7 @@ def build_storyboard(draft: dict) -> Storyboard:
                     f"at {world['scene_label']}, with {world['prop']}."
                 ),
                 world=world,
+                performance=performance,
             )
         )
 
@@ -119,6 +123,7 @@ def build_storyboard(draft: dict) -> Storyboard:
                 s.dialogue,
                 s.visual,
                 s.world,
+                s.performance,
             )
             for s in shots
         ]
