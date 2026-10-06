@@ -228,8 +228,12 @@ def _action_asset(canonical_image: Path, action: str) -> Path:
         "sees_calendar": "calendar.png",
         "deadpan_camera_reaction": "deadpan.png",
     }
-    candidate = action_dir / mapping.get(action, "")
-    if candidate.exists():
+    filename = mapping.get(action)
+    # Never return the action directory itself for an uncovered action.
+    if not filename:
+        return canonical_image
+    candidate = action_dir / filename
+    if candidate.is_file():
         return candidate
     if action == "sees_calendar":
         hook = action_dir / "hook.png"
