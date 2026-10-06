@@ -12,7 +12,7 @@ import subprocess
 import wave
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 
 W, H = 540, 960
@@ -64,7 +64,46 @@ def _fit_cover(image: Image.Image) -> Image.Image:
     return src.crop((left, top, left + W, top + H))
 
 
-def _rig_frame(base: Image.Image, amp: float, t: float, shot_index: int, performance: dict | None = None) -> Image.Image:
+def _caption_text(caption: str, progress: float) -> str:
+    return " ".join(caption.split()) if caption else ""
+
+
+def _draw_social_caption(draw: ImageDraw.ImageDraw, frame: Image.Image, caption: str) -> None:
+    if not caption:
+        return
+    font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", 32)
+    max_width = 480
+    words = caption.split()
+    lines = []
+    current = ""
+    for word in words:
+        candidate = (current + " " + word).strip()
+        if draw.textbbox((0, 0), candidate, font=font)[2] <= max_width:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    lines = lines[:3]
+    line_h = 38
+    total_h = line_h * len(lines)
+    y = H - total_h - 120
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=font, stroke_width=2)
+        width = bbox[2] - bbox[0]
+        draw.text(
+            ((W - width) / 2, y + i * line_h),
+            line,
+            font=font,
+            fill=(255, 255, 255, 255),
+            stroke_width=3,
+            stroke_fill=(0, 0, 0, 230),
+        )
+
+
+def _rig_frame(base: Image.Image, amp: float, t: float, shot_index: int, performance: dict | None = None, caption: str = "", caption_progress: float = 1.0) -> Image.Image:
     performance = performance or {}
     expression = performance.get("expression", "neutral")
     gesture = performance.get("gesture", "talk")
@@ -123,15 +162,32 @@ def _rig_frame(base: Image.Image, amp: float, t: float, shot_index: int, perform
         frame = _fit_cover(frame.transform(frame.size, Image.AFFINE, (1, 0, -dx, 0, 1, -dy)))
 
     draw = ImageDraw.Draw(frame, "RGBA")
-    # Minimal visual cue per shot; avoids every shot becoming identical.
-    label = {0: "HOOK", 1: "REACTION", 2: "REVEAL", 3: "PUNCHLINE", 4: "LOOP"}.get(shot_index, "NOVA")
-    draw.rounded_rectangle((24, 24, 154, 62), radius=14, fill=(10, 12, 18))
-    draw.text((42, 34), label, fill=(235, 238, 244))
+    if gesture == "point_calendar":
+        draw.rounded_rectangle((350, 135, 514, 315), radius=20, fill=(12, 15, 20, 230))
+        draw.text((374, 155), "CALENDAR", fill=(235, 238, 244, 255))
+        draw.text((375, 205), "10:00  AI sync", fill=(205, 213, 225, 255))
+        draw.text((375, 245), "11:00  AI sync", fill=(205, 213, 225, 255))
+
+    visible_caption = _caption_text(caption, caption_progress)
+    _draw_social_caption(draw, frame, visible_caption)
+    disclosure = "AI-generated • fictional creator"
+    disclosure_font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", 18)
+    width = draw.textbbox((0, 0), disclosure, font=disclosure_font)[2]
+    draw.rounded_rectangle((W - width - 30, H - 34, W - 20, H - 10), radius=8, fill=(8, 10, 15, 185))
+    draw.text((W - width - 22, H - 31), disclosure, font=disclosure_font, fill=(225, 228, 236, 255))
 
     return frame
 
 
-def make_puppet_video(image: Path, audio: Path, output: Path, duration: float, shot_index: int = 0, performance: dict | None = None) -> Path:
+def make_puppet_video(
+    image: Path,
+    audio: Path,
+    output: Path,
+    duration: float,
+    shot_index: int = 0,
+    performance: dict | None = None,
+    caption: str = "",
+) -> Path:
     """Stream lightweight animated frames directly into FFmpeg."""
     fps = 15
     frames = max(1, int(math.ceil(duration * fps)))
@@ -143,7 +199,8 @@ def make_puppet_video(image: Path, audio: Path, output: Path, duration: float, s
     frame_dir.mkdir(parents=True, exist_ok=True)
 
     for idx in range(frames):
-        frame = _rig_frame(base, envelope[idx], idx / fps, shot_index, performance)
+        progress = (idx + 1) / frames
+        frame = _rig_frame(base, envelope[idx], idx / fps, shot_index, performance, caption, progress)
         frame.save(frame_dir / f"frame_{idx:04d}.png", format="PNG", optimize=True)
 
     ffmpeg = "ffmpeg"

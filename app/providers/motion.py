@@ -34,8 +34,8 @@ class MotionProvider(Protocol):
 class LocalMotionProvider:
     name = "local"
 
-    def render(self, image: Path, audio: Path, output: Path, duration: float, shot_index: int, performance: dict | None = None) -> MotionResult:
-        result = make_puppet_video(image, audio, output, duration, shot_index, performance)
+    def render(self, image: Path, audio: Path, output: Path, duration: float, shot_index: int, performance: dict | None = None, caption: str = "") -> MotionResult:
+        result = make_puppet_video(image, audio, output, duration, shot_index, performance, caption)
         return MotionResult(result, self.name, "procedural_zero_cost")
 
 
@@ -54,7 +54,7 @@ class CommandMotionProvider:
             raise ValueError("NOVA_MOTION_COMMAND cannot be empty")
         self.template = template
 
-    def render(self, image: Path, audio: Path, output: Path, duration: float, shot_index: int, performance: dict | None = None) -> MotionResult:
+    def render(self, image: Path, audio: Path, output: Path, duration: float, shot_index: int, performance: dict | None = None, caption: str = "") -> MotionResult:
         args = self.template.format(
             image=shlex.quote(str(image)),
             audio=shlex.quote(str(audio)),
@@ -88,7 +88,9 @@ class MotionRouter:
     def provider_name(self) -> str:
         return self.provider.name
 
-    def render(self, image: Path, audio: Path, output: Path, duration: float, shot_index: int, performance: dict | None = None) -> MotionResult:
-        if performance is None:
-            return self.provider.render(image, audio, output, duration, shot_index)
-        return self.provider.render(image, audio, output, duration, shot_index, performance)
+    def render(self, image: Path, audio: Path, output: Path, duration: float, shot_index: int, performance: dict | None = None, caption: str = "") -> MotionResult:
+        if caption:
+            return self.provider.render(image, audio, output, duration, shot_index, performance, caption)
+        if performance is not None:
+            return self.provider.render(image, audio, output, duration, shot_index, performance)
+        return self.provider.render(image, audio, output, duration, shot_index)

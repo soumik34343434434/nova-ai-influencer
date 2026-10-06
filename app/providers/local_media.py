@@ -191,41 +191,51 @@ def make_shot_frame(source: Path, output: Path, shot) -> Path:
     crop_h = max(1, int(crop_h / zoom))
     max_x = max(0, source_img.width - crop_w)
     max_y = max(0, source_img.height - crop_h)
-    offset = [0, 0.18, 0.38, 0.62, 0.82][shot.index % 5]
-    x = int(max_x * offset)
-    y = int(max_y * (0.5 + (0.08 if shot.index % 2 else -0.04)))
+    camera_offset = {
+        "hook_close_up": 0.50,
+        "reaction_close_up": 0.50,
+        "over_shoulder": 0.72,
+        "medium": 0.50,
+        "wide_desk": 0.34,
+    }.get(camera, 0.50)
+    if shot.action == "checks_phone":
+        camera_offset = 0.28
+    elif shot.action == "sees_calendar":
+        camera_offset = 0.76
+    elif shot.action == "deadpan_camera_reaction":
+        camera_offset = 0.50
+    x = int(max_x * camera_offset)
+    y = int(max_y * (0.50 + (0.06 if shot.index % 2 else -0.03)))
     x = max(0, min(x, max_x))
     y = max(0, min(y, max_y))
     frame = source_img.crop((x, y, x + crop_w, y + crop_h)).resize((1080, 1920), Image.Resampling.LANCZOS)
 
-    draw = ImageDraw.Draw(frame, "RGBA")
-    # Lightweight social-native UI and a distinct visual beat per shot.
-    draw.rounded_rectangle((44, 44, 350, 120), radius=28, fill=(10, 12, 18, 205))
-    draw.text((78, 66), f"NOVA • {shot.index + 1}/{shot.index + 1}", font=_font(28), fill=(255, 255, 255, 255))
-
-    dialogue_font = _font(46)
-    bubble_w = 930
-    lines = _wrap_lines(draw, shot.dialogue, dialogue_font, 840)
-    line_h = 58
-    bubble_h = min(500, 48 + line_h * len(lines))
-    bubble_y = 1290 if shot.camera == "reaction_close_up" else 1360
-    draw.rounded_rectangle((60, bubble_y, bubble_w, bubble_y + bubble_h), radius=36, fill=(8, 10, 15, 232))
-    for idx, line in enumerate(lines[:7]):
-        draw.text((100, bubble_y + 28 + idx * line_h), line, font=dialogue_font, fill=(255, 255, 255, 255))
-
-    action_font = _font(27)
-    action = shot.action.replace("_", " ").upper()
-    draw.rounded_rectangle((62, bubble_y - 74, 440, bubble_y - 20), radius=22, fill=(255, 255, 255, 35), outline=(255, 255, 255, 100), width=2)
-    draw.text((82, bubble_y - 61), action, font=action_font, fill=(240, 242, 247, 255))
-    disclosure = "AI-generated fictional creator"
-    disc_font = _font(28)
-    bbox = draw.textbbox((0, 0), disclosure, font=disc_font)
-    draw.rounded_rectangle((1080 - bbox[2] - 74, 1812, 1070, 1880), radius=20, fill=(8, 10, 15, 210))
-    draw.text((1080 - bbox[2] - 54, 1832), disclosure, font=disc_font, fill=(228, 230, 235, 255))
-
     output.parent.mkdir(parents=True, exist_ok=True)
     frame.save(output, format="PNG", optimize=True)
     return output
+
+
+def _scene_asset(canonical_image: Path, scene: str) -> Path:
+    candidate = canonical_image.parent.parent / "world" / f"{scene}.png"
+    return candidate if candidate.exists() else canonical_image
+
+
+def _action_asset(canonical_image: Path, action: str) -> Path:
+    action_dir = canonical_image.parent / "actions"
+    mapping = {
+        "leans_toward_camera": "hook.png",
+        "checks_phone": "phone.png",
+        "sees_calendar": "calendar.png",
+        "deadpan_camera_reaction": "deadpan.png",
+    }
+    candidate = action_dir / mapping.get(action, "")
+    if candidate.exists():
+        return candidate
+    if action == "sees_calendar":
+        hook = action_dir / "hook.png"
+        if hook.exists():
+            return hook
+    return canonical_image
 
 
 def build_video_from_storyboard(image: Path, storyboard, output_dir: Path) -> Path:
@@ -240,7 +250,9 @@ def build_video_from_storyboard(image: Path, storyboard, output_dir: Path) -> Pa
         frame = shot_dir / f"{slug}.png"
         audio = shot_dir / f"{slug}.wav"
         segment = shot_dir / f"{slug}.mp4"
-        make_shot_frame(image, frame, shot)
+        scene_name = shot.world.get("scene", "office") if isinstance(shot.world, dict) else getattr(shot.world, "scene", "office")
+        scene_image = _scene_asset(image, scene_name)
+        make_shot_frame(_action_asset(image, shot.action), frame, shot)
         make_voiceover(shot.dialogue, audio)
         duration = max(2.4, shot.duration)
         motion = MotionRouter()
@@ -251,6 +263,7 @@ def build_video_from_storyboard(image: Path, storyboard, output_dir: Path) -> Pa
             duration=duration,
             shot_index=shot.index,
             performance=shot.performance,
+            caption=shot.dialogue,
         )
         segments.append(segment)
 
