@@ -238,7 +238,7 @@ class CartoonFactoryOrchestrator:
             output,
             voice_lines=captions,
             sfx_kinds=sfx,
-            fps=12,
+            fps=24,
         )
         motion_metadata = output.with_suffix(".motion.json")
         self.plane.store.set_payload(
@@ -247,7 +247,7 @@ class CartoonFactoryOrchestrator:
             render_durations=durations,
             animation_metadata=str(motion_metadata),
         )
-        return {"video": str(output), "renderer": "cartoon-motion-2.0", "fps": 12}
+        return {"video": str(output), "renderer": "cartoon-motion-3.1", "fps": 24}
 
     def _audio_engine(self, run: CartoonRun) -> dict[str, Any]:
         video = Path(run.payload["video"])

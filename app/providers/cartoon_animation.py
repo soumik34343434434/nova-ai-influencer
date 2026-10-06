@@ -308,6 +308,11 @@ def motion_frame(
     profile = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"])
     base = _load_cover(str(image))
     p = max(0.0, min(1.0, progress))
+    # Punchlines should land and then hold. Freeze the camera at the final
+    # performance pose so the joke reads as a deliberate comedic beat rather
+    # than a continued Ken-Burns move.
+    if beat == "punchline" and p >= 0.72:
+        p = 0.72
     if rig is not None:
         try:
             rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v1"
@@ -366,8 +371,11 @@ def motion_frame(
     if rig is None:
         frame = _performance_accent(frame, p, beat, shot_index)
 
-    # Deterministic impact shake around escalation/reaction peaks.
-    shake_window = math.sin(math.pi * max(0.0, min(1.0, (p - 0.28) / 0.22)))
+    # Deterministic impact shake around escalation/reaction peaks. The window
+    # is deliberately short: the eye should read an event, not camera jitter.
+    peak_start = 0.34 if beat == "escalation" else 0.36 if beat == "reaction" else 1.0
+    peak_end = 0.52 if beat == "escalation" else 0.50 if beat == "reaction" else 1.0
+    shake_window = math.sin(math.pi * max(0.0, min(1.0, (p - peak_start) / max(0.01, peak_end - peak_start))))
     shake = profile.shake * shake_window
     if shake:
         dx = int(math.sin(shot_index * 8 + p * 70) * shake)
@@ -515,7 +523,7 @@ def render_cartoon_motion(
     metadata.write_text(
         json.dumps(
             {
-                "engine": "cartoon-motion-3.0",
+                "engine": "cartoon-motion-3.1",
                 "rig_mode": "flattened-art-performance-proxy",
                 "fps": fps,
                 "source_fps": source_fps,

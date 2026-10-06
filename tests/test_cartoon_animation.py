@@ -45,3 +45,40 @@ def test_render_cartoon_motion_smoke(tmp_path: Path):
     )
     assert output.exists()
     assert output.stat().st_size > 0
+
+
+def test_punchline_holds_final_performance_pose(tmp_path: Path):
+    source = tmp_path / "source.png"
+    Image.new("RGB", (768, 1376), "white").save(source)
+    held = motion_frame(source, "THE END.", 0.72, 3, 2.8, "punchline")
+    later = motion_frame(source, "THE END.", 0.98, 3, 2.8, "punchline")
+    assert held.tobytes() == later.tobytes()
+
+
+def test_motion_metadata_declares_delivery_profile(tmp_path: Path):
+    images = []
+    for i in range(4):
+        path = tmp_path / f"{i}.png"
+        Image.new("RGB", (768, 1376), (220 - i * 10, 230, 240)).save(path)
+        images.append(path)
+    output = tmp_path / "out.mp4"
+    import app.providers.cartoon_animation as animation
+    original_audio = animation._audio_for_shots
+    animation._audio_for_shots = lambda *args, **kwargs: None
+    try:
+        render_cartoon_motion(
+            images,
+            ["One.", "Two.", "Three.", "Four."],
+            [0.25, 0.25, 0.25, 0.25],
+            ["setup", "escalation", "reaction", "punchline"],
+            output,
+            voice_lines=["One.", "Two.", "Three.", "Four."],
+            sfx_kinds=["none"] * 4,
+            fps=24,
+        )
+    finally:
+        animation._audio_for_shots = original_audio
+    metadata = output.with_suffix(".motion.json").read_text()
+    assert '"engine": "cartoon-motion-3.1"' in metadata
+    assert '"fps": 24' in metadata
+    assert '"interpolation": "none"' in metadata
