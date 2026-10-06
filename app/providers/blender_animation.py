@@ -90,7 +90,7 @@ class BlenderAnimationProvider:
         self, repo_root: Path, output_mp4: Path, voice_lines: list[str],
         beats: list[str], durations: list[float], sfx_kinds: list[str],
         resolution_percent: int = 100, action_assets: list[Path] | None = None,
-        background_path: Path | None = None, character: str = "PIP",
+        background_path: Path | None = None, character: str = "PIP", actions: list[str] | None = None,
     ) -> dict:
         """Render a complete PIP performance clip and return its media/metadata paths."""
         output_mp4.parent.mkdir(parents=True, exist_ok=True)
@@ -101,7 +101,14 @@ class BlenderAnimationProvider:
         total_seconds = sum(max(1.0, float(x.get("duration", 0.0))) + tail for x, tail in zip(voice_performance, (0.48,0.58,0.60,0.82)))
         frames = max(24, round(total_seconds * 24))
         voice_json = work / "voice_performance.json"
-        voice_json.write_text(json.dumps({"audio_sync": {"voice_performance": voice_performance}}, indent=2), encoding="utf-8")
+        rows=[]
+        for i,row in enumerate(voice_performance):
+            item=dict(row)
+            if actions and i < len(actions):
+                item["action"] = actions[i]
+            rows.append(item)
+        voice_json.write_text(json.dumps({"audio_sync": {"voice_performance": rows}}, indent=2), encoding="utf-8")
+        voice_performance=rows
         if action_assets:
             missing=[str(path) for path in action_assets if not Path(path).exists()]
             if missing:

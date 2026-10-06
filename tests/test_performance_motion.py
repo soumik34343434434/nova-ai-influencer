@@ -48,3 +48,19 @@ def test_settled_character_has_bounded_life_motion():
     assert abs(state_a["root_dx"]) < 8
     assert abs(state_b["root_dx"]) < 8
     assert abs(state_a["head_rot"]) < 8
+
+
+def test_semantic_pose_library_has_reusable_acting_vocabulary():
+    from app.providers.cartoon_pose_library import build_pose_library
+    base={
+        "root":[550,1260],"neck":[545,1035],"head_center":[575,815],
+        "left_shoulder":[390,1095],"left_elbow":[305,1125],"left_wrist":[275,1205],
+        "right_shoulder":[770,1080],"right_elbow":[845,1095],"right_wrist":[875,1160],
+        "head_rot":0.0,"root_rot":0.0,"eye_open":1.0,"gaze":[0.0,0.0],"mouth":"smile"
+    }
+    library=build_pose_library(base,"PIP")
+    expected={"idle","lean_in","reach","present","tap","excited","shock","recoil","overwhelmed","shrug","deadpan","sleepy"}
+    assert expected.issubset(library)
+    assert library["reach"]["right_wrist"] != base["right_wrist"]
+    assert library["shock"]["eye_open"] > library["idle"]["eye_open"]
+    assert library["deadpan"]["mouth"] == "flat"

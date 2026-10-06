@@ -11,6 +11,8 @@ import bpy
 from mathutils import Vector
 
 ROOT = Path(os.environ.get('NOVA_REPO', Path(__file__).resolve().parents[2])).resolve()
+sys.path.insert(0, str(ROOT))
+from app.providers.cartoon_pose_library import DEFAULT_ACTION_POSES, build_pose_library
 ASSET = ROOT / 'artifacts' / 'cartoon' / 'blender' / 'pip_cutout_layers'
 PROFILE_FILE = ROOT / 'config' / 'cartoon_blender_profiles.json'
 CHARACTER = 'PIP'
@@ -227,6 +229,15 @@ def build_beats(frames, voice_json=None):
     return ranges
 
 
+def pose_for_index(beat, index, rows):
+    row=rows[index] if index < len(rows) else {}
+    action=row.get('action')
+    mapped=PROFILE.get('_pose_map',{}).get(action) if action else None
+    if not mapped:
+        mapped=PROFILE.get('_pose_map',{}).get(beat,beat)
+    return PROFILE.get('_pose_library',{}).get(mapped,TARGETS.get(beat,BASE))
+
+
 def camera_performance_keys(arm, cam, beats):
     """Key a damped camera from the same character root clock."""
     for beat,start,end in beats:
@@ -258,6 +269,15 @@ def load_profile(character='PIP', profile_path=None):
     targets={}
     for name in ('setup','escalation','reaction','punchline'):
         merged=dict(base); merged.update(profile.get('targets',{}).get(name,{ })); targets[name]=merged
+    pose_library=build_pose_library(base,character)
+    # Profile mappings override the semantic defaults when a character needs a
+    # different acting beat; every named pose remains reusable by action.
+    pose_map=dict({k:v for k,v in {'setup':'idle','escalation':'shock','reaction':'overwhelmed','punchline':'deadpan'}.items()})
+    pose_map.update(profile.get('pose_map',{}))
+    for action,pose in DEFAULT_ACTION_POSES.items():
+        pose_map.setdefault(action,pose)
+    profile['_pose_library']=pose_library; profile['_pose_map']=pose_map
+    targets={k:pose_library.get(k,v) for k,v in targets.items()}
     return profile,base,targets,dict(profile['face'])
 
 
@@ -278,9 +298,10 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
  for part,z,segx,segy in [('torso',0.0,28,34),('backpack',0.02,20,32),('left_arm',0.04,24,28),('right_arm',0.05,24,28),('head',0.10,32,34)]:
   filename=PROFILE['layers'].get(part,f'{character.lower()}_{part}.png'); obj=make_grid(part,ASSET/filename,segx,segy,z); bind(obj,arm,part)
  face=face_rig(arm)
- prev=TARGETS['setup']
- for beat,start,end in BEATS:
-  target=TARGETS[beat]
+ rows=load_voice_rows(voice_json)
+ prev=pose_for_index('setup',0,rows)
+ for idx,(beat,start,end) in enumerate(BEATS):
+  target=pose_for_index(beat,idx,rows)
   dur=end-start
   specs=[(start,pose_spec(prev,target,-0.12)),(start+round(dur*.48),pose_spec(prev,target,1.10)),(start+round(dur*.72),target),(end,target)]
   for frame,spec in specs:
@@ -289,7 +310,7 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
  # Add speech-reactive mouth shape cues: fast micro-open/close around each phrase center.
  rows=load_voice_rows(voice_json)
  for idx,(beat,start,end) in enumerate(BEATS):
-  spec=TARGETS[beat]
+  spec=pose_for_index(beat,idx,rows)
   row=rows[idx] if idx < len(rows) else {}
   activity=row.get('activity') or []
   if activity:
@@ -315,8 +336,8 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
  # Blender's keyed transforms use its default BEZIER interpolation, providing
  # real continuous in-betweens between performance poses.
  scene.frame_start=1; scene.frame_end=frames; scene.render.image_settings.file_format='PNG'; scene.render.filepath=str(OUTDIR/'frame_####')
- rows=load_voice_rows(voice_json); effective_shot_durations=[round(max(1.0,float(r.get('duration',0.0) or 0.0))+tail,3) for r,tail in zip(rows[:4],(0.48,0.58,0.60,0.82))] if rows else [round((b-a)/24,3) for _,a,b in BEATS]
- meta={'engine':'blender-cutout-performance-rig-v3','character':CHARACTER,'beats':BEATS,'voice_json':str(voice_json) if voice_json else None,'effective_shot_durations':effective_shot_durations,'resolution':[W,H],'fps':24,'frames':frames,'deformable_layers':['torso','head','left_arm','right_arm','backpack'],'armature_bones':['root','head','arm.L','forearm.L','hand.L','arm.R','forearm.R','hand.R','backpack'],'facial_controls':['blink','gaze','mouth_shape','speech_micro_motion','organic_face_patches'],'in_between':'overshoot-and-settle-bezier','source':'clean-pip-master-cutout'}
+ effective_rows=load_voice_rows(voice_json); effective_shot_durations=[round(max(1.0,float(r.get('duration',0.0) or 0.0))+tail,3) for r,tail in zip(effective_rows[:4],(0.48,0.58,0.60,0.82))] if rows else [round((b-a)/24,3) for _,a,b in BEATS]
+ meta={'engine':'blender-cutout-performance-rig-v3','character':CHARACTER,'beats':BEATS,'voice_json':str(voice_json) if voice_json else None,'effective_shot_durations':effective_shot_durations,'actions':[r.get('action') for r in effective_rows[:4]],'resolution':[W,H],'fps':24,'frames':frames,'deformable_layers':['torso','head','left_arm','right_arm','backpack'],'armature_bones':['root','head','arm.L','forearm.L','hand.L','arm.R','forearm.R','hand.R','backpack'],'facial_controls':['blink','gaze','mouth_shape','speech_micro_motion','organic_face_patches'],'pose_library':list(PROFILE.get('_pose_library',{}).keys()),'pose_map':dict(PROFILE.get('_pose_map',{})),'in_between':'overshoot-and-settle-bezier','source':'clean-pip-master-cutout'}
  t=bpy.data.texts.new('NOVA_BLENDER_RIG_METADATA.json'); t.write(json.dumps(meta,indent=2)); return scene,meta
 
 

@@ -47,3 +47,10 @@ def test_provider_has_on_demand_character_compiler():
     assert 'ensure_character_assets' in text
     assert 'compile_cartoon_character_asset.py' in text
     assert 'character: str = "PIP"' in text
+
+
+def test_pose_library_is_action_driven():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert 'pose_for_index' in text
+    assert "row.get('action')" in text

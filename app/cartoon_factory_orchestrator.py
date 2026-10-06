@@ -245,6 +245,7 @@ class CartoonFactoryOrchestrator:
                 action_assets=images,
                 background_path=bg,
                 character=candidate.get("character", "PIP"),
+                actions=[b.get("asset_action", "") for b in candidate.get("beats", [])],
             )
             output = Path(info["video"])
         else:
