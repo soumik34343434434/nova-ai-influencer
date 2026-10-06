@@ -32,3 +32,24 @@ def test_missing_render_is_rejected(tmp_path: Path):
     result = CartoonMotionQA().inspect(tmp_path / "missing.mp4")
     assert not result["passed"]
     assert "missing_or_too_small" in result["reasons"]
+
+
+def test_repair_plan_amplifies_dead_motion_without_changing_content():
+    plan = CartoonMotionQA.plan_repair(["insufficient_character_motion"])
+    assert plan["strategy"] == "targeted-single-rerender"
+    assert plan["profile"]["motion_gain"] > 1.0
+    assert plan["profile"]["camera_gain"] > 1.0
+    assert plan["profile"]["transition_seconds"] == 0.20
+
+
+def test_repair_plan_softens_pose_pop_and_transition_spike():
+    plan = CartoonMotionQA.plan_repair(["possible_pose_popping", "excessive_transition_spike"])
+    assert plan["profile"]["motion_gain"] < 1.0
+    assert plan["profile"]["shake_gain"] < 1.0
+    assert plan["profile"]["transition_seconds"] == 0.14
+
+
+def test_repair_plan_moves_caption_when_collision_is_reported():
+    plan = CartoonMotionQA.plan_repair(["caption_character_collision_shot_2"])
+    assert plan["profile"]["caption_y"] < 1515
+    assert plan["profile"]["caption_zone"][1] < 1480

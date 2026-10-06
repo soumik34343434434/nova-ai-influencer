@@ -14,6 +14,47 @@ import numpy as np
 class CartoonMotionQA:
     """Cheap video-level motion gate; no generative model required."""
 
+    @staticmethod
+    def plan_repair(reasons: list[str]) -> dict[str, Any]:
+        """Translate QA failures into one bounded, deterministic rerender profile."""
+        reasons = list(dict.fromkeys(reasons))
+        plan: dict[str, Any] = {
+            "motion_gain": 1.0,
+            "camera_gain": 1.0,
+            "shake_gain": 1.0,
+            "transition_seconds": 0.20,
+            "caption_y": 1515,
+            "caption_zone": [40, 1480, 1040, 1885],
+            "jpeg_quality": 91,
+            "crf": 23,
+        }
+        if any(reason in reasons for reason in ("insufficient_character_motion", "too_many_near_duplicate_frames")):
+            plan["motion_gain"] = 1.35
+            plan["camera_gain"] = 1.25
+        if "possible_pose_popping" in reasons:
+            plan["motion_gain"] = min(plan["motion_gain"], 0.84)
+            plan["camera_gain"] = min(plan["camera_gain"], 0.92)
+            plan["shake_gain"] = 0.60
+            plan["transition_seconds"] = 0.26
+        if "excessive_transition_spike" in reasons:
+            plan["camera_gain"] = min(plan["camera_gain"], 0.90)
+            plan["shake_gain"] = 0.55
+            plan["transition_seconds"] = 0.14
+        if any(reason in reasons for reason in ("excessive_blur", "video_decode_failed", "possible_black_frames")):
+            plan["jpeg_quality"] = 94
+            plan["crf"] = 18
+        if any(reason.startswith("caption_character_collision_") for reason in reasons):
+            plan["caption_y"] = 1320
+            plan["caption_zone"] = [40, 1285, 1040, 1510]
+        if all(reason in {"motion_qa_below_threshold"} for reason in reasons):
+            plan["motion_gain"] = 1.15
+            plan["camera_gain"] = 1.10
+        return {
+            "reasons": reasons,
+            "profile": plan,
+            "strategy": "targeted-single-rerender",
+        }
+
     def __init__(
         self,
         min_motion: float = 0.012,

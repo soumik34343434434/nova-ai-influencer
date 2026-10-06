@@ -459,7 +459,7 @@ def _visible_caption(text: str, progress: float, punch: bool = False) -> str:
     return " ".join(shown)
 
 
-def _caption(draw: ImageDraw.ImageDraw, text: str, progress: float, punch: bool = False) -> None:
+def _caption(draw: ImageDraw.ImageDraw, text: str, progress: float, punch: bool = False, y0: int = H - 405) -> None:
     shown = _visible_caption(text, progress, punch)
     if not shown:
         return
@@ -480,7 +480,6 @@ def _caption(draw: ImageDraw.ImageDraw, text: str, progress: float, punch: bool 
         lines.append(current)
     lines = lines[:3]
     line_h = 78
-    y0 = H - 405
     for i, line in enumerate(lines):
         box = draw.textbbox((0, 0), line, font=font, stroke_width=2)
         tw = box[2] - box[0]
@@ -554,10 +553,14 @@ def _face_motion(progress: float, beat: str) -> tuple[float, float, float, float
     return dx, dy, sx, sy, blink
 
 
-def _apply_face_performance(frame: Image.Image, rig: CharacterRig, progress: float, beat: str) -> Image.Image:
+def _apply_face_performance(frame: Image.Image, rig: CharacterRig, progress: float, beat: str, motion_gain: float = 1.0) -> Image.Image:
     fx0, fy0, fx1, fy1 = rig.face_bbox
     face = rig.face_layer.crop((fx0, fy0, fx1, fy1)).convert("RGBA")
     dx, dy, sx, sy, blink = _face_motion(progress, beat)
+    dx *= motion_gain
+    dy *= motion_gain
+    sx = 1.0 + (sx - 1.0) * motion_gain
+    sy = 1.0 + (sy - 1.0) * motion_gain
     face = face.resize(
         (max(2, int(face.width * sx)), max(2, int(face.height * sy))),
         Image.Resampling.BICUBIC,
@@ -582,8 +585,18 @@ def _apply_face_performance(frame: Image.Image, rig: CharacterRig, progress: flo
     return base
 
 
-def _apply_rig_performance(frame: Image.Image, rig: CharacterRig, progress: float, beat: str) -> Image.Image:
+def _apply_rig_performance(
+    frame: Image.Image,
+    rig: CharacterRig,
+    progress: float,
+    beat: str,
+    motion_gain: float = 1.0,
+) -> Image.Image:
     dx, dy, scale, rotation = head_motion(progress, beat)
+    dx *= motion_gain
+    dy *= motion_gain
+    scale = 1.0 + (scale - 1.0) * motion_gain
+    rotation *= motion_gain
     x0, y0, x1, y1 = rig.head_bbox
     crop = rig.head_layer.crop((x0, y0, x1, y1))
     crop = crop.resize((max(2, int(crop.width * scale)), max(2, int(crop.height * scale))), Image.Resampling.BICUBIC)
@@ -597,10 +610,10 @@ def _apply_rig_performance(frame: Image.Image, rig: CharacterRig, progress: floa
     rgba = crop.convert("RGBA")
     mask = rgba.getchannel("A")
     base.paste(rgba.convert("RGB"), (int(hx - crop.width / 2 + dx), int(hy - crop.height / 2 + dy)), mask)
-    return _apply_face_performance(base, rig, progress, beat)
+    return _apply_face_performance(base, rig, progress, beat, motion_gain=motion_gain)
 
 
-def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str) -> Image.Image:
+def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, motion_gain: float = 1.0) -> Image.Image:
     """Animate the character core with a small beat-aware lean/bounce."""
     alpha = layer.getchannel("A")
     bbox = alpha.getbbox()
@@ -611,10 +624,10 @@ def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, 
     energy = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"]).energy
     anticipation = math.sin(math.pi * min(1.0, progress / 0.28))
     settle = max(0.0, min(1.0, (progress - 0.68) / 0.32))
-    dx = math.sin(progress * math.pi * 1.35) * (3.0 + 5.0 * energy)
-    dy = -anticipation * (3.0 + 8.0 * energy) + settle * 3.0
+    dx = math.sin(progress * math.pi * 1.35) * (3.0 + 5.0 * energy) * motion_gain
+    dy = (-anticipation * (3.0 + 8.0 * energy) + settle * 3.0) * motion_gain
     scale = 1.0 + math.sin(math.pi * progress) * 0.010 * energy
-    rotation = math.sin(math.pi * progress) * {"setup": -0.7, "escalation": 1.8, "reaction": -2.2, "punchline": 0.4}.get(beat, 0.0)
+    rotation = math.sin(math.pi * progress) * {"setup": -0.7, "escalation": 1.8, "reaction": -2.2, "punchline": 0.4}.get(beat, 0.0) * motion_gain
     crop = crop.resize((max(2, int(crop.width * scale)), max(2, int(crop.height * scale))), Image.Resampling.BICUBIC)
     crop = crop.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=False)
     ox = int(x0 + dx - (crop.width - (x1 - x0)) / 2)
@@ -624,7 +637,7 @@ def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, 
     return base
 
 
-def _apply_arm_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, side: str) -> Image.Image:
+def _apply_arm_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, side: str, motion_gain: float = 1.0) -> Image.Image:
     alpha = layer.getchannel("A")
     bbox = alpha.getbbox()
     if not bbox:
@@ -632,6 +645,10 @@ def _apply_arm_layer(frame: Image.Image, layer: Image.Image, progress: float, be
     x0, y0, x1, y1 = bbox
     crop = layer.crop((x0, y0, x1, y1))
     dx, dy, scale, rotation = arm_motion(progress, beat, side)
+    dx *= motion_gain
+    dy *= motion_gain
+    scale = 1.0 + (scale - 1.0) * motion_gain
+    rotation *= motion_gain
     crop = crop.resize((max(2, int(crop.width * scale)), max(2, int(crop.height * scale))), Image.Resampling.BICUBIC)
     crop = crop.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=False)
     ox = int(x0 + dx - (crop.width - (x1 - x0)) / 2)
@@ -649,7 +666,13 @@ def motion_frame(
     duration: float,
     beat: str,
     rig: CharacterRig | None = None,
+    render_tuning: dict | None = None,
 ) -> Image.Image:
+    tuning = render_tuning or {}
+    motion_gain = float(tuning.get("motion_gain", 1.0))
+    camera_gain = float(tuning.get("camera_gain", 1.0))
+    shake_gain = float(tuning.get("shake_gain", 1.0))
+    caption_y = int(tuning.get("caption_y", H - 405))
     profile = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"])
     base = _load_cover(str(image))
     p = max(0.0, min(1.0, progress))
@@ -663,24 +686,26 @@ def motion_frame(
             rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
             layers = load_action_layers(image, rig_dir)
             base = layers["body_plate"].convert("RGB")
-            base = _apply_torso_layer(base, layers["torso"], p, beat)
-            base = _apply_arm_layer(base, layers["left_arm"], p, beat, "left")
-            base = _apply_arm_layer(base, layers["right_arm"], p, beat, "right")
+            base = _apply_torso_layer(base, layers["torso"], p, beat, motion_gain=motion_gain)
+            base = _apply_arm_layer(base, layers["left_arm"], p, beat, "left", motion_gain=motion_gain)
+            base = _apply_arm_layer(base, layers["right_arm"], p, beat, "right", motion_gain=motion_gain)
         except (OSError, ValueError):
             pass
-        base = _apply_rig_performance(base, rig, p, beat)
+        base = _apply_rig_performance(base, rig, p, beat, motion_gain=motion_gain)
     eased = _ease_in_out(p)
-    energy = profile.energy
+    energy = profile.energy * motion_gain
 
     # First 20% is anticipation, middle is action, last 25% settles.
     anticipation = min(1.0, p / 0.20) if p < 0.20 else 1.0
     settle = max(0.0, min(1.0, (p - 0.72) / 0.28))
     spring = _spring(max(0.0, (p - 0.12) / 0.88))
 
-    zoom = profile.zoom_start + (profile.zoom_end - profile.zoom_start) * eased
+    zoom_start = 1.0 + (profile.zoom_start - 1.0) * camera_gain
+    zoom_delta = (profile.zoom_end - profile.zoom_start) * camera_gain
+    zoom = zoom_start + zoom_delta * eased
     zoom += 0.012 * math.sin(p * math.tau) * energy
     if beat == "reaction":
-        zoom += 0.022 * math.sin((p * 1.2) * math.tau) * (1.0 - settle)
+        zoom += 0.022 * math.sin((p * 1.2) * math.tau) * (1.0 - settle) * camera_gain
 
     crop_w = max(2, int(base.width / zoom))
     crop_h = max(2, int(base.height / zoom))
@@ -722,7 +747,7 @@ def motion_frame(
     peak_start = 0.34 if beat == "escalation" else 0.36 if beat == "reaction" else 1.0
     peak_end = 0.52 if beat == "escalation" else 0.50 if beat == "reaction" else 1.0
     shake_window = math.sin(math.pi * max(0.0, min(1.0, (p - peak_start) / max(0.01, peak_end - peak_start))))
-    shake = profile.shake * shake_window
+    shake = profile.shake * shake_window * shake_gain
     if shake:
         dx = int(math.sin(shot_index * 8 + p * 70) * shake)
         dy = int(math.cos(shot_index * 5 + p * 63) * shake * 0.6)
@@ -749,7 +774,7 @@ def motion_frame(
     if beat == "punchline":
         reveal = min(1.0, max(0.0, (p - profile.pause) / max(0.15, 1.0 - profile.pause)))
     punch = beat == "punchline" and p > 0.58
-    _caption(draw, caption, reveal, punch=punch)
+    _caption(draw, caption, reveal, punch=punch, y0=caption_y)
     _disclosure(draw)
 
     return rgba.convert("RGB")
@@ -784,6 +809,7 @@ def render_cartoon_motion(
     voice_lines: list[str] | None = None,
     sfx_kinds: list[str] | None = None,
     fps: int = 24,
+    render_tuning: dict | None = None,
 ) -> Path:
     if not images or len(images) != len(captions) or len(images) != len(durations) or len(images) != len(beats):
         raise ValueError("images, captions, durations and beats must have equal non-zero lengths")
@@ -798,6 +824,19 @@ def render_cartoon_motion(
     sfx_kinds = sfx_kinds or ["none"] * len(images)
     if len(voice_lines) != len(images) or len(sfx_kinds) != len(images):
         raise ValueError("voice_lines and sfx_kinds must match image count")
+
+    tuning = {
+        "motion_gain": float((render_tuning or {}).get("motion_gain", 1.0)),
+        "camera_gain": float((render_tuning or {}).get("camera_gain", 1.0)),
+        "shake_gain": float((render_tuning or {}).get("shake_gain", 1.0)),
+        "transition_seconds": float((render_tuning or {}).get("transition_seconds", 0.20)),
+        "caption_y": int((render_tuning or {}).get("caption_y", 1515)),
+        "caption_zone": list((render_tuning or {}).get("caption_zone", [40, 1480, 1040, 1885])),
+        "jpeg_quality": int((render_tuning or {}).get("jpeg_quality", 91)),
+        "crf": int((render_tuning or {}).get("crf", 23)),
+        "repair_attempt": int((render_tuning or {}).get("repair_attempt", 0)),
+        "repair_reasons": list((render_tuning or {}).get("repair_reasons", [])),
+    }
 
     output.parent.mkdir(parents=True, exist_ok=True)
     work = output.parent / f"{output.stem}_frames"
@@ -818,7 +857,7 @@ def render_cartoon_motion(
     previous_shot_beat: str | None = None
     # Five frames at 24fps (~0.21s) is long enough to see the pose travel while
     # still reading as a snappy comedic cut.
-    transition_frames = max(2, round(0.20 * source_fps))
+    transition_frames = max(2, round(tuning["transition_seconds"] * source_fps))
     transition_directions: list[int] = []
     character_bboxes: list[list[int] | None] = []
     for shot, (image, caption, duration, beat) in enumerate(zip(images, captions, durations, beats)):
@@ -831,10 +870,12 @@ def render_cartoon_motion(
             except ValueError:
                 rig = None
             if rig is not None and i == 0:
-                character_bboxes.append(list(rig.bbox))
+                # Use the performance/head bbox for subtitle safety. The lower
+                # body can sit behind captions without obscuring the dialogue.
+                character_bboxes.append(list(rig.head_bbox))
             elif i == 0:
                 character_bboxes.append(None)
-            frame = motion_frame(image, caption, progress, shot, duration, beat, rig=rig)
+            frame = motion_frame(image, caption, progress, shot, duration, beat, rig=rig, render_tuning=tuning)
             if (
                 previous_shot_frame is not None
                 and previous_shot_image is not None
@@ -866,7 +907,7 @@ def render_cartoon_motion(
                 transition_p = i / max(1, transition_frames - 1)
                 direction = transition_directions[-1] if transition_directions else 1
                 frame = _transition_frame(previous_shot_frame, frame, transition_p, direction)
-            frame.save(work / f"frame_{frame_index:05d}.jpg", quality=91, optimize=True)
+            frame.save(work / f"frame_{frame_index:05d}.jpg", quality=tuning["jpeg_quality"], optimize=True)
             frame_index += 1
         previous_shot_frame = frame
         previous_shot_rig = rig
@@ -879,7 +920,7 @@ def render_cartoon_motion(
             ffmpeg, "-y",
             "-framerate", str(source_fps),
             "-i", str(work / "frame_%05d.jpg"),
-            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", str(tuning["crf"]), "-pix_fmt", "yuv420p",
             "-vf", "scale=1080:1920:flags=lanczos,format=yuv420p",
             "-r", str(source_fps),
             str(video_silent),
@@ -928,8 +969,14 @@ def render_cartoon_motion(
                 "source_fps": source_fps,
                 "interpolation": "none",
                 "character_bboxes": character_bboxes,
-                "caption_zone": [40, 1480, 1040, 1885],
                 "transition_seconds": round(transition_frames / source_fps, 3),
+                "caption_y": tuning["caption_y"],
+                "caption_zone": tuning["caption_zone"],
+                "repair": {
+                    "attempt": tuning["repair_attempt"],
+                    "reasons": tuning["repair_reasons"],
+                    "strategy": "targeted-single-rerender" if tuning["repair_attempt"] else "initial-render",
+                },
                 "performance": {
                     "action_transitions": True,
                     "pose_aware_transition_direction": True,
