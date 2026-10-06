@@ -15,9 +15,13 @@ class CartoonMotionQA:
     """Cheap video-level motion gate; no generative model required."""
 
     @staticmethod
-    def plan_repair(reasons: list[str]) -> dict[str, Any]:
-        """Translate QA failures into one bounded, deterministic rerender profile."""
+    def plan_repair(
+        reasons: list[str],
+        target_shots: list[int] | None = None,
+    ) -> dict[str, Any]:
+        """Translate QA failures into one bounded, deterministic repair profile."""
         reasons = list(dict.fromkeys(reasons))
+        target_shots = sorted({int(index) for index in (target_shots or []) if int(index) >= 0})
         plan: dict[str, Any] = {
             "motion_gain": 1.0,
             "camera_gain": 1.0,
@@ -51,8 +55,9 @@ class CartoonMotionQA:
             plan["camera_gain"] = 1.10
         return {
             "reasons": reasons,
+            "target_shots": target_shots,
             "profile": plan,
-            "strategy": "targeted-single-rerender",
+            "strategy": "targeted-shot-rerender",
         }
 
     def __init__(
@@ -110,6 +115,34 @@ class CartoonMotionQA:
                 progress = (timestamp - start) / max(0.001, end - start)
                 return progress >= 0.72
         return False
+
+    @staticmethod
+    def _shot_frame_ranges(
+        metadata: dict[str, Any],
+    ) -> list[tuple[int, int, str]]:
+        """Return half-open frame ranges for the encoded shots."""
+        rows = metadata.get("shots")
+        if not isinstance(rows, list):
+            return []
+        out: list[tuple[int, int, str]] = []
+        cursor = 0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            count = int(row.get("frames", 0) or 0)
+            if count <= 0:
+                duration = float(row.get("duration", 0.0) or 0.0)
+                count = max(1, round(duration * float(metadata.get("fps", 24.0) or 24.0)))
+            out.append((cursor, cursor + count, str(row.get("beat", ""))))
+            cursor += count
+        return out
+
+    @staticmethod
+    def _shot_for_frame(frame_index: int, ranges: list[tuple[int, int, str]]) -> int | None:
+        for index, (start, end, _) in enumerate(ranges):
+            if start <= frame_index < end:
+                return index
+        return None
 
     @staticmethod
     def _caption_collisions(metadata: dict[str, Any]) -> list[str]:
@@ -220,6 +253,102 @@ class CartoonMotionQA:
         dark_ratio = sum(1 for x in frames if x[4] < 7.0) / max(1, len(frames))
         near_duplicate_ratio = sum(1 for x in internal_diffs if x < 0.003) / max(1, len(internal_diffs))
 
+        shot_ranges = self._shot_frame_ranges(metadata)
+        shot_results: list[dict[str, Any]] = []
+        repair_shots: set[int] = set()
+
+        for shot_index, (shot_start, shot_end, shot_beat) in enumerate(shot_ranges):
+            shot_samples = [row for row in frames if shot_start <= row[0] < shot_end]
+            shot_diffs: list[float] = []
+            shot_transition_diffs: list[float] = []
+            for previous, current in zip(frames, frames[1:]):
+                current_shot = self._shot_for_frame(current[0], shot_ranges)
+                if current_shot != shot_index:
+                    continue
+                diff = float(
+                    np.mean(
+                        np.abs(
+                            previous[2].astype(np.float32) - current[2].astype(np.float32)
+                        )
+                    )
+                    / 255.0
+                )
+                if self._near_boundary(current[1], boundaries, 0.34):
+                    shot_transition_diffs.append(diff)
+                elif not self._in_punchline_hold(current[1], boundaries):
+                    shot_diffs.append(diff)
+
+            shot_mean = float(np.mean(shot_diffs)) if shot_diffs else 0.0
+            shot_p95 = float(np.percentile(shot_diffs, 95)) if shot_diffs else 0.0
+            shot_transition = max(shot_transition_diffs) if shot_transition_diffs else 0.0
+            shot_lap = (
+                float(np.median([row[3] for row in shot_samples]))
+                if shot_samples else 0.0
+            )
+            shot_dark = (
+                sum(1 for row in shot_samples if row[4] < 7.0)
+                / max(1, len(shot_samples))
+            )
+            shot_duplicate = (
+                sum(1 for value in shot_diffs if value < 0.003)
+                / max(1, len(shot_diffs))
+            )
+            shot_reasons: list[str] = []
+            if shot_mean < self.min_motion:
+                shot_reasons.append("insufficient_character_motion")
+            if shot_p95 > self.max_internal_p95:
+                shot_reasons.append("possible_pose_popping")
+            if shot_transition > self.max_transition_spike:
+                shot_reasons.append("excessive_transition_spike")
+            if shot_lap and shot_lap < self.min_laplacian_median:
+                shot_reasons.append("excessive_blur")
+            if shot_dark > 0.03:
+                shot_reasons.append("possible_black_frames")
+            if shot_duplicate > 0.55:
+                shot_reasons.append("too_many_near_duplicate_frames")
+            if shot_reasons:
+                repair_shots.add(shot_index)
+            shot_results.append({
+                "shot": shot_index,
+                "beat": shot_beat,
+                "frame_start": shot_start,
+                "frame_end": shot_end,
+                "mean_internal_motion": round(shot_mean, 5),
+                "p95_internal_motion": round(shot_p95, 5),
+                "max_transition_motion": round(shot_transition, 5),
+                "median_laplacian": round(shot_lap, 2),
+                "dark_frame_ratio": round(shot_dark, 3),
+                "near_duplicate_ratio": round(shot_duplicate, 3),
+                "reasons": shot_reasons,
+            })
+
+        for reason in self._caption_collisions(metadata):
+            suffix = reason.rsplit("_", 1)[-1]
+            if suffix.isdigit():
+                repair_shots.add(int(suffix))
+
+        global_structural = {
+            "wrong_video_dimensions",
+            "wrong_frame_rate",
+            "video_decode_failed",
+            "missing_audio",
+            "duration_outside_range",
+        }
+        if any(reason in reasons for reason in global_structural):
+            repair_shots.update(range(len(shot_ranges)))
+
+        if not repair_shots and reasons:
+            worst = min(
+                shot_results,
+                key=lambda row: (
+                    row["mean_internal_motion"],
+                    -row["median_laplacian"],
+                ),
+                default=None,
+            )
+            if worst is not None:
+                repair_shots.add(int(worst["shot"]))
+
         if mean_motion < self.min_motion:
             reasons.append("insufficient_character_motion")
         if p95_motion > self.max_internal_p95:
@@ -268,4 +397,6 @@ class CartoonMotionQA:
             "continuity_score": round(continuity_score, 3),
             "blur_score": round(blur_score, 3),
             "transition_score": round(transition_score, 3),
+            "shot_results": shot_results,
+            "repair_shots": sorted(repair_shots),
         }

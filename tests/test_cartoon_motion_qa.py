@@ -36,7 +36,7 @@ def test_missing_render_is_rejected(tmp_path: Path):
 
 def test_repair_plan_amplifies_dead_motion_without_changing_content():
     plan = CartoonMotionQA.plan_repair(["insufficient_character_motion"])
-    assert plan["strategy"] == "targeted-single-rerender"
+    assert plan["strategy"] == "targeted-shot-rerender"
     assert plan["profile"]["motion_gain"] > 1.0
     assert plan["profile"]["camera_gain"] > 1.0
     assert plan["profile"]["transition_seconds"] == 0.20

@@ -18,6 +18,7 @@ class FakeQuality:
                 "passed": False,
                 "score": 0.4,
                 "reasons": ["insufficient_character_motion"],
+                "repair_shots": [2],
             }
         return {"passed": True, "score": 0.8, "reasons": []}
 
@@ -50,20 +51,23 @@ def test_video_qa_triggers_one_targeted_rerender(monkeypatch, tmp_path: Path):
 
     calls = []
 
-    def fake_render(images, captions, durations, beats, output, **kwargs):
+    def fake_rerender(source, images, captions, durations, beats, output, target_shots, **kwargs):
         calls.append(
             {
+                "source": str(source),
                 "images": [str(x) for x in images],
                 "durations": durations,
                 "beats": beats,
+                "target_shots": target_shots,
                 "tuning": kwargs["render_tuning"],
             }
         )
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(b"x" * 100_000)
         output.with_suffix(".motion.json").write_text("{}")
+        return output
 
-    monkeypatch.setattr(factory_module, "render_cartoon_motion", fake_render)
+    monkeypatch.setattr(factory_module, "rerender_cartoon_shots", fake_rerender)
     monkeypatch.setattr(
         orchestrator,
         "quality",
@@ -78,6 +82,7 @@ def test_video_qa_triggers_one_targeted_rerender(monkeypatch, tmp_path: Path):
     assert len(calls) == 1
     assert calls[0]["tuning"]["repair_attempt"] == 1
     assert calls[0]["tuning"]["motion_gain"] > 1.0
+    assert calls[0]["target_shots"] == [2]
     assert calls[0]["images"] == run.payload["asset_paths"]
     assert run.payload["winner"]["candidate"]["premise_slug"] == "repair_test"
     assert run.payload["motion_repair_attempts"] == 1

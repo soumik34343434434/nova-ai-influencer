@@ -13,6 +13,7 @@ import json
 import math
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -999,6 +1000,286 @@ def render_cartoon_motion(
             },
             indent=2,
         ),
+        encoding="utf-8",
+    )
+    return output
+
+
+
+def rerender_cartoon_shots(
+    source_video: Path,
+    images: list[Path],
+    captions: list[str],
+    durations: list[float],
+    beats: list[str],
+    output: Path,
+    target_shots: list[int],
+    render_tuning: dict | None = None,
+    fps: int = 24,
+) -> Path:
+    """Surgically replace failed shots and dependent outgoing transitions.
+
+    Untargeted frames are copied from the source video byte-for-byte at the
+    decoded-frame level. Audio is copied from the source container without a
+    second mix or TTS pass.
+    """
+    if not target_shots:
+        raise ValueError("target_shots must be non-empty")
+    if not source_video.exists():
+        raise FileNotFoundError(source_video)
+    if not (len(images) == len(captions) == len(durations) == len(beats)):
+        raise ValueError("images, captions, durations and beats must match")
+    if any(index < 0 or index >= len(images) for index in target_shots):
+        raise IndexError("target shot index out of range")
+    if fps < 12 or fps > 30:
+        raise ValueError("fps must be between 12 and 30")
+
+    from app.agents.cartoon_motion_qa import CartoonMotionQA
+
+    metadata_path = source_video.with_suffix(".motion.json")
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"Motion metadata missing: {metadata_path}")
+    source_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    shot_ranges = CartoonMotionQA._shot_frame_ranges(source_metadata)
+    if len(shot_ranges) != len(images):
+        raise ValueError("Motion metadata shot count does not match render inputs")
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg is required")
+
+    tuning = {
+        "motion_gain": float((render_tuning or {}).get("motion_gain", 1.0)),
+        "camera_gain": float((render_tuning or {}).get("camera_gain", 1.0)),
+        "shake_gain": float((render_tuning or {}).get("shake_gain", 1.0)),
+        "transition_seconds": float((render_tuning or {}).get("transition_seconds", 0.20)),
+        "caption_y": int((render_tuning or {}).get("caption_y", 1515)),
+        "caption_zone": list((render_tuning or {}).get("caption_zone", [40, 1480, 1040, 1885])),
+        "jpeg_quality": int((render_tuning or {}).get("jpeg_quality", 91)),
+        "crf": int((render_tuning or {}).get("crf", 23)),
+        "repair_attempt": int((render_tuning or {}).get("repair_attempt", 0)),
+        "repair_reasons": list((render_tuning or {}).get("repair_reasons", [])),
+    }
+
+    full_targets = sorted(set(int(index) for index in target_shots))
+    bridge_targets = sorted(
+        {
+            index + 1
+            for index in full_targets
+            if index + 1 < len(images) and index + 1 not in full_targets
+        }
+    )
+    replace_shots = set(full_targets) | set(bridge_targets)
+    transition_frames = max(2, round(tuning["transition_seconds"] * fps))
+
+    with tempfile.TemporaryDirectory(prefix="nova-targeted-repair-") as tmp_name:
+        work = Path(tmp_name)
+        original_dir = work / "original"
+        output_dir = work / "output"
+        original_dir.mkdir()
+        output_dir.mkdir()
+
+        subprocess.run(
+            [
+                ffmpeg, "-y", "-i", str(source_video),
+                "-vsync", "0", "-q:v", "2",
+                str(original_dir / "frame_%05d.jpg"),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        original_frames = sorted(original_dir.glob("frame_*.jpg"))
+        expected_frames = sum(end - start for start, end, _ in shot_ranges)
+        actual_frames = len(original_frames)
+        if actual_frames != expected_frames:
+            # CFR encoding can round the final frame boundary down by one frame.
+            # Preserve all earlier shot offsets and reconcile only the final range.
+            if abs(actual_frames - expected_frames) > 1 or not shot_ranges:
+                raise RuntimeError(
+                    f"Decoded frame count mismatch: expected {expected_frames}, got {actual_frames}"
+                )
+            start, _, beat = shot_ranges[-1]
+            if actual_frames <= start:
+                raise RuntimeError("Encoded video ended before the final shot")
+            shot_ranges[-1] = (start, actual_frames, beat)
+        for frame_path in original_frames:
+            shutil.copy2(frame_path, output_dir / frame_path.name)
+
+        def save_frame(frame: Image.Image, frame_index: int) -> None:
+            frame.save(
+                output_dir / f"frame_{frame_index + 1:05d}.jpg",
+                quality=tuning["jpeg_quality"],
+                optimize=True,
+            )
+
+        def frame_path(frame_index: int) -> Path:
+            return output_dir / f"frame_{frame_index + 1:05d}.jpg"
+
+        def final_frame_for_shot(shot_index: int) -> Image.Image:
+            _, end, _ = shot_ranges[shot_index]
+            with Image.open(frame_path(end - 1)) as image:
+                return image.convert("RGB").copy()
+
+        def make_transition_frame(
+            shot_index: int,
+            local_index: int,
+            current_frame: Image.Image,
+        ) -> Image.Image:
+            if shot_index == 0 or local_index >= transition_frames:
+                return current_frame
+            previous = shot_index - 1
+            previous_frame = final_frame_for_shot(previous)
+            previous_image = images[previous]
+            current_image = images[shot_index]
+            previous_rig = get_rig(str(previous_image))
+            current_rig = get_rig(str(current_image))
+            direction = _transition_direction(previous_rig, current_rig)
+            transition_p = local_index / max(1, transition_frames - 1)
+            return _pose_transition_frame(
+                previous_frame,
+                current_frame,
+                previous_image,
+                current_image,
+                previous_rig,
+                current_rig,
+                beats[previous],
+                beats[shot_index],
+                transition_p,
+                direction,
+            )
+
+        # Full replacement for failed shots. Processing in index order means a
+        # previous repaired shot's final frame is available to the next bridge.
+        for shot_index in full_targets:
+            start, end, beat = shot_ranges[shot_index]
+            try:
+                rig = get_rig(str(images[shot_index]))
+            except ValueError:
+                rig = None
+            for local_index, frame_index in enumerate(range(start, end)):
+                progress = local_index / max(1, (end - start) - 1)
+                frame = motion_frame(
+                    images[shot_index],
+                    captions[shot_index],
+                    progress,
+                    shot_index,
+                    durations[shot_index],
+                    beat,
+                    rig=rig,
+                    render_tuning=tuning,
+                )
+                frame = make_transition_frame(shot_index, local_index, frame)
+                save_frame(frame, frame_index)
+
+        # Only the transition prefix is regenerated for shots immediately after
+        # a repaired shot; their remaining frames stay untouched.
+        for shot_index in bridge_targets:
+            start, end, beat = shot_ranges[shot_index]
+            try:
+                rig = get_rig(str(images[shot_index]))
+            except ValueError:
+                rig = None
+            prefix = min(transition_frames, end - start)
+            for local_index, frame_index in enumerate(range(start, start + prefix)):
+                progress = local_index / max(1, (end - start) - 1)
+                frame = motion_frame(
+                    images[shot_index],
+                    captions[shot_index],
+                    progress,
+                    shot_index,
+                    durations[shot_index],
+                    beat,
+                    rig=rig,
+                    render_tuning=tuning,
+                )
+                frame = make_transition_frame(shot_index, local_index, frame)
+                save_frame(frame, frame_index)
+
+        silent = work / "silent.mp4"
+        subprocess.run(
+            [
+                ffmpeg, "-y",
+                "-framerate", str(fps),
+                "-i", str(output_dir / "frame_%05d.jpg"),
+                "-c:v", "libx264", "-preset", "ultrafast",
+                "-crf", str(tuning["crf"]),
+                "-pix_fmt", "yuv420p",
+                "-vf", "scale=1080:1920:flags=lanczos,format=yuv420p",
+                "-r", str(fps),
+                str(silent),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        muxed = work / "muxed.mp4"
+        ffprobe = shutil.which("ffprobe")
+        if not ffprobe:
+            raise RuntimeError("ffprobe is required")
+        probe = subprocess.run(
+            [ffprobe, "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index",
+             "-of", "csv=p=0", str(source_video)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        has_audio = bool(probe.stdout.strip())
+        if has_audio:
+            subprocess.run(
+                [
+                    ffmpeg, "-y",
+                    "-i", str(silent),
+                    "-i", str(source_video),
+                    "-map", "0:v:0", "-map", "1:a:0",
+                    "-c:v", "copy", "-c:a", "copy",
+                    "-shortest", str(muxed),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        else:
+            shutil.copy2(silent, muxed)
+
+        output.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(muxed, output)
+
+    new_metadata = dict(source_metadata)
+    new_metadata["engine"] = "cartoon-motion-3.5"
+    new_metadata["transition_seconds"] = round(transition_frames / fps, 3)
+    new_metadata["caption_y"] = tuning["caption_y"]
+    new_metadata["caption_zone"] = tuning["caption_zone"]
+    repair = dict(new_metadata.get("repair", {}))
+    repair.update(
+        {
+            "attempt": tuning["repair_attempt"],
+            "reasons": tuning["repair_reasons"],
+            "strategy": "targeted-shot-rerender",
+            "target_shots": full_targets,
+            "bridge_shots": bridge_targets,
+            "source_video": str(source_video),
+            "audio_preserved": True,
+            "replaced_frame_count": sum(
+                shot_ranges[index][1] - shot_ranges[index][0]
+                for index in full_targets
+            ) + sum(
+                min(
+                    transition_frames,
+                    shot_ranges[index][1] - shot_ranges[index][0],
+                )
+                for index in bridge_targets
+            ),
+        }
+    )
+    new_metadata["repair"] = repair
+    new_metadata["shots"] = [
+        {**row, "repaired": index in full_targets}
+        for index, row in enumerate(new_metadata.get("shots", []))
+    ]
+    output.with_suffix(".motion.json").write_text(
+        json.dumps(new_metadata, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
     return output

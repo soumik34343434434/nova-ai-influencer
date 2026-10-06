@@ -22,7 +22,7 @@ from app.agents.cartoon_quality import CartoonQuality
 from app.agents.cartoon_research import discover, rank, ResearchSignal
 from app.agents.storyboard import build_storyboard
 from app.cartoon_control import CartoonControlPlane, CartoonRun, CartoonRunStore, CartoonStage
-from app.providers.cartoon_animation import render_cartoon_motion
+from app.providers.cartoon_animation import render_cartoon_motion, rerender_cartoon_shots
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -250,8 +250,8 @@ class CartoonFactoryOrchestrator:
         )
         return {"video": str(output), "renderer": "cartoon-motion-3.4", "fps": 24}
 
-    def _rerender_for_motion_qa(self, run: CartoonRun, reasons: list[str]) -> dict[str, Any]:
-        """Rerender only the approved video inputs with a bounded QA repair profile."""
+    def _rerender_for_motion_qa(self, run: CartoonRun, motion_result: dict[str, Any]) -> dict[str, Any]:
+        """Surgically rerender failed shots plus their dependent outgoing bridges."""
         attempt = int(run.payload.get("motion_repair_attempts", 0)) + 1
         if attempt > 1:
             raise RuntimeError("Motion QA repair already attempted for this run")
@@ -259,33 +259,39 @@ class CartoonFactoryOrchestrator:
         candidate = run.payload["winner"]["candidate"]
         images = [Path(p) for p in run.payload["asset_paths"]]
         captions = [beat["voice"] for beat in candidate["beats"]]
-        sfx = [beat["sfx"] for beat in candidate["beats"]]
         beats = [beat["beat"] for beat in candidate["beats"]]
         durations = [float(beat.get("duration", 2.0)) for beat in candidate["beats"]]
-        plan = CartoonMotionQA.plan_repair(reasons)
+        reasons = list(motion_result.get("reasons", []))
+        target_shots = list(motion_result.get("repair_shots", []))
+        if not target_shots:
+            target_shots = list(range(len(images)))
+
+        plan = CartoonMotionQA.plan_repair(reasons, target_shots)
         tuning = {
             **plan["profile"],
             "repair_attempt": attempt,
-            "repair_reasons": list(reasons),
+            "repair_reasons": reasons,
         }
 
+        source = Path(run.payload["video"])
         slug = candidate["premise_slug"] + "_factory"
         output = ARTIFACTS / f"{slug}.mp4"
-        render_cartoon_motion(
+        rerender_cartoon_shots(
+            source,
             images,
             captions,
             durations,
             beats,
             output,
-            voice_lines=captions,
-            sfx_kinds=sfx,
-            fps=24,
+            target_shots,
             render_tuning=tuning,
+            fps=24,
         )
         history = list(run.payload.get("motion_repair_history", []))
         history.append({
             "attempt": attempt,
-            "reasons": list(reasons),
+            "reasons": reasons,
+            "target_shots": target_shots,
             "plan": plan,
             "video": str(output),
         })
@@ -294,9 +300,15 @@ class CartoonFactoryOrchestrator:
             video=str(output),
             animation_metadata=str(output.with_suffix(".motion.json")),
             motion_repair_attempts=attempt,
+            motion_repair_target_shots=target_shots,
             motion_repair_history=history,
         )
-        return {"attempt": attempt, "plan": plan, "video": str(output)}
+        return {
+            "attempt": attempt,
+            "plan": plan,
+            "target_shots": target_shots,
+            "video": str(output),
+        }
 
     def _audio_engine(self, run: CartoonRun) -> dict[str, Any]:
         video = Path(run.payload["video"])
@@ -332,7 +344,7 @@ class CartoonFactoryOrchestrator:
         if int(run.payload.get("motion_repair_attempts", 0)) >= 1:
             raise RuntimeError("Motion QA failed after targeted repair: " + ", ".join(motion["reasons"]))
 
-        repair = self._rerender_for_motion_qa(run, motion["reasons"])
+        repair = self._rerender_for_motion_qa(run, motion)
         repaired_video = Path(repair["video"])
         repaired_media = self.quality.render_check(repaired_video)
         if not repaired_media["passed"]:
