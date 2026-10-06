@@ -1,75 +1,51 @@
-# NOVA — Zero-Cost Automated AI Influencer
+# NOVA — Free-First Automated Cartoon Content Factory
 
-NOVA is an original fictional virtual-influencer automation stack designed to keep the **core software at $0 recurring API spend**. It uses public trend feeds, deterministic/local content generation, local media tooling, approval-first publishing adapters, and analytics storage.
+NOVA is an original fictional-character short-form content system designed so the core production loop can run without a paid AI video API.
 
-## Current pipeline
+## Production loop
 
-Public RSS trends → Trend Scout → Original Content Director → canonical NOVA character asset → recurring visual-world planner → storyboard/shot engine → motion provider router → local voice + motion fallback → FFmpeg vertical Reel → approval/publishing adapter → analytics → feedback loop.
+Internet research → trend scoring → local AI idea/script rewrite → deterministic quality gate → curated character/action asset selection → local 2.5D animation → local TTS + procedural SFX → captions + AI disclosure → media QA → approval-first publish queue → platform analytics → learning strategy.
 
-The code intentionally does **not** download and repost creators' videos or impersonate real people.
+Cloud image/video providers are optional adapters, not hard dependencies. A provider can be added or removed without changing the research, scripting, QA, rendering, publishing queue, or learning phases.
 
-## Run locally
+## Free-first stack
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python -m app.workers.daily_cycle
-```
+- Public Google News RSS + GDELT for research signals.
+- Ollama with a small Qwen3 model for optional local script improvement. The current 1.7B quantized model is about 1.4 GB; Qwen3 0.6B is also available at about 523 MB if a lighter footprint is preferred.
+- Pillow + FFmpeg for vertical rendering and motion interpolation.
+- macOS `say` for local narration and generated WAV SFX.
+- JSON outbox as the default safe publishing boundary.
 
-For media generation:
-
-```bash
-ffmpeg --version
-espeak --version
-python scripts/run_media_demo.py
-```
-
-Put an approved NOVA reference image at `assets/character/nova.png`.
-
-## API
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Endpoints include:
-
-- `GET /api/health`
-- `POST /api/automation/run`
-- `POST /api/content/generate`
-- `GET /api/content/queue`
-- `POST /api/content/{content_id}/approve`
-- `POST /api/media/build-latest`
-- `POST /api/metrics`
-
-## Zero-cost principles
-
-- Paid providers are optional, not required for the core loop.
-- Local media uses FFmpeg + eSpeak.
-- Generated content is original and disclosure-aware.
-- Publishing defaults to approval-first.
-- Secrets stay in environment variables and are never committed.
-
-## Roadmap
-
-1. Connect vidIQ signals to the trend scorer.
-2. Connect Metricool scheduling after account/network verification.
-3. Add optional local/open-source image-to-video providers behind the media interface.
-4. Ingest platform analytics and automatically select winning formats.
-5. Add affiliate/revenue attribution.
-
-## Cartoon comedy lane
-
-The project also includes a production lane for original, family-friendly cartoon shorts. The initial recurring cast is PIP (tiny mischievous robot), MOMO (sleepy orange cat), and BUBU (round blue bird).
-
-The first production episode is **PIP vs the Smart Kitchen**. It is rendered locally from action-specific character frames, with captions, local voiceover, AI disclosure, and 9:16 video QA.
-
-Run it with:
+## Run the cartoon factory
 
 ```bash
 python3 -m app.cartoon_pipeline
 ```
 
-The final publishing layer remains approval-first. Audience classification is kept as a platform-specific review step rather than assuming a single classification for every platform.
+Run the autonomous research-to-queue loop:
+
+```bash
+python3 -m app.cartoon_autopilot
+```
+
+The autopilot writes research and episode metadata under `artifacts/cartoon/` and queues only media that passes both content and media QA.
+
+## Tests
+
+```bash
+python3 -m pytest -q
+```
+
+## Current cartoon universe
+
+PIP — tiny sky-blue mischievous robot with oversized expressive eyes and an orange backpack.
+
+MOMO — sleepy orange cartoon cat with oversized expressive eyes and a tiny teal scarf.
+
+BUBU — round blue cartoon bird with oversized expressive eyes and a tiny yellow backpack.
+
+Episodes are designed as original, family-friendly fictional cartoons. Platform audience classification remains an explicit review step rather than being guessed by the generator.
+
+## Provider policy
+
+Runway and other hosted generators may be used when they materially improve an individual asset, but the production architecture does not require them. The preferred path is to keep the recurring software/API spend at zero and use hosted generation only as an optional quality accelerator.
