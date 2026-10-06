@@ -21,7 +21,7 @@ from app.agents.cartoon_quality import CartoonQuality
 from app.agents.cartoon_research import discover, rank, ResearchSignal
 from app.agents.storyboard import build_storyboard
 from app.cartoon_control import CartoonControlPlane, CartoonRun, CartoonRunStore, CartoonStage
-from app.providers.cartoon_media import render_photo_mix
+from app.providers.cartoon_animation import render_cartoon_motion
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -226,19 +226,28 @@ class CartoonFactoryOrchestrator:
         images = [Path(p) for p in run.payload["asset_paths"]]
         captions = [beat["voice"] for beat in candidate["beats"]]
         sfx = [beat["sfx"] for beat in candidate["beats"]]
-        durations = [2.0, 2.0, 2.0, 2.4]
+        beats = [beat["beat"] for beat in candidate["beats"]]
+        durations = [float(beat.get("duration", 2.0)) for beat in candidate["beats"]]
         slug = candidate["premise_slug"] + "_factory"
         output = ARTIFACTS / f"{slug}.mp4"
-        render_photo_mix(
+        render_cartoon_motion(
             images,
             captions,
             durations,
+            beats,
             output,
             voice_lines=captions,
             sfx_kinds=sfx,
+            fps=12,
         )
-        self.plane.store.set_payload(run, video=str(output), render_durations=durations)
-        return {"video": str(output), "renderer": "Pillow+FFmpeg"}
+        motion_metadata = output.with_suffix(".motion.json")
+        self.plane.store.set_payload(
+            run,
+            video=str(output),
+            render_durations=durations,
+            animation_metadata=str(motion_metadata),
+        )
+        return {"video": str(output), "renderer": "cartoon-motion-2.0", "fps": 12}
 
     def _audio_engine(self, run: CartoonRun) -> dict[str, Any]:
         video = Path(run.payload["video"])

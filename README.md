@@ -18,6 +18,12 @@ Cloud image/video providers are optional adapters, not hard dependencies. A prov
 - macOS `say` for local narration and generated WAV SFX.
 - JSON outbox as the default safe publishing boundary.
 
+## Animation Engine 2.0
+
+The local production path now uses `app/providers/cartoon_animation.py`. Approved action images act as deterministic keyframes, and the renderer adds beat-specific anticipation, push-in, recoil/shake, settle, squash/stretch proxy motion, impact graphics, progressive captions, and AI disclosure. The current control-plane configuration renders locally at 12 fps on the 8 GB M2 so it stays practical without a GPU-heavy generative-video dependency.
+
+This is deliberately a motion/compositing engine, not a claim of full skeletal character animation. The next quality jump is richer pose/action coverage and, later, an optional hosted motion adapter.
+
 ## Run the cartoon factory
 
 ```bash

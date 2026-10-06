@@ -136,7 +136,7 @@ def _audio_for_shots(
         return None
 
     filters.append(
-        f"{''.join(labels)}amix=inputs={len(labels)}:duration=longest,apad,atrim=0:{total:.3f}[mix]"
+        f"{''.join(labels)}amix=inputs={len(labels)}:duration=longest,atrim=0:{total:.3f}[mix]"
     )
     final_audio = work / "episode_audio.wav"
     subprocess.run(
