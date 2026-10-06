@@ -279,6 +279,30 @@ def _apply_rig_performance(frame: Image.Image, rig: CharacterRig, progress: floa
     return base
 
 
+def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str) -> Image.Image:
+    """Animate the character core with a small beat-aware lean/bounce."""
+    alpha = layer.getchannel("A")
+    bbox = alpha.getbbox()
+    if not bbox:
+        return frame
+    x0, y0, x1, y1 = bbox
+    crop = layer.crop((x0, y0, x1, y1))
+    energy = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"]).energy
+    anticipation = math.sin(math.pi * min(1.0, progress / 0.28))
+    settle = max(0.0, min(1.0, (progress - 0.68) / 0.32))
+    dx = math.sin(progress * math.pi * 1.35) * (3.0 + 5.0 * energy)
+    dy = -anticipation * (3.0 + 8.0 * energy) + settle * 3.0
+    scale = 1.0 + math.sin(math.pi * progress) * 0.010 * energy
+    rotation = math.sin(math.pi * progress) * {"setup": -0.7, "escalation": 1.8, "reaction": -2.2, "punchline": 0.4}.get(beat, 0.0)
+    crop = crop.resize((max(2, int(crop.width * scale)), max(2, int(crop.height * scale))), Image.Resampling.BICUBIC)
+    crop = crop.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=False)
+    ox = int(x0 + dx - (crop.width - (x1 - x0)) / 2)
+    oy = int(y0 + dy - (crop.height - (y1 - y0)) / 2)
+    base = frame.copy()
+    base.paste(crop.convert("RGB"), (ox, oy), crop.getchannel("A"))
+    return base
+
+
 def _apply_arm_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, side: str) -> Image.Image:
     alpha = layer.getchannel("A")
     bbox = alpha.getbbox()
@@ -318,6 +342,7 @@ def motion_frame(
             rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v1"
             layers = load_action_layers(image, rig_dir)
             base = layers["body_plate"].convert("RGB")
+            base = _apply_torso_layer(base, layers["torso"], p, beat)
             base = _apply_arm_layer(base, layers["left_arm"], p, beat, "left")
             base = _apply_arm_layer(base, layers["right_arm"], p, beat, "right")
         except (OSError, ValueError):

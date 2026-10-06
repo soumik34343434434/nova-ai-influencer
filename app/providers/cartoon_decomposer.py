@@ -171,7 +171,14 @@ def decompose_action(path: Path, output_dir: Path, character: str = "PIP") -> di
     body_box = _box(regions.body)
     alpha = _grabcut_alpha(rgb, body_box)
 
-    head = np.minimum(_ellipse_mask(_box(regions.head), 9), alpha)
+    # Head: use the blue character pixels as the primary seed, then close/dilate
+    # the mask so white eyes and highlights stay inside the movable head patch.
+    head_region = _box(regions.head)
+    head_seed = _semantic_color_mask(src, regions.head, "blue")
+    head_seed = cv2.morphologyEx(head_seed, cv2.MORPH_CLOSE, np.ones((13, 13), np.uint8))
+    head_seed = cv2.dilate(head_seed, np.ones((5, 5), np.uint8), iterations=1)
+    head = np.minimum(head_seed, _ellipse_mask(head_region, 10))
+    head = np.minimum(head, alpha)
     left_arm = np.minimum(
         _ellipse_mask(_box(regions.left_arm), 7),
         np.maximum(_semantic_color_mask(src, regions.left_arm, "blue"), _semantic_color_mask(src, regions.left_arm, "orange")),
@@ -188,6 +195,16 @@ def decompose_action(path: Path, output_dir: Path, character: str = "PIP") -> di
     right_arm = np.minimum(right_arm, alpha)
     backpack = np.minimum(backpack, alpha)
 
+    # Build a torso/body-core mask from the character silhouette rather than a
+    # second ellipse. Removing the already-mobile parts leaves a stable core
+    # that can receive a small lean/bounce independently of the head and arms.
+    body_selector = _ellipse_mask(_box(regions.body), 12)
+    torso = np.minimum(alpha, body_selector)
+    movable = np.maximum.reduce([head, left_arm, right_arm, backpack])
+    torso = np.where(movable > 45, 0, torso).astype(np.uint8)
+    torso = cv2.morphologyEx(torso, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+    torso = cv2.GaussianBlur(torso, (0, 0), 2.0)
+
     # Body remains the complete cutout in this first decomposition milestone.
     # The separate semantic layers are additive overlays; this avoids destructive
     # inpainting artifacts on the flattened backgrounds.
@@ -197,6 +214,7 @@ def decompose_action(path: Path, output_dir: Path, character: str = "PIP") -> di
     _layer(src, alpha, np.full((H, W), 255, np.uint8)).save(output_dir / f"{stem}_body.png")
     _body_plate(src, alpha, [left_arm, right_arm, backpack]).save(output_dir / f"{stem}_body_plate.jpg", quality=92)
     _layer(src, alpha, head).save(output_dir / f"{stem}_head.png")
+    _layer(src, alpha, torso).save(output_dir / f"{stem}_torso.png")
     _layer(src, alpha, left_arm).save(output_dir / f"{stem}_left_arm.png")
     _layer(src, alpha, right_arm).save(output_dir / f"{stem}_right_arm.png")
     _layer(src, alpha, backpack).save(output_dir / f"{stem}_backpack.png")
@@ -207,7 +225,7 @@ def decompose_action(path: Path, output_dir: Path, character: str = "PIP") -> di
         "source": str(path),
         "mode": "local-grabcut-semantic-proxy",
         "resolution": [W, H],
-        "layers": ["full", "body", "head", "left_arm", "right_arm", "backpack"],
+        "layers": ["full", "body", "torso", "head", "left_arm", "right_arm", "backpack"],
         "regions": regions.__dict__,
         "alpha_coverage": round(float((alpha > 128).mean()), 4),
     }
@@ -225,7 +243,7 @@ def decompose_pip_actions(action_dir: Path, output_dir: Path) -> list[dict]:
 
 def ensure_action_decomposed(path: Path, output_dir: Path) -> Path:
     stem = path.stem
-    required = output_dir / f"{stem}_right_arm.png"
+    required = output_dir / f"{stem}_torso.png"
     if not required.exists():
         decompose_action(path, output_dir)
     return output_dir
@@ -235,7 +253,7 @@ def ensure_action_decomposed(path: Path, output_dir: Path) -> Path:
 def load_action_layers(path: Path, output_dir: Path) -> dict[str, Image.Image]:
     ensure_action_decomposed(path, output_dir)
     stem = path.stem
-    names = ("body_plate", "head", "left_arm", "right_arm", "backpack")
+    names = ("body_plate", "torso", "head", "left_arm", "right_arm", "backpack")
     result: dict[str, Image.Image] = {}
     for name in names:
         ext = "jpg" if name == "body_plate" else "png"

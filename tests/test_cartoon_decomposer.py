@@ -14,8 +14,8 @@ def test_known_pip_assets_have_decomposition_regions():
 def test_decompose_action_writes_rgba_layers(tmp_path: Path):
     source = Path("assets/cartoon/actions/pip_press_button.png")
     meta = decompose_action(source, tmp_path)
-    assert meta["layers"] == ["full", "body", "head", "left_arm", "right_arm", "backpack"]
-    for name in ("full", "body", "head", "left_arm", "right_arm", "backpack"):
+    assert meta["layers"] == ["full", "body", "torso", "head", "left_arm", "right_arm", "backpack"]
+    for name in ("full", "body", "torso", "head", "left_arm", "right_arm", "backpack"): 
         layer = Image.open(tmp_path / f"pip_press_button_{name}.png")
         assert layer.mode == "RGBA"
         assert layer.size == (1080, 1920)
