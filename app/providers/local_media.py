@@ -13,7 +13,7 @@ import sys
 from PIL import Image, ImageDraw, ImageFont
 
 from app.agents.storyboard import Storyboard
-from app.providers.local_puppet import make_puppet_video
+from app.providers.motion import MotionRouter
 
 
 class LocalMediaError(RuntimeError):
@@ -243,7 +243,8 @@ def build_video_from_storyboard(image: Path, storyboard, output_dir: Path) -> Pa
         make_shot_frame(image, frame, shot)
         make_voiceover(shot.dialogue, audio)
         duration = max(2.4, shot.duration)
-        make_puppet_video(image=frame, audio=audio, output=segment, duration=duration, shot_index=shot.index)
+        motion = MotionRouter()
+        motion.render(image=frame, audio=audio, output=segment, duration=duration, shot_index=shot.index)
         segments.append(segment)
 
     concat_file = shot_dir / "concat.txt"

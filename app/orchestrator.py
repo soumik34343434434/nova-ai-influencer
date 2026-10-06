@@ -65,7 +65,9 @@ class CharacterStore:
     """Uses the real generated character when present, otherwise a free local fallback."""
 
     def __init__(self, path: Path | None = None):
-        self.path = path or (CHARACTER_DIR / "nova_fallback.png")
+        configured = os.getenv("NOVA_CHARACTER_IMAGE", "").strip()
+        self.path = path or (Path(configured) if configured else (CHARACTER_DIR / "nova.png"))
+        self.fallback_path = CHARACTER_DIR / "nova_fallback.png"
 
     def ensure(self) -> Path:
         self.path.parent.mkdir(parents=True, exist_ok=True)
