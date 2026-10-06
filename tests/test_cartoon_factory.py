@@ -28,3 +28,16 @@ def test_blender_backend_accepts_compiled_character_master(monkeypatch):
     monkeypatch.setenv("NOVA_CARTOON_ANIMATION_BACKEND", "blender")
     assert action_asset("MOMO", "give_homework") is not None
     assert action_asset("BUBU", "tap_alarm") is not None
+
+
+def test_cartoon_quality_targets_preserve_strong_areas_and_raise_weak_areas():
+    import json
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]
+    data=json.loads((root/'config'/'cartoon_quality_targets.json').read_text(encoding='utf-8'))
+    areas=data['areas']
+    weak={'animation_mechanics','anticipation_contact_overshoot','secondary_motion','facial_acting','camera_acting','background_visual_world','comedy_storytelling','social_video_potential'}
+    assert all(areas[name]['minimum'] >= 8.5 for name in weak)
+    for name,area in areas.items():
+        if area['protected']:
+            assert area['minimum'] >= area['baseline']

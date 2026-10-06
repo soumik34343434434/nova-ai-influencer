@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "policy": {
+    "minimum_score_for_previously_weak_areas": 8.5,
+    "minimum_score_for_existing_strong_areas": 8.5,
+    "no_regression_below_baseline": true,
+    "note": "Creative scores are human-review targets; automated tests validate the implementation signals supporting those targets."
+  },
+  "areas": {
+    "character_design": {
+      "baseline": 9.0,
+      "minimum": 9.0,
+      "protected": true
+    },
+    "character_consistency": {
+      "baseline": 9.2,
+      "minimum": 9.2,
+      "protected": true
+    },
+    "animation_mechanics": {
+      "baseline": 8.2,
+      "minimum": 8.5,
+      "protected": false,
+      "signals": [
+        "curved_limb_travel",
+        "staggered_joint_timing"
+      ]
+    },
+    "anticipation_contact_overshoot": {
+      "baseline": 8.3,
+      "minimum": 8.5,
+      "protected": false,
+      "signals": [
+        "anticipation",
+        "contact_approach",
+        "contact",
+        "overshoot",
+        "recoil",
+        "settle",
+        "impact_impulse"
+      ]
+    },
+    "secondary_motion": {
+      "baseline": 7.8,
+      "minimum": 8.5,
+      "protected": false,
+      "signals": [
+        "head_lag",
+        "hand_lag",
+        "accessory_lag",
+        "follow_through"
+      ]
+    },
+    "facial_acting": {
+      "baseline": 7.5,
+      "minimum": 8.5,
+      "protected": false,
+      "signals": [
+        "multi_blink",
+        "gaze_dart",
+        "eye_asymmetry",
+        "brows",
+        "speech_head_bob",
+        "impact_reaction"
+      ]
+    },
+    "voice_synchronization": {
+      "baseline": 8.5,
+      "minimum": 8.5,
+      "protected": true
+    },
+    "captions": {
+      "baseline": 9.0,
+      "minimum": 9.0,
+      "protected": true
+    },
+    "camera_acting": {
+      "baseline": 6.8,
+      "minimum": 8.5,
+      "protected": false,
+      "signals": [
+        "hook_reveal",
+        "push_pull",
+        "action_focus",
+        "impact_shake"
+      ]
+    },
+    "background_visual_world": {
+      "baseline": 7.5,
+      "minimum": 8.5,
+      "protected": false,
+      "signals": [
+        "procedural_desk",
+        "action_props",
+        "ground_shadow",
+        "paper_burst"
+      ]
+    },
+    "comedy_storytelling": {
+      "baseline": 7.8,
+      "minimum": 8.5,
+      "protected": false,
+      "signals": [
+        "immediate_hook",
+        "double_escalation",
+        "reversal",
+        "short_punchline"
+      ]
+    },
+    "technical_quality": {
+      "baseline": 9.1,
+      "minimum": 9.1,
+      "protected": true
+    },
+    "social_video_potential": {
+      "baseline": 7.8,
+      "minimum": 8.5,
+      "protected": false,
+      "signals": [
+        "first_second_hook",
+        "visual_escalation",
+        "vertical_1080x1920"
+      ]
+    }
+  }
+}
