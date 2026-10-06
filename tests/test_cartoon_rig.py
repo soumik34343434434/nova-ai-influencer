@@ -48,3 +48,27 @@ def test_unknown_flat_image_can_skip_rig():
     else:
         raise AssertionError("unknown image should not be classified as a character rig")
     path.unlink(missing_ok=True)
+
+
+def test_pip_rig_extracts_face_performance_plate():
+    path = Path("assets/cartoon/actions/pip_press_button.png")
+    rig = get_rig(str(path))
+    assert rig.face_layer.size == (1080, 1920)
+    assert rig.face_bbox[0] < rig.face_bbox[2]
+    assert rig.face_bbox[1] < rig.face_bbox[3]
+
+
+def test_face_motion_has_beat_specific_response():
+    from app.providers.cartoon_animation import _face_motion
+    setup = _face_motion(0.45, "setup")
+    escalation = _face_motion(0.45, "escalation")
+    reaction = _face_motion(0.45, "reaction")
+    assert setup != escalation
+    assert escalation != reaction
+    assert all(v == v for v in escalation)
+
+
+def test_face_motion_has_explicit_blink_window():
+    from app.providers.cartoon_animation import _face_motion
+    assert _face_motion(0.22, "reaction")[4] > 0.0
+    assert _face_motion(0.50, "reaction")[4] < 1e-6

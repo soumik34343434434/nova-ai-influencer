@@ -23,7 +23,9 @@ class CharacterRig:
     source: str
     bbox: tuple[int, int, int, int]
     head_bbox: tuple[int, int, int, int]
+    face_bbox: tuple[int, int, int, int]
     head_layer: Image.Image
+    face_layer: Image.Image
     cover_plate: Image.Image
     cover_mask: Image.Image
     center: tuple[float, float]
@@ -35,18 +37,22 @@ PIP_ACTION_REGIONS: dict[str, dict[str, tuple[float, float, float, float]]] = {
     "pip_press_button.png": {
         "body": (0.10, 0.22, 0.66, 0.76),
         "head": (0.17, 0.27, 0.60, 0.54),
+        "face": (0.36, 0.30, 0.70, 0.50),
     },
     "pip_shock.png": {
         "body": (0.46, 0.37, 0.995, 0.77),
         "head": (0.52, 0.40, 0.99, 0.63),
+        "face": (0.61, 0.43, 0.995, 0.61),
     },
     "pip_overwhelmed.png": {
         "body": (0.03, 0.49, 0.62, 0.95),
         "head": (0.08, 0.51, 0.59, 0.78),
+        "face": (0.18, 0.55, 0.59, 0.76),
     },
     "pip_deadpan.png": {
         "body": (0.31, 0.37, 0.78, 0.75),
         "head": (0.36, 0.39, 0.73, 0.61),
+        "face": (0.40, 0.42, 0.73, 0.60),
     },
 }
 
@@ -93,6 +99,7 @@ def extract_rig(path: Path, character: str = "PIP") -> CharacterRig:
     if manifest:
         bbox = _fraction_bbox(manifest["body"])
         head_bbox = _fraction_bbox(manifest["head"])
+        face_bbox = _fraction_bbox(manifest["face"])
     else:
         blue = _blue_mask(base)
         data = np.asarray(blue) > 150
@@ -102,6 +109,8 @@ def extract_rig(path: Path, character: str = "PIP") -> CharacterRig:
         bbox = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
         bx0, by0, bx1, by1 = bbox
         head_bbox = (bx0, by0, bx1, by0 + round((by1 - by0) * 0.52))
+        hx0, hy0, hx1, hy1 = head_bbox
+        face_bbox = (hx0 + round((hx1-hx0)*0.16), hy0 + round((hy1-hy0)*0.18), hx1 - round((hx1-hx0)*0.04), hy0 + round((hy1-hy0)*0.86))
 
     # For known PIP poses, use a feathered elliptical head mask rather than
     # trusting scene colors. The generated kitchen contains many cyan/blue
@@ -114,8 +123,17 @@ def extract_rig(path: Path, character: str = "PIP") -> CharacterRig:
     draw.ellipse((hx0 + mx, hy0 + my, hx1 - mx, hy1 - my), fill=245)
     head_mask = head_mask.filter(ImageFilter.GaussianBlur(22))
 
+    fx0, fy0, fx1, fy1 = face_bbox
+    face_mask = Image.new("L", (W, H), 0)
+    fd = ImageDraw.Draw(face_mask)
+    fd.rounded_rectangle((fx0, fy0, fx1, fy1), radius=round(min(fx1-fx0, fy1-fy0)*0.16), fill=245)
+    face_mask = face_mask.filter(ImageFilter.GaussianBlur(8))
+    head_only_mask = ImageChops.subtract(head_mask, face_mask)
+
     head = base.convert("RGBA")
-    head.putalpha(head_mask)
+    head.putalpha(head_only_mask)
+    face = base.convert("RGBA")
+    face.putalpha(face_mask)
 
     cover_mask = head_mask.filter(ImageFilter.GaussianBlur(12))
     blurred = base.filter(ImageFilter.GaussianBlur(11)).convert("RGBA")
@@ -123,7 +141,7 @@ def extract_rig(path: Path, character: str = "PIP") -> CharacterRig:
 
     x0, y0, x1, y1 = head_bbox
     center = ((x0 + x1) / 2.0, (y0 + y1) / 2.0)
-    return CharacterRig(character, str(path), bbox, head_bbox, head, cover, cover_mask, center)
+    return CharacterRig(character, str(path), bbox, head_bbox, face_bbox, head, face, cover, cover_mask, center)
 
 
 @lru_cache(maxsize=32)
@@ -137,8 +155,9 @@ def rig_summary(rig: CharacterRig) -> dict:
         "source": rig.source,
         "bbox": list(rig.bbox),
         "head_bbox": list(rig.head_bbox),
+        "face_bbox": list(rig.face_bbox),
         "center": [round(rig.center[0], 2), round(rig.center[1], 2)],
-        "layers": ["head", "face_proxy", "body_proxy", "backpack_proxy"],
+        "layers": ["head", "face", "body_proxy", "backpack_proxy"],
         "mode": "flattened-art-performance-proxy",
         "manifest": Path(rig.source).name in PIP_ACTION_REGIONS,
     }

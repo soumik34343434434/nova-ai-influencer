@@ -285,6 +285,61 @@ def _impact_graphics(frame: Image.Image, intensity: float) -> None:
     frame.alpha_composite(overlay)
 
 
+def _face_motion(progress: float, beat: str) -> tuple[float, float, float, float, float]:
+    """Return face dx/dy, x/y scale and blink strength."""
+    p = max(0.0, min(1.0, progress))
+    energy = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"]).energy
+    if beat == "escalation":
+        snap = math.sin(math.pi * max(0.0, min(1.0, (p - 0.16) / 0.34)))
+        dx, dy = 7.0 * snap * energy, -4.0 * snap * energy
+        sx, sy = 1.0 + 0.010 * snap, 1.0 + 0.030 * snap
+        blink = max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.10) / 0.08))))
+    elif beat == "reaction":
+        snap = math.sin(math.pi * max(0.0, min(1.0, (p - 0.10) / 0.30)))
+        dx, dy = -8.0 * snap * energy, 3.0 * snap * energy
+        sx, sy = 1.0 + 0.016 * snap, 1.0 + 0.038 * snap
+        blink = max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.18) / 0.09))))
+    elif beat == "punchline":
+        sway = math.sin(math.pi * p * 0.8)
+        dx, dy = 2.0 * sway, -1.0 * sway
+        sx, sy = 1.0, 1.0 + 0.012 * sway
+        blink = 0.72 * max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.25) / 0.08))))
+    else:
+        breathe = math.sin(math.tau * p)
+        dx, dy = 1.5 * breathe * energy, -0.8 * breathe * energy
+        sx, sy = 1.0, 1.0 + 0.008 * breathe * energy
+        blink = 0.65 * max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.32) / 0.08))))
+    return dx, dy, sx, sy, blink
+
+
+def _apply_face_performance(frame: Image.Image, rig: CharacterRig, progress: float, beat: str) -> Image.Image:
+    fx0, fy0, fx1, fy1 = rig.face_bbox
+    face = rig.face_layer.crop((fx0, fy0, fx1, fy1)).convert("RGBA")
+    dx, dy, sx, sy, blink = _face_motion(progress, beat)
+    face = face.resize(
+        (max(2, int(face.width * sx)), max(2, int(face.height * sy))),
+        Image.Resampling.BICUBIC,
+    )
+
+    # Briefly compress the LED expression vertically for a blink. We deliberately
+    # do not invent eye/pupil pixels; the original generated face remains the art.
+    if blink > 0.02:
+        fd = ImageDraw.Draw(face, "RGBA")
+        band_y = int(face.height * 0.43)
+        band_h = max(4, int(face.height * 0.09 * blink))
+        fd.rounded_rectangle(
+            (int(face.width * 0.08), band_y - band_h, int(face.width * 0.92), band_y + band_h),
+            radius=max(3, band_h),
+            fill=(16, 27, 38, int(205 * blink)),
+        )
+
+    base = frame.copy()
+    ox = int(fx0 + dx - (face.width - (fx1 - fx0)) / 2)
+    oy = int(fy0 + dy - (face.height - (fy1 - fy0)) / 2)
+    base.paste(face.convert("RGB"), (ox, oy), face.getchannel("A"))
+    return base
+
+
 def _apply_rig_performance(frame: Image.Image, rig: CharacterRig, progress: float, beat: str) -> Image.Image:
     dx, dy, scale, rotation = head_motion(progress, beat)
     x0, y0, x1, y1 = rig.head_bbox
@@ -300,7 +355,7 @@ def _apply_rig_performance(frame: Image.Image, rig: CharacterRig, progress: floa
     rgba = crop.convert("RGBA")
     mask = rgba.getchannel("A")
     base.paste(rgba.convert("RGB"), (int(hx - crop.width / 2 + dx), int(hy - crop.height / 2 + dy)), mask)
-    return base
+    return _apply_face_performance(base, rig, progress, beat)
 
 
 def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str) -> Image.Image:
