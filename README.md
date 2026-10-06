@@ -28,6 +28,14 @@ Run the autonomous research-to-queue loop:
 python3 -m app.cartoon_autopilot
 ```
 
+Run the durable 14-stage control-plane wiring:
+
+```bash
+python3 -m app.cartoon_factory_orchestrator
+```
+
+Each run is checkpointed under `artifacts/cartoon/runs/<run_id>/run.json`. A failed run can be resumed, and a failed stage can be repaired without redoing successful earlier stages. The publish stage is intentionally an approval-first outbox; real platform publishing is an adapter boundary.
+
 The autopilot writes research and episode metadata under `artifacts/cartoon/` and queues only media that passes both content and media QA.
 
 ## Tests

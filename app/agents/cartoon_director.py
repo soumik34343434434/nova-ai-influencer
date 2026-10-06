@@ -70,7 +70,7 @@ class CartoonDirector:
     def __init__(self, llm: LocalLLM | None = None):
         self.llm = llm or LocalLLM()
 
-    def candidates(self, topic: str, count: int = 3) -> list[dict[str, Any]]:
+    def candidates(self, topic: str, count: int = 3, strategy: str = "") -> list[dict[str, Any]]:
         base = _base_candidates(topic or "today")
         # Never spend local-model inference on a concept whose current asset
         # pack cannot render it. As the library grows, more ready concepts
@@ -83,8 +83,9 @@ class CartoonDirector:
         for fallback in base:
             prompt = json.dumps({
                 "topic": topic,
+                "strategy": strategy,
                 "base": fallback,
-                "task": "Rewrite the dialogue and hook to make this topical and funnier, while preserving premise_slug, character, beat count and asset_action values.",
+                "task": "Rewrite the dialogue and hook to make this topical and funnier, while preserving premise_slug, character, beat count and asset_action values. Apply the supplied strategy without changing the safe original-cartoon constraints.",
                 "required": {"title": "string", "hook": "string", "character": fallback["character"], "beats": "array of 4 objects with beat, asset_action, voice, sfx", "caption": "string"},
             }, ensure_ascii=False)
             generated = self.llm.chat_json(self.SYSTEM, prompt)
