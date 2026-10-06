@@ -21,3 +21,10 @@ def test_unready_character_is_blocked_until_action_pack_exists():
     allowed, reasons = quality_gate(spec)
     assert not allowed
     assert "missing_action_asset_coverage" in reasons
+
+
+def test_blender_backend_accepts_compiled_character_master(monkeypatch):
+    from app.agents.cartoon_factory import action_asset
+    monkeypatch.setenv("NOVA_CARTOON_ANIMATION_BACKEND", "blender")
+    assert action_asset("MOMO", "give_homework") is not None
+    assert action_asset("BUBU", "tap_alarm") is not None

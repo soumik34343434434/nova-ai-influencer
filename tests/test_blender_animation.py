@@ -39,3 +39,11 @@ def test_provider_source_supports_action_assets_and_background():
     assert 'action_assets' in text
     assert 'background_path' in text
     assert 'Missing Blender action assets' in text
+
+
+def test_provider_has_on_demand_character_compiler():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'app'/'providers'/'blender_animation.py').read_text(encoding='utf-8')
+    assert 'ensure_character_assets' in text
+    assert 'compile_cartoon_character_asset.py' in text
+    assert 'character: str = "PIP"' in text

@@ -23,6 +23,22 @@ class BlenderAnimationProvider:
     def _script(self, repo_root: Path) -> Path:
         return repo_root / "tools" / "blender" / "pip_cutout_rig_v2.py"
 
+    def ensure_character_assets(self, repo_root: Path, character: str) -> Path:
+        """Compile non-PIP characters on demand so a clean clone is render-ready."""
+        if character.upper() == "PIP":
+            return repo_root / "artifacts" / "cartoon" / "blender" / "pip_cutout_layers"
+        out = repo_root / "artifacts" / "cartoon" / "blender" / f"{character.lower()}_cutout_layers"
+        required = [out / f"{character.lower()}_torso.png", out / f"{character.lower()}_head.png", out / f"{character.lower()}_left_arm.png", out / f"{character.lower()}_right_arm.png", out / (f"{character.lower()}_scarf.png" if character.upper()=="MOMO" else f"{character.lower()}_backpack.png"), out / "manifest.json"]
+        if all(path.exists() for path in required):
+            return out
+        compiler = repo_root / "tools" / "blender" / "compile_cartoon_character_asset.py"
+        if not compiler.exists():
+            raise FileNotFoundError(f"Character compiler missing: {compiler}")
+        subprocess.run([__import__("sys").executable, str(compiler), character], cwd=str(repo_root), check=True, capture_output=True, text=True)
+        if not all(path.exists() for path in required):
+            raise RuntimeError(f"Character compilation did not produce a complete pack for {character}")
+        return out
+
     def build_rig(
         self, repo_root: Path, output_blend: Path | None = None,
         resolution_percent: int = 35, voice_json: Path | None = None, frames: int = 190,
@@ -30,6 +46,7 @@ class BlenderAnimationProvider:
     ) -> Path:
         if not self.available():
             raise RuntimeError("Blender is not installed")
+        self.ensure_character_assets(repo_root, character)
         output_blend = output_blend or repo_root / "artifacts" / "cartoon" / "blender" / "pip_cutout_rig_v2.blend"
         output_blend.parent.mkdir(parents=True, exist_ok=True)
         env = {
@@ -47,17 +64,20 @@ class BlenderAnimationProvider:
     def render_preview(
         self, repo_root: Path, output_blend: Path | None = None, resolution_percent: int = 35,
         voice_json: Path | None = None, frames: int = 190, key_frames: list[int] | None = None,
+        character: str = "PIP", background_path: Path | None = None,
     ) -> dict:
-        blend = self.build_rig(repo_root, output_blend, resolution_percent, voice_json=voice_json, frames=frames)
+        blend = self.build_rig(repo_root, output_blend, resolution_percent, voice_json=voice_json, frames=frames, character=character, background_path=background_path)
         env = {
             "NOVA_REPO": str(repo_root),
             "NOVA_BLENDER_RESOLUTION": str(resolution_percent),
         }
         if key_frames:
             env["NOVA_KEY_FRAMES"] = ",".join(str(x) for x in key_frames)
-        cmd = [self.blender_bin, "--background", "--python", str(self._script(repo_root)), "--", "--build", "--render", "--frames", str(frames), "--blend-output", str(blend)]
+        cmd = [self.blender_bin, "--background", "--python", str(self._script(repo_root)), "--", "--build", "--render", "--frames", str(frames), "--character", character, "--blend-output", str(blend)]
         if voice_json:
             cmd.extend(["--voice-json", str(voice_json)])
+        if background_path:
+            cmd.extend(["--background", str(background_path)])
         run = subprocess.run(cmd, cwd=str(repo_root), env={**__import__("os").environ, **env}, check=True, capture_output=True, text=True)
         out_dir = repo_root / "artifacts" / "cartoon" / "blender" / "pip_cutout_rig"
         frames_found = sorted(out_dir.glob("frame_*.png"))
@@ -74,6 +94,7 @@ class BlenderAnimationProvider:
     ) -> dict:
         """Render a complete PIP performance clip and return its media/metadata paths."""
         output_mp4.parent.mkdir(parents=True, exist_ok=True)
+        self.ensure_character_assets(repo_root, character)
         work = output_mp4.parent / (output_mp4.stem + "_blender_work")
         work.mkdir(parents=True, exist_ok=True)
         voice_performance = prepare_voice_performance(work / "voice", voice_lines, beats, durations)

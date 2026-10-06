@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -160,6 +161,11 @@ def action_asset(character: str, asset_action: str) -> Path | None:
     }
     filename = names.get(character, {}).get(asset_action)
     if not filename:
+        # Blender can animate a clean compiled master directly; do not require
+        # four pre-rendered flattened action images for MOMO/BUBU. The legacy
+        # Pillow path stays unchanged unless Blender is explicitly selected.
+        if os.environ.get("NOVA_CARTOON_ANIMATION_BACKEND", "pillow").strip().lower() == "blender" and character in {"MOMO", "BUBU"}:
+            return asset_path(character)
         return None
     path = ACTION_DIR / filename
     return path if path.exists() else None

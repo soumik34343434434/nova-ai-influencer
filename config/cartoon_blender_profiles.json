@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 3,
   "characters": {
     "PIP": {
       "asset_dir": "artifacts/cartoon/blender/pip_cutout_layers",
@@ -12,18 +12,698 @@
         "head": "pip_head.png"
       },
       "base": {
-        "root": [550,1260], "neck": [545,1035], "head_center": [575,815],
-        "left_shoulder": [390,1095], "left_elbow": [305,1125], "left_wrist": [275,1205],
-        "right_shoulder": [770,1080], "right_elbow": [845,1095], "right_wrist": [875,1160],
-        "head_rot": 0.0, "root_rot": 0.0, "eye_open": 1.0, "gaze": [0.10,0.0], "mouth": "smile"
+        "root": [
+          550,
+          1260
+        ],
+        "neck": [
+          545,
+          1035
+        ],
+        "head_center": [
+          575,
+          815
+        ],
+        "left_shoulder": [
+          390,
+          1095
+        ],
+        "left_elbow": [
+          305,
+          1125
+        ],
+        "left_wrist": [
+          275,
+          1205
+        ],
+        "right_shoulder": [
+          770,
+          1080
+        ],
+        "right_elbow": [
+          845,
+          1095
+        ],
+        "right_wrist": [
+          875,
+          1160
+        ],
+        "head_rot": 0.0,
+        "root_rot": 0.0,
+        "eye_open": 1.0,
+        "gaze": [
+          0.1,
+          0.0
+        ],
+        "mouth": "smile"
       },
       "targets": {
         "setup": {},
-        "escalation": {"root":[590,1250],"neck":[590,1015],"head_center":[600,800],"left_shoulder":[410,1080],"left_elbow":[330,1000],"left_wrist":[300,925],"right_shoulder":[805,1065],"right_elbow":[890,990],"right_wrist":[930,915],"head_rot":8.0,"root_rot":3.5,"eye_open":1.18,"gaze":[0.48,-0.05],"mouth":"open"},
-        "reaction": {"root":[500,1345],"neck":[495,1110],"head_center":[490,900],"left_shoulder":[355,1180],"left_elbow":[275,1255],"left_wrist":[245,1330],"right_shoulder":[700,1165],"right_elbow":[775,1240],"right_wrist":[810,1310],"head_rot":-12.0,"root_rot":-5.0,"eye_open":0.92,"gaze":[0.36,0.02],"mouth":"frown"},
-        "punchline": {"root":[575,1270],"neck":[570,1045],"head_center":[570,835],"left_shoulder":[415,1100],"left_elbow":[395,1165],"left_wrist":[385,1220],"right_shoulder":[775,1095],"right_elbow":[800,1165],"right_wrist":[815,1220],"head_rot":1.5,"root_rot":0.5,"eye_open":0.88,"gaze":[0.0,0.0],"mouth":"flat"}
+        "escalation": {
+          "root": [
+            590,
+            1250
+          ],
+          "neck": [
+            590,
+            1015
+          ],
+          "head_center": [
+            600,
+            800
+          ],
+          "left_shoulder": [
+            410,
+            1080
+          ],
+          "left_elbow": [
+            330,
+            1000
+          ],
+          "left_wrist": [
+            300,
+            925
+          ],
+          "right_shoulder": [
+            805,
+            1065
+          ],
+          "right_elbow": [
+            890,
+            990
+          ],
+          "right_wrist": [
+            930,
+            915
+          ],
+          "head_rot": 8.0,
+          "root_rot": 3.5,
+          "eye_open": 1.18,
+          "gaze": [
+            0.48,
+            -0.05
+          ],
+          "mouth": "open"
+        },
+        "reaction": {
+          "root": [
+            500,
+            1345
+          ],
+          "neck": [
+            495,
+            1110
+          ],
+          "head_center": [
+            490,
+            900
+          ],
+          "left_shoulder": [
+            355,
+            1180
+          ],
+          "left_elbow": [
+            275,
+            1255
+          ],
+          "left_wrist": [
+            245,
+            1330
+          ],
+          "right_shoulder": [
+            700,
+            1165
+          ],
+          "right_elbow": [
+            775,
+            1240
+          ],
+          "right_wrist": [
+            810,
+            1310
+          ],
+          "head_rot": -12.0,
+          "root_rot": -5.0,
+          "eye_open": 0.92,
+          "gaze": [
+            0.36,
+            0.02
+          ],
+          "mouth": "frown"
+        },
+        "punchline": {
+          "root": [
+            575,
+            1270
+          ],
+          "neck": [
+            570,
+            1045
+          ],
+          "head_center": [
+            570,
+            835
+          ],
+          "left_shoulder": [
+            415,
+            1100
+          ],
+          "left_elbow": [
+            395,
+            1165
+          ],
+          "left_wrist": [
+            385,
+            1220
+          ],
+          "right_shoulder": [
+            775,
+            1095
+          ],
+          "right_elbow": [
+            800,
+            1165
+          ],
+          "right_wrist": [
+            815,
+            1220
+          ],
+          "head_rot": 1.5,
+          "root_rot": 0.5,
+          "eye_open": 0.88,
+          "gaze": [
+            0.0,
+            0.0
+          ],
+          "mouth": "flat"
+        }
       },
-      "face": {"screen":[585,815,1.82,1.22],"eye_left":[500,805,0.34,0.42],"eye_right":[650,805,0.34,0.42],"pupil_left":[500,805,0.11,0.145],"pupil_right":[650,805,0.11,0.145],"mouth":[585,875,0.56,0.13]}
+      "face": {
+        "screen": [
+          585,
+          815,
+          1.82,
+          1.22
+        ],
+        "eye_left": [
+          500,
+          805,
+          0.34,
+          0.42
+        ],
+        "eye_right": [
+          650,
+          805,
+          0.34,
+          0.42
+        ],
+        "pupil_left": [
+          500,
+          805,
+          0.11,
+          0.145
+        ],
+        "pupil_right": [
+          650,
+          805,
+          0.11,
+          0.145
+        ],
+        "mouth": [
+          585,
+          875,
+          0.56,
+          0.13
+        ]
+      }
+    },
+    "MOMO": {
+      "asset_dir": "artifacts/cartoon/blender/momo_cutout_layers",
+      "background": "artifacts/cartoon/blender/momo_cutout_layers/momo_background.jpg",
+      "layers": {
+        "torso": "momo_torso.png",
+        "head": "momo_head.png",
+        "left_arm": "momo_left_arm.png",
+        "right_arm": "momo_right_arm.png",
+        "backpack": "momo_scarf.png"
+      },
+      "base": {
+        "root": [
+          540,
+          1443
+        ],
+        "neck": [
+          540,
+          1029
+        ],
+        "head_center": [
+          540,
+          776
+        ],
+        "left_shoulder": [
+          457,
+          1190
+        ],
+        "left_elbow": [
+          402,
+          1305
+        ],
+        "left_wrist": [
+          384,
+          1443
+        ],
+        "right_shoulder": [
+          623,
+          1190
+        ],
+        "right_elbow": [
+          678,
+          1305
+        ],
+        "right_wrist": [
+          696,
+          1443
+        ],
+        "head_rot": 0.0,
+        "root_rot": 0.0,
+        "eye_open": 1.0,
+        "gaze": [
+          0.0,
+          0.0
+        ],
+        "mouth": "smile"
+      },
+      "targets": {
+        "setup": {},
+        "escalation": {
+          "root": [
+            585,
+            1418
+          ],
+          "neck": [
+            585,
+            1004
+          ],
+          "head_center": [
+            585,
+            751
+          ],
+          "left_shoulder": [
+            437,
+            1165
+          ],
+          "left_elbow": [
+            330.0,
+            1289.1
+          ],
+          "left_wrist": [
+            286.0,
+            1432.0
+          ],
+          "right_shoulder": [
+            733,
+            1165
+          ],
+          "right_elbow": [
+            840.0,
+            1289.1
+          ],
+          "right_wrist": [
+            884.0,
+            1432.0
+          ],
+          "head_rot": 7.0,
+          "root_rot": 2.4499999999999997,
+          "eye_open": 1.18,
+          "gaze": [
+            0.3,
+            -0.04
+          ],
+          "mouth": "open"
+        },
+        "reaction": {
+          "root": [
+            500,
+            1518
+          ],
+          "neck": [
+            500,
+            1104
+          ],
+          "head_center": [
+            500,
+            851
+          ],
+          "left_shoulder": [
+            365,
+            1265
+          ],
+          "left_elbow": [
+            268.4,
+            1367.0
+          ],
+          "left_wrist": [
+            229.6,
+            1498.0
+          ],
+          "right_shoulder": [
+            635,
+            1265
+          ],
+          "right_elbow": [
+            731.6,
+            1367.0
+          ],
+          "right_wrist": [
+            770.4,
+            1498.0
+          ],
+          "head_rot": -10.0,
+          "root_rot": -3.5,
+          "eye_open": 0.72,
+          "gaze": [
+            -0.22,
+            0.06
+          ],
+          "mouth": "frown"
+        },
+        "punchline": {
+          "root": [
+            552,
+            1453
+          ],
+          "neck": [
+            552,
+            1039
+          ],
+          "head_center": [
+            552,
+            786
+          ],
+          "left_shoulder": [
+            455,
+            1200
+          ],
+          "left_elbow": [
+            388.8,
+            1316.3
+          ],
+          "left_wrist": [
+            365.2,
+            1455.0
+          ],
+          "right_shoulder": [
+            649,
+            1200
+          ],
+          "right_elbow": [
+            715.2,
+            1316.3
+          ],
+          "right_wrist": [
+            738.8,
+            1455.0
+          ],
+          "head_rot": 1.0,
+          "root_rot": 0.35,
+          "eye_open": 0.86,
+          "gaze": [
+            0.04,
+            0.0
+          ],
+          "mouth": "flat"
+        }
+      },
+      "face": {
+        "mode": "organic",
+        "box": [
+          411,
+          753,
+          678,
+          1052
+        ],
+        "eye_left": [
+          444,
+          765,
+          508,
+          879
+        ],
+        "eye_right": [
+          582,
+          765,
+          646,
+          879
+        ],
+        "mouth": [
+          513,
+          911,
+          567,
+          963
+        ],
+        "assets": {
+          "face": "momo_face.png",
+          "head_neutral": "momo_head_neutral.png",
+          "eye_left": "momo_eye_left.png",
+          "eye_right": "momo_eye_right.png",
+          "mouth": "momo_mouth.png"
+        }
+      },
+      "compiler_source": "/private/tmp/nova-ai-influencer/assets/cartoon/characters/momo.png",
+      "compiler_manifest": "artifacts/cartoon/blender/momo_cutout_layers/manifest.json"
+    },
+    "BUBU": {
+      "asset_dir": "artifacts/cartoon/blender/bubu_cutout_layers",
+      "background": "artifacts/cartoon/blender/bubu_cutout_layers/bubu_background.jpg",
+      "layers": {
+        "torso": "bubu_torso.png",
+        "head": "bubu_head.png",
+        "left_arm": "bubu_left_arm.png",
+        "right_arm": "bubu_right_arm.png",
+        "backpack": "bubu_backpack.png"
+      },
+      "base": {
+        "root": [
+          542,
+          1442
+        ],
+        "neck": [
+          542,
+          1069
+        ],
+        "head_center": [
+          542,
+          840
+        ],
+        "left_shoulder": [
+          479,
+          1205
+        ],
+        "left_elbow": [
+          436,
+          1312
+        ],
+        "left_wrist": [
+          422,
+          1442
+        ],
+        "right_shoulder": [
+          606,
+          1205
+        ],
+        "right_elbow": [
+          649,
+          1312
+        ],
+        "right_wrist": [
+          663,
+          1442
+        ],
+        "head_rot": 0.0,
+        "root_rot": 0.0,
+        "eye_open": 1.0,
+        "gaze": [
+          0.0,
+          0.0
+        ],
+        "mouth": "smile"
+      },
+      "targets": {
+        "setup": {},
+        "escalation": {
+          "root": [
+            587,
+            1417
+          ],
+          "neck": [
+            587,
+            1044
+          ],
+          "head_center": [
+            587,
+            815
+          ],
+          "left_shoulder": [
+            459,
+            1180
+          ],
+          "left_elbow": [
+            364.0,
+            1296.1
+          ],
+          "left_wrist": [
+            324.0,
+            1431.0
+          ],
+          "right_shoulder": [
+            716,
+            1180
+          ],
+          "right_elbow": [
+            811.0,
+            1296.1
+          ],
+          "right_wrist": [
+            851.0,
+            1431.0
+          ],
+          "head_rot": 7.0,
+          "root_rot": 2.4499999999999997,
+          "eye_open": 1.18,
+          "gaze": [
+            0.3,
+            -0.04
+          ],
+          "mouth": "open"
+        },
+        "reaction": {
+          "root": [
+            502,
+            1517
+          ],
+          "neck": [
+            502,
+            1144
+          ],
+          "head_center": [
+            502,
+            915
+          ],
+          "left_shoulder": [
+            387,
+            1280
+          ],
+          "left_elbow": [
+            302.4,
+            1374.0
+          ],
+          "left_wrist": [
+            267.6,
+            1497.0
+          ],
+          "right_shoulder": [
+            618,
+            1280
+          ],
+          "right_elbow": [
+            702.6,
+            1374.0
+          ],
+          "right_wrist": [
+            737.4,
+            1497.0
+          ],
+          "head_rot": -10.0,
+          "root_rot": -3.5,
+          "eye_open": 0.72,
+          "gaze": [
+            -0.22,
+            0.06
+          ],
+          "mouth": "frown"
+        },
+        "punchline": {
+          "root": [
+            554,
+            1452
+          ],
+          "neck": [
+            554,
+            1079
+          ],
+          "head_center": [
+            554,
+            850
+          ],
+          "left_shoulder": [
+            477,
+            1215
+          ],
+          "left_elbow": [
+            422.8,
+            1323.3
+          ],
+          "left_wrist": [
+            403.2,
+            1454.0
+          ],
+          "right_shoulder": [
+            632,
+            1215
+          ],
+          "right_elbow": [
+            686.2,
+            1323.3
+          ],
+          "right_wrist": [
+            705.8,
+            1454.0
+          ],
+          "head_rot": 1.0,
+          "root_rot": 0.35,
+          "eye_open": 0.86,
+          "gaze": [
+            0.04,
+            0.0
+          ],
+          "mouth": "flat"
+        }
+      },
+      "face": {
+        "mode": "organic",
+        "box": [
+          429,
+          775,
+          660,
+          1173
+        ],
+        "eye_left": [
+          456,
+          802,
+          516,
+          942
+        ],
+        "eye_right": [
+          569,
+          802,
+          629,
+          942
+        ],
+        "mouth": [
+          510,
+          955,
+          574,
+          1025
+        ],
+        "assets": {
+          "face": "bubu_face.png",
+          "head_neutral": "bubu_head_neutral.png",
+          "eye_left": "bubu_eye_left.png",
+          "eye_right": "bubu_eye_right.png",
+          "mouth": "bubu_mouth.png"
+        }
+      },
+      "compiler_source": "/private/tmp/nova-ai-influencer/assets/cartoon/characters/bubu.png",
+      "compiler_manifest": "artifacts/cartoon/blender/bubu_cutout_layers/manifest.json"
     }
   }
 }

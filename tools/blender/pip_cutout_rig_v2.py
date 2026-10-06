@@ -131,7 +131,19 @@ def make_ellipse(name,center,rx,ry,mat,z=.4,n=48):
  verts=[(x-cx,y-cy,z) for x,y in pts]; mesh=bpy.data.meshes.new(name+'Mesh'); mesh.from_pydata(verts,[],[tuple(range(n))]); mesh.update(); obj=bpy.data.objects.new(name,mesh); bpy.context.collection.objects.link(obj); obj.location=(cx,cy,0); obj.data.materials.append(mat); return obj
 
 
+def make_image_patch(name,path,box,z=.4):
+ x0,y0,x1,y1=box; cx=(x0+x1)/2; cy=(y0+y1)/2; hw=(x1-x0)/2/PX; hh=(y1-y0)/2/PX
+ verts=[(-hw,-hh,z),(hw,-hh,z),(hw,hh,z),(-hw,hh,z)]; mesh=bpy.data.meshes.new(name+'Mesh'); mesh.from_pydata(verts,[],[(0,1,2,3)]); mesh.update(); uv=mesh.uv_layers.new(name='UVMap')
+ uvs=[(x0/W,1-y0/H),(x1/W,1-y0/H),(x1/W,1-y1/H),(x0/W,1-y1/H)]
+ for li,uvv in enumerate(uvs): uv.data[li].uv=uvv
+ obj=bpy.data.objects.new(name,mesh); bpy.context.collection.objects.link(obj); obj.location=px((cx,cy)); obj.data.materials.append(image_material(name+'Mat',path)); return obj
+
+
 def face_rig(arm):
+ if FACE_PROFILE.get('mode')=='organic':
+  assets=FACE_PROFILE['assets']; f=FACE_PROFILE
+  eye_l=make_image_patch('Eye.L',ASSET/assets['eye_left'],f['eye_left'],.35); eye_r=make_image_patch('Eye.R',ASSET/assets['eye_right'],f['eye_right'],.35); mouth=make_image_patch('Mouth',ASSET/assets['mouth'],f['mouth'],.36)
+  return {'mode':'organic','screen':None,'eyes':(eye_l,eye_r),'pupils':(None,None),'mouth':mouth}
  dark=color_material('FaceScreen',(0.025,0.045,0.065)); white=color_material('FaceLED',(0.95,1.0,1.0)); black=color_material('FacePupil',(0.01,0.015,0.02))
  f=FACE_PROFILE
  screen=make_ellipse('FaceScreen',f['screen'][:2],f['screen'][2],f['screen'][3],dark,.31)
@@ -165,6 +177,14 @@ def write_pose(arm,frame,spec):
 
 def key_face(face,frame,spec):
  c=px(spec['head_center']); base_c=px(BASE['head_center']); a=math.radians(spec['head_rot']); co,si=math.cos(a),math.sin(a)
+ if face.get('mode')=='organic':
+  f=FACE_PROFILE; offsets={'Eye.L':px(((f['eye_left'][0]+f['eye_left'][2])//2,(f['eye_left'][1]+f['eye_left'][3])//2))-base_c,'Eye.R':px(((f['eye_right'][0]+f['eye_right'][2])//2,(f['eye_right'][1]+f['eye_right'][3])//2))-base_c,'Mouth':px(((f['mouth'][0]+f['mouth'][2])//2,(f['mouth'][1]+f['mouth'][3])//2))-base_c}
+  def wp(v): return Vector((c.x+co*v.x-si*v.y,c.y+si*v.x+co*v.y,0))
+  for obj,name in [(face['eyes'][0],'Eye.L'),(face['eyes'][1],'Eye.R'),(face['mouth'],'Mouth')]:
+   obj.location=wp(offsets[name]); obj.rotation_euler.z=a; obj.keyframe_insert('location',frame=frame); obj.keyframe_insert('rotation_euler',index=2,frame=frame)
+  for i,(eye,sign) in enumerate(zip(face['eyes'],(-1,1))):
+   eye.scale.y=spec['eye_open']; eye.location.x += spec['gaze'][0]*0.075*sign; eye.location.y += spec['gaze'][1]*0.055; eye.keyframe_insert('scale',index=1,frame=frame); eye.keyframe_insert('location',frame=frame)
+  mouth=face['mouth']; mouth.scale=(1, {'smile':1.0,'open':1.28,'frown':0.80,'flat':0.68}[spec['mouth']],1); mouth.keyframe_insert('scale',frame=frame); return
  f=FACE_PROFILE
  offsets={'screen':px(f['screen'][:2])-base_c,'Eye.L':px(f['eye_left'][:2])-base_c,'Eye.R':px(f['eye_right'][:2])-base_c,'Pupil.L':px(f['pupil_left'][:2])-base_c,'Pupil.R':px(f['pupil_right'][:2])-base_c,'Mouth':px(f['mouth'][:2])-base_c}
  def world_pos(v): return (c.x + co*v.x-si*v.y, c.y + si*v.x+co*v.y, 0)
@@ -250,7 +270,7 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
  PROFILE,BASE,TARGETS,FACE_PROFILE=load_profile(character,profile_path); CHARACTER=character; ASSET=profile_asset_dir(PROFILE)
  clear(); scene=bpy.context.scene; BEATS=build_beats(frames,voice_json); scene.render.engine='BLENDER_EEVEE'; scene.render.resolution_x=W; scene.render.resolution_y=H; scene.render.resolution_percentage=int(os.environ.get('NOVA_BLENDER_RESOLUTION','35')); scene.render.fps=24; scene.world.color=(0.0,0.0,0.0); scene.view_settings.view_transform='Standard'; scene.view_settings.look='None'; scene.view_settings.exposure=0; scene.view_settings.gamma=1
  # background
- bgmesh=bpy.data.meshes.new('BackgroundMesh'); bgmesh.from_pydata([(-WORLD_W/2,-WORLD_H/2,-.3),(WORLD_W/2,-WORLD_H/2,-.3),(WORLD_W/2,WORLD_H/2,-.3),(-WORLD_W/2,WORLD_H/2,-.3)],[],[(0,1,2,3)]); bgmesh.update(); uv=bgmesh.uv_layers.new(name='UVMap');
+ bgmesh=bpy.data.meshes.new('BackgroundMesh'); bgmesh.from_pydata([(-WORLD_W*2,-WORLD_H*2,-.3),(WORLD_W*2,-WORLD_H*2,-.3),(WORLD_W*2,WORLD_H*2,-.3),(-WORLD_W*2,WORLD_H*2,-.3)],[],[(0,1,2,3)]); bgmesh.update(); uv=bgmesh.uv_layers.new(name='UVMap');
  for poly in bgmesh.polygons:
   for li,uvv in zip(poly.loop_indices,[(0,0),(1,0),(1,1),(0,1)]): uv.data[li].uv=uvv
  bg=bpy.data.objects.new('Background',bgmesh); bpy.context.collection.objects.link(bg); bg_path=Path(background_path) if background_path else ROOT / PROFILE['background']; bg.data.materials.append(image_material('BG',bg_path))
@@ -287,14 +307,16 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
  for beat,start,end in BEATS:
   f=start+round((end-start)*.34)
   for eye,pupil in zip(face['eyes'],face['pupils']):
-   eye.scale.y=.10; pupil.scale.y=.06; eye.keyframe_insert('scale',index=1,frame=f); pupil.keyframe_insert('scale',index=1,frame=f); eye.scale.y=1; pupil.scale.y=1; eye.keyframe_insert('scale',index=1,frame=f+2); pupil.keyframe_insert('scale',index=1,frame=f+2)
+   eye.scale.y=.10; eye.keyframe_insert('scale',index=1,frame=f); eye.scale.y=1; eye.keyframe_insert('scale',index=1,frame=f+2)
+   if pupil is not None:
+    pupil.scale.y=.06; pupil.keyframe_insert('scale',index=1,frame=f); pupil.scale.y=1; pupil.keyframe_insert('scale',index=1,frame=f+2)
  bpy.ops.object.camera_add(location=(0,0,30)); cam=bpy.context.object; cam.name=f'{CHARACTER}_Camera'; cam.data.type='ORTHO'; cam.data.ortho_scale=WORLD_H; scene.camera=cam
  camera_performance_keys(arm,cam,BEATS)
  # Blender's keyed transforms use its default BEZIER interpolation, providing
  # real continuous in-betweens between performance poses.
  scene.frame_start=1; scene.frame_end=frames; scene.render.image_settings.file_format='PNG'; scene.render.filepath=str(OUTDIR/'frame_####')
  rows=load_voice_rows(voice_json); effective_shot_durations=[round(max(1.0,float(r.get('duration',0.0) or 0.0))+tail,3) for r,tail in zip(rows[:4],(0.48,0.58,0.60,0.82))] if rows else [round((b-a)/24,3) for _,a,b in BEATS]
- meta={'engine':'blender-cutout-performance-rig-v3','character':CHARACTER,'beats':BEATS,'voice_json':str(voice_json) if voice_json else None,'effective_shot_durations':effective_shot_durations,'resolution':[W,H],'fps':24,'frames':frames,'deformable_layers':['torso','head','left_arm','right_arm','backpack'],'armature_bones':['root','head','arm.L','forearm.L','hand.L','arm.R','forearm.R','hand.R','backpack'],'facial_controls':['blink','gaze','mouth_shape','speech_micro_motion'],'in_between':'overshoot-and-settle-bezier','source':'clean-pip-master-cutout'}
+ meta={'engine':'blender-cutout-performance-rig-v3','character':CHARACTER,'beats':BEATS,'voice_json':str(voice_json) if voice_json else None,'effective_shot_durations':effective_shot_durations,'resolution':[W,H],'fps':24,'frames':frames,'deformable_layers':['torso','head','left_arm','right_arm','backpack'],'armature_bones':['root','head','arm.L','forearm.L','hand.L','arm.R','forearm.R','hand.R','backpack'],'facial_controls':['blink','gaze','mouth_shape','speech_micro_motion','organic_face_patches'],'in_between':'overshoot-and-settle-bezier','source':'clean-pip-master-cutout'}
  t=bpy.data.texts.new('NOVA_BLENDER_RIG_METADATA.json'); t.write(json.dumps(meta,indent=2)); return scene,meta
 
 

@@ -233,7 +233,7 @@ class CartoonFactoryOrchestrator:
         slug = candidate["premise_slug"] + "_factory"
         output = ARTIFACTS / f"{slug}.mp4"
         backend = __import__("os").environ.get("NOVA_CARTOON_ANIMATION_BACKEND", "pillow").strip().lower()
-        if backend == "blender" and candidate.get("character") == "PIP":
+        if backend == "blender" and candidate.get("character") in {"PIP", "MOMO", "BUBU"}:
             provider = BlenderAnimationProvider()
             if not provider.available():
                 raise RuntimeError("NOVA_CARTOON_ANIMATION_BACKEND=blender but Blender is unavailable")
@@ -244,6 +244,7 @@ class CartoonFactoryOrchestrator:
                 resolution_percent=int(__import__("os").environ.get("NOVA_BLENDER_RESOLUTION", "100")),
                 action_assets=images,
                 background_path=bg,
+                character=candidate.get("character", "PIP"),
             )
             output = Path(info["video"])
         else:
@@ -270,7 +271,7 @@ class CartoonFactoryOrchestrator:
             render_durations=effective_durations,
             animation_metadata=str(motion_metadata),
         )
-        return {"video": str(output), "renderer": "blender-pip-cutout-rig-v2" if backend == "blender" and candidate.get("character") == "PIP" else "cartoon-motion-3.6", "fps": 24}
+        return {"video": str(output), "renderer": "blender-cutout-performance-rig-v4" if backend == "blender" and candidate.get("character") in {"PIP", "MOMO", "BUBU"} else "cartoon-motion-3.6", "fps": 24}
 
     def _rerender_for_motion_qa(self, run: CartoonRun, motion_result: dict[str, Any]) -> dict[str, Any]:
         """Surgically rerender failed shots plus their dependent outgoing bridges."""
