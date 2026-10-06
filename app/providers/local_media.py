@@ -255,7 +255,7 @@ def build_video_from_storyboard(image: Path, storyboard, output_dir: Path) -> Pa
         segments.append(segment)
 
     concat_file = shot_dir / "concat.txt"
-    concat_file.write_text("\n".join(f"file '{p.as_posix()}'" for p in segments))
+    concat_file.write_text("\n".join(f"file '{p.name}'" for p in segments))
     slug = "_".join("".join(ch.lower() if ch.isalnum() else "_" for ch in storyboard.hook).split())[:60] or "nova_story"
     output = output_dir / f"{slug}_storyboard.mp4"
     ffmpeg = _require("ffmpeg")
