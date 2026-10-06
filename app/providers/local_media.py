@@ -13,6 +13,7 @@ import sys
 from PIL import Image, ImageDraw, ImageFont
 
 from app.agents.storyboard import Storyboard
+from app.providers.local_puppet import make_puppet_video
 
 
 class LocalMediaError(RuntimeError):
@@ -242,20 +243,7 @@ def build_video_from_storyboard(image: Path, storyboard, output_dir: Path) -> Pa
         make_shot_frame(image, frame, shot)
         make_voiceover(shot.dialogue, audio)
         duration = max(2.4, shot.duration)
-        ffmpeg = _require("ffmpeg")
-        vf = (
-            "scale=1080:1920:force_original_aspect_ratio=increase,"
-            "crop=1080:1920,"
-            "zoompan=z='min(zoom+0.0012,1.06)':"
-            "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
-            "d=1:s=1080x1920:fps=30"
-        )
-        _run([
-            ffmpeg, "-y", "-loop", "1", "-i", str(frame), "-i", str(audio),
-            "-t", str(duration), "-vf", vf, "-r", "30",
-            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "128k", "-shortest", str(segment),
-        ])
+        make_puppet_video(image=frame, audio=audio, output=segment, duration=duration, shot_index=shot.index)
         segments.append(segment)
 
     concat_file = shot_dir / "concat.txt"
