@@ -7,11 +7,10 @@ animation engine can consume on the same performance clock.
 from __future__ import annotations
 
 import math
-import re
 import shutil
 import subprocess
 import wave
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
 
 RATE = 44100
@@ -131,16 +130,10 @@ def _rms_activity(path: Path, points: int = 96) -> tuple[list[float], float, flo
     return smooth, onset_index / max(1, points - 1), peak_index / max(1, points - 1)
 
 
-def _render_say(text: str, path: Path, profile: VoiceProfile, rate_override: int | None = None) -> None:
-    say = shutil.which("say")
+def _postprocess_voice(source: Path, path: Path, profile: VoiceProfile) -> None:
     ffmpeg = shutil.which("ffmpeg")
-    if not say or not ffmpeg:
-        raise RuntimeError("macOS 'say' and ffmpeg are required for local voice performance")
-    aiff = path.with_suffix(".aiff")
-    rate = int(rate_override or profile.rate)
-    voice = _resolve_voice(profile.voice)
-    subprocess.run([say, "-v", voice, "-r", str(rate), "-o", str(aiff), text], check=True)
-
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg is required for local voice performance")
     pitch = profile.pitch
     pitch_filter = ""
     if abs(pitch - 1.0) > 0.005:
@@ -151,10 +144,46 @@ def _render_say(text: str, path: Path, profile: VoiceProfile, rate_override: int
         f"volume={profile.gain:.3f}"
     )
     subprocess.run(
-        [ffmpeg, "-y", "-i", str(aiff), "-af", af, "-ar", str(RATE), "-ac", "1", str(path)],
+        [ffmpeg, "-y", "-i", str(source), "-af", af, "-ar", str(RATE), "-ac", "1", str(path)],
         check=True, capture_output=True, text=True,
     )
+
+
+def _render_say(text: str, path: Path, profile: VoiceProfile, rate_override: int | None = None) -> None:
+    say = shutil.which("say")
+    if not say:
+        raise RuntimeError("macOS say is not available")
+    aiff = path.with_suffix(".aiff")
+    rate = int(rate_override or profile.rate)
+    voice = _resolve_voice(profile.voice)
+    subprocess.run([say, "-v", voice, "-r", str(rate), "-o", str(aiff), text], check=True)
+    _postprocess_voice(aiff, path, profile)
     aiff.unlink(missing_ok=True)
+
+
+def _render_espeak(text: str, path: Path, profile: VoiceProfile, rate_override: int | None = None) -> None:
+    exe = shutil.which("espeak-ng") or shutil.which("espeak")
+    if not exe:
+        raise RuntimeError("Neither macOS say nor espeak-ng/espeak is available")
+    rate = int(rate_override or profile.rate)
+    # eSpeak pitch is 0-99 with 50 approximately neutral; map our relative
+    # character pitch around that midpoint.
+    pitch = max(20, min(80, round(50 + (profile.pitch - 1.0) * 240)))
+    amplitude = max(20, min(100, round(profile.gain * 100)))
+    subprocess.run(
+        [exe, "-v", "en-us", "-s", str(rate), "-p", str(pitch), "-a", str(amplitude), "-w", str(path), text],
+        check=True, capture_output=True, text=True,
+    )
+    processed = path.with_suffix(".processed.wav")
+    _postprocess_voice(path, processed, profile)
+    processed.replace(path)
+
+
+def _render_voice(text: str, path: Path, profile: VoiceProfile, rate_override: int | None = None) -> None:
+    if shutil.which("say"):
+        _render_say(text, path, profile, rate_override)
+    else:
+        _render_espeak(text, path, profile, rate_override)
 
 
 def _add_padding(path: Path, output: Path, pre: float, post: float) -> None:
@@ -187,7 +216,7 @@ def prepare_voice_performance(
         text = performance_text(line, beat)
         raw = work / f"voice_{i:02d}_raw.wav"
         final = work / f"voice_{i:02d}.wav"
-        _render_say(text, raw, profile)
+        _render_voice(text, raw, profile)
         natural_duration = _duration(raw)
         available = None
         rate_used = profile.rate
@@ -196,7 +225,7 @@ def prepare_voice_performance(
             if natural_duration > available * 1.05:
                 adjusted = round(profile.rate * natural_duration / available)
                 adjusted = max(135, min(235, adjusted))
-                _render_say(text, raw, profile, rate_override=adjusted)
+                _render_voice(text, raw, profile, rate_override=adjusted)
                 natural_duration = _duration(raw)
                 rate_used = adjusted
         _add_padding(raw, final, profile.pre_pause, profile.post_pause)

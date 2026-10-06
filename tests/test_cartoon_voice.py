@@ -25,3 +25,9 @@ def test_shot_duration_is_allowed_to_follow_voice_performance():
     out = _performance_durations(perf, [2.3, 2.3, 2.3, 2.8], ["setup", "escalation", "reaction", "punchline"])
     assert out == [1.58, 1.2, 1.62, 2.21]
     assert sum(out) < 8.0
+
+
+def test_voice_renderer_has_cross_platform_backend():
+    from app.providers import cartoon_voice
+    assert callable(cartoon_voice._render_voice)
+    assert callable(cartoon_voice._render_espeak)
