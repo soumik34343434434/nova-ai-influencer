@@ -248,6 +248,7 @@ class CartoonFactoryOrchestrator:
                 actions=[b.get("asset_action", "") for b in candidate.get("beats", [])],
             )
             output = Path(info["video"])
+            self.plane.store.set_payload(run, animation_backend="blender", audio_embedded=True)
         else:
             render_cartoon_motion(
                 images,

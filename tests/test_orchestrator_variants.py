@@ -41,3 +41,10 @@ def test_audio_stage_accepts_blender_embedded_audio(tmp_path):
     run = SimpleNamespace(payload={"video": str(tmp_path / "clip.mp4"), "audio_embedded": True})
     result = CartoonFactoryOrchestrator()._audio_engine(run)
     assert result["audio_embedded"] is True
+
+
+def test_blender_animation_records_embedded_audio_state():
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'app'/'cartoon_factory_orchestrator.py').read_text(encoding='utf-8')
+    assert 'animation_backend="blender", audio_embedded=True' in text
