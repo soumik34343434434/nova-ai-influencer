@@ -21,7 +21,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 from app.providers.cartoon_decomposer import load_action_layers
-from app.providers.cartoon_performance import arm_motion, head_motion
+from app.providers.cartoon_performance import arm_motion, head_motion, kinematic_state
 from app.providers.cartoon_rig import CharacterRig, get_rig
 from app.providers.cartoon_voice import prepare_voice_performance
 
@@ -208,10 +208,12 @@ def _transition_frame(previous: Image.Image, current: Image.Image, progress: flo
     return result.convert("RGB")
 
 
-def _camera_geometry(progress: float, beat: str) -> tuple[int, int, int, int, float, float, float]:
+def _camera_geometry(progress: float, beat: str, voice_performance: dict | None = None) -> tuple[int, int, int, int, float, float, float]:
     """Return the camera crop/rotation/squash used by motion_frame."""
     profile = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"])
     p = max(0.0, min(1.0, progress))
+    shared_state = kinematic_state(p, beat, voice_performance)
+    camera_state = kinematic_state(max(0.0, p - 0.045), beat, voice_performance)
     if beat == "punchline" and p >= 0.72:
         p = 0.72
     eased = _ease_in_out(p)
@@ -229,9 +231,15 @@ def _camera_geometry(progress: float, beat: str) -> tuple[int, int, int, int, fl
     max_y = max(0, H - crop_h)
     drift_x = profile.pan_x * max_x * math.sin(math.pi * eased)
     drift_y = profile.pan_y * max_y * math.sin(math.pi * eased)
-    x = max(0, min(int(max_x * 0.5 + drift_x), max_x))
-    y = max(0, min(int(max_y * 0.5 + drift_y), max_y))
-    angle = profile.rotation * math.sin(math.pi * eased) * (1.0 - 0.55 * settle)
+    # Camera is a follower, not another independent oscillator. Root motion is
+    # filtered down heavily so the viewer feels the character's momentum without
+    # getting seasick.
+    follow_x = camera_state["camera_dx"]
+    follow_y = camera_state["camera_dy"]
+    x = max(0, min(int(max_x * 0.5 + drift_x - follow_x * 2.2), max_x))
+    y = max(0, min(int(max_y * 0.5 + drift_y - follow_y * 2.2), max_y))
+    angle = (profile.rotation * math.sin(math.pi * eased) * (1.0 - 0.55 * settle)) + camera_state["camera_rot"]
+    zoom += camera_state["camera_zoom"]
     sx = 1.0 + 0.010 * math.sin(math.pi * spring) * energy
     sy = 1.0 - 0.006 * math.sin(math.pi * spring) * energy
     if beat == "escalation":
@@ -240,8 +248,20 @@ def _camera_geometry(progress: float, beat: str) -> tuple[int, int, int, int, fl
     return x, y, crop_w, crop_h, angle, sx, sy
 
 
-def _transform_part(layer: Image.Image, dx: float, dy: float, scale: float, rotation: float) -> Image.Image:
-    """Transform one full-frame RGBA character part around its visible pixels."""
+def _transform_part(
+    layer: Image.Image,
+    dx: float,
+    dy: float,
+    scale: float,
+    rotation: float,
+    pivot: tuple[float, float] | None = None,
+) -> Image.Image:
+    """Transform a character part while preserving a physical attachment pivot.
+
+    Arms rotate around the shoulder, the head around the neck, and the backpack
+    around its strap pivot. That small geometric detail removes a major source
+    of the "floating sprite" look in flattened source artwork.
+    """
     alpha = layer.getchannel("A")
     bbox = alpha.getbbox()
     out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
@@ -249,20 +269,32 @@ def _transform_part(layer: Image.Image, dx: float, dy: float, scale: float, rota
         return out
     x0, y0, x1, y1 = bbox
     crop = layer.crop((x0, y0, x1, y1))
+    original_center = ((x0 + x1) * 0.5, (y0 + y1) * 0.5)
+    pivot = pivot or original_center
+
     crop = crop.resize(
         (max(2, int(crop.width * scale)), max(2, int(crop.height * scale))),
         Image.Resampling.BICUBIC,
     )
+    rel_x = (pivot[0] - original_center[0]) * scale
+    rel_y = (pivot[1] - original_center[1]) * scale
+    theta = math.radians(rotation)
+    cos_t, sin_t = math.cos(theta), math.sin(theta)
+    rotated_rel_x = cos_t * rel_x - sin_t * rel_y
+    rotated_rel_y = sin_t * rel_x + cos_t * rel_y
     crop = crop.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=False)
-    ox = int((x0 + x1) / 2 - crop.width / 2 + dx)
-    oy = int((y0 + y1) / 2 - crop.height / 2 + dy)
+
+    target_pivot = (pivot[0] + dx, pivot[1] + dy)
+    crop_center = (crop.width * 0.5, crop.height * 0.5)
+    ox = int(target_pivot[0] - rotated_rel_x - crop_center[0])
+    oy = int(target_pivot[1] - rotated_rel_y - crop_center[1])
     out.alpha_composite(crop, (ox, oy))
     return out
 
 
-def _project_part_to_camera(layer: Image.Image, progress: float, beat: str) -> Image.Image:
+def _project_part_to_camera(layer: Image.Image, progress: float, beat: str, voice_performance: dict | None = None) -> Image.Image:
     """Apply the same camera transform used for the finished motion frame."""
-    x, y, crop_w, crop_h, angle, sx, sy = _camera_geometry(progress, beat)
+    x, y, crop_w, crop_h, angle, sx, sy = _camera_geometry(progress, beat, voice_performance)
     crop = layer.crop((x, y, x + crop_w, y + crop_h))
     crop = crop.resize((W, H), Image.Resampling.LANCZOS)
     crop = crop.rotate(angle, resample=Image.Resampling.BICUBIC, expand=False)
@@ -274,7 +306,7 @@ def _project_part_to_camera(layer: Image.Image, progress: float, beat: str) -> I
     return crop
 
 
-def _endpoint_character_parts(image: Path, rig: CharacterRig, beat: str, progress: float) -> dict[str, Image.Image]:
+def _endpoint_character_parts(image: Path, rig: CharacterRig, beat: str, progress: float, voice_performance: dict | None = None) -> dict[str, Image.Image]:
     """Build endpoint character parts in final-camera coordinates."""
     if beat == "punchline" and progress >= 0.72:
         progress = 0.72
@@ -282,34 +314,31 @@ def _endpoint_character_parts(image: Path, rig: CharacterRig, beat: str, progres
     layers = load_action_layers(image, rig_dir)
 
     torso = layers["torso"]
-    energy = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"]).energy
-    anticipation = math.sin(math.pi * min(1.0, progress / 0.28))
-    settle = max(0.0, min(1.0, (progress - 0.68) / 0.32))
-    torso_dx = math.sin(progress * math.pi * 1.35) * (3.0 + 5.0 * energy)
-    torso_dy = -anticipation * (3.0 + 8.0 * energy) + settle * 3.0
-    torso_scale = 1.0 + math.sin(math.pi * progress) * 0.010 * energy
-    torso_rot = math.sin(math.pi * progress) * {
-        "setup": -0.7, "escalation": 1.8, "reaction": -2.2, "punchline": 0.4,
-    }.get(beat, 0.0)
+    state = kinematic_state(progress, beat, voice_performance)
+    torso_dx = state["root_dx"]
+    torso_dy = state["root_dy"]
+    torso_scale = state["root_scale"]
+    torso_rot = state["root_rot"]
     torso = _transform_part(torso, torso_dx, torso_dy, torso_scale, torso_rot)
 
-    left_dx, left_dy, left_scale, left_rot = arm_motion(progress, beat, "left")
-    right_dx, right_dy, right_scale, right_rot = arm_motion(progress, beat, "right")
-    left_arm = _transform_part(layers["left_arm"], left_dx, left_dy, left_scale, left_rot)
-    right_arm = _transform_part(layers["right_arm"], right_dx, right_dy, right_scale, right_rot)
+    left_dx, left_dy, left_scale, left_rot = arm_motion(progress, beat, "left", voice_performance)
+    right_dx, right_dy, right_scale, right_rot = arm_motion(progress, beat, "right", voice_performance)
+    left_arm = _transform_part(layers["left_arm"], left_dx, left_dy, left_scale, left_rot, pivot=_joint(image.name, "left_shoulder"))
+    right_arm = _transform_part(layers["right_arm"], right_dx, right_dy, right_scale, right_rot, pivot=_joint(image.name, "right_shoulder"))
 
-    head_dx, head_dy, head_scale, head_rot = head_motion(progress, beat)
-    head = _transform_part(rig.head_layer, head_dx, head_dy, head_scale, head_rot)
-    face_dx, face_dy, face_sx, face_sy, _ = _face_motion(progress, beat)
+    head_dx, head_dy, head_scale, head_rot = head_motion(progress, beat, voice_performance)
+    head = _transform_part(layers["head"], head_dx, head_dy, head_scale, head_rot, pivot=_joint(image.name, "neck"))
+    face_dx, face_dy, face_sx, face_sy, _ = _face_motion(progress, beat, voice_performance)
     face = _transform_part(rig.face_layer, face_dx, face_dy, (face_sx + face_sy) * 0.5, 0.0)
 
     # Keep backpack attached to the torso with a restrained secondary motion.
     backpack = _transform_part(
         layers["backpack"],
-        torso_dx * 0.55,
-        torso_dy * 0.65,
+        torso_dx * 0.78 + math.sin(progress * math.tau * 2.2) * 1.6,
+        torso_dy * 0.84 + math.cos(progress * math.tau * 1.7) * 1.0,
         1.0 + (torso_scale - 1.0) * 0.6,
         torso_rot * 0.55,
+        pivot=_joint(image.name, "backpack"),
     )
 
     parts: dict[str, Image.Image] = {}
@@ -321,9 +350,45 @@ def _endpoint_character_parts(image: Path, rig: CharacterRig, beat: str, progres
         ("right_arm", right_arm),
         ("face", face),
     ):
-        parts[name] = _project_part_to_camera(layer, progress, beat)
+        parts[name] = _project_part_to_camera(layer, progress, beat, voice_performance)
     return parts
 
+
+
+PIP_JOINTS: dict[str, dict[str, tuple[float, float]]] = {
+    "pip_press_button.png": {
+        "neck": (0.455, 0.355),
+        "left_shoulder": (0.365, 0.515),
+        "right_shoulder": (0.675, 0.405),
+        "backpack": (0.185, 0.585),
+    },
+    "pip_shock.png": {
+        "neck": (0.765, 0.505),
+        "left_shoulder": (0.580, 0.615),
+        "right_shoulder": (0.885, 0.585),
+        "backpack": (0.900, 0.685),
+    },
+    "pip_overwhelmed.png": {
+        "neck": (0.355, 0.665),
+        "left_shoulder": (0.170, 0.690),
+        "right_shoulder": (0.500, 0.675),
+        "backpack": (0.105, 0.765),
+    },
+    "pip_deadpan.png": {
+        "neck": (0.555, 0.515),
+        "left_shoulder": (0.410, 0.625),
+        "right_shoulder": (0.715, 0.605),
+        "backpack": (0.375, 0.625),
+    },
+}
+
+
+def _joint(name: str, part: str) -> tuple[float, float] | None:
+    row = PIP_JOINTS.get(name, {})
+    frac = row.get(part)
+    if not frac:
+        return None
+    return (frac[0] * W, frac[1] * H)
 
 POSE_SWITCH_FRACTIONS = {
     "left_arm": 0.40,
@@ -546,6 +611,7 @@ def _face_motion(progress: float, beat: str, performance: dict | None = None) ->
     p = max(0.0, min(1.0, progress))
     energy = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"]).energy
     speech = _speech_pulse(p, performance)
+    shared_state = kinematic_state(p, beat, performance)
     if beat == "escalation":
         snap = math.sin(math.pi * max(0.0, min(1.0, (p - 0.16) / 0.34)))
         dx, dy = 7.0 * snap * energy, -4.0 * snap * energy
@@ -566,6 +632,8 @@ def _face_motion(progress: float, beat: str, performance: dict | None = None) ->
         dx, dy = 1.5 * breathe * energy, -0.8 * breathe * energy
         sx, sy = 1.0 + 0.002 * speech, 1.0 + 0.008 * breathe * energy + 0.008 * speech
         blink = 0.65 * max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.32) / 0.08))))
+    dx += shared_state["face_target_dx"]
+    dy += shared_state["face_target_dy"]
     return dx, dy, sx, sy, blink
 
 
@@ -609,46 +677,44 @@ def _apply_rig_performance(
     motion_gain: float = 1.0,
     performance: dict | None = None,
 ) -> Image.Image:
-    dx, dy, scale, rotation = head_motion(progress, beat)
+    dx, dy, scale, rotation = head_motion(progress, beat, performance)
+    root = kinematic_state(progress, beat, performance)
     speech = _speech_pulse(progress, performance)
-    dx += 1.8 * math.sin(progress * math.tau * 3.0) * speech
-    dy -= 1.5 * speech
+    dx += root["root_dx"] + 1.8 * math.sin(progress * math.tau * 3.0) * speech
+    dy += root["root_dy"] - 1.5 * speech
+    scale *= root["root_scale"]
+    rotation += root["root_rot"]
     scale += 0.008 * speech
-    dx *= motion_gain
-    dy *= motion_gain
-    scale = 1.0 + (scale - 1.0) * motion_gain
-    rotation *= motion_gain
-    x0, y0, x1, y1 = rig.head_bbox
-    crop = rig.head_layer.crop((x0, y0, x1, y1))
-    crop = crop.resize((max(2, int(crop.width * scale)), max(2, int(crop.height * scale))), Image.Resampling.BICUBIC)
-    crop = crop.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=False)
-    hx, hy = rig.center
+    root = kinematic_state(progress, beat, performance)
+    dx = (root["root_dx"] + dx) * motion_gain
+    dy = (root["root_dy"] + dy) * motion_gain
+    scale = 1.0 + ((root["root_scale"] * scale) - 1.0) * motion_gain
+    rotation = (root["root_rot"] + rotation) * motion_gain
     cover = frame.filter(ImageFilter.GaussianBlur(11))
-    base = frame.copy()
-    # Feather only the head region, then paste the transformed head crop into
-    # the existing RGB frame. Avoid constructing a full-frame transparent layer.
-    base = Image.composite(cover, base, rig.cover_mask).convert("RGB")
-    rgba = crop.convert("RGBA")
-    mask = rgba.getchannel("A")
-    base.paste(rgba.convert("RGB"), (int(hx - crop.width / 2 + dx), int(hy - crop.height / 2 + dy)), mask)
+    base = Image.composite(cover, frame, rig.cover_mask).convert("RGB")
+    rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
+    try:
+        head_layer = load_action_layers(Path(rig.source), rig_dir)["head"]
+    except (OSError, ValueError, KeyError):
+        head_layer = rig.head_layer
+    transformed = _transform_part(head_layer, dx, dy, scale, rotation)
+    base.paste(transformed.convert("RGB"), (0, 0), transformed.getchannel("A"))
     return _apply_face_performance(base, rig, progress, beat, motion_gain=motion_gain, performance=performance)
 
 
-def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, motion_gain: float = 1.0) -> Image.Image:
-    """Animate the character core with a small beat-aware lean/bounce."""
+def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, motion_gain: float = 1.0, performance: dict | None = None, source_name: str | None = None) -> Image.Image:
+    """Move the body root with the same impulse used by head/arms/camera."""
     alpha = layer.getchannel("A")
     bbox = alpha.getbbox()
     if not bbox:
         return frame
     x0, y0, x1, y1 = bbox
     crop = layer.crop((x0, y0, x1, y1))
-    energy = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"]).energy
-    anticipation = math.sin(math.pi * min(1.0, progress / 0.28))
-    settle = max(0.0, min(1.0, (progress - 0.68) / 0.32))
-    dx = math.sin(progress * math.pi * 1.35) * (3.0 + 5.0 * energy) * motion_gain
-    dy = (-anticipation * (3.0 + 8.0 * energy) + settle * 3.0) * motion_gain
-    scale = 1.0 + math.sin(math.pi * progress) * 0.010 * energy
-    rotation = math.sin(math.pi * progress) * {"setup": -0.7, "escalation": 1.8, "reaction": -2.2, "punchline": 0.4}.get(beat, 0.0) * motion_gain
+    state = kinematic_state(progress, beat, performance)
+    dx = state["root_dx"] * motion_gain
+    dy = state["root_dy"] * motion_gain
+    scale = 1.0 + (state["root_scale"] - 1.0) * motion_gain
+    rotation = state["root_rot"] * motion_gain
     crop = crop.resize((max(2, int(crop.width * scale)), max(2, int(crop.height * scale))), Image.Resampling.BICUBIC)
     crop = crop.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=False)
     ox = int(x0 + dx - (crop.width - (x1 - x0)) / 2)
@@ -658,22 +724,23 @@ def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, 
     return base
 
 
-def _apply_arm_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, side: str, motion_gain: float = 1.0) -> Image.Image:
+def _apply_arm_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, side: str, motion_gain: float = 1.0, performance: dict | None = None, source_name: str | None = None) -> Image.Image:
     alpha = layer.getchannel("A")
     bbox = alpha.getbbox()
     if not bbox:
         return frame
     x0, y0, x1, y1 = bbox
     crop = layer.crop((x0, y0, x1, y1))
-    dx, dy, scale, rotation = arm_motion(progress, beat, side)
+    dx, dy, scale, rotation = arm_motion(progress, beat, side, performance)
     dx *= motion_gain
     dy *= motion_gain
     scale = 1.0 + (scale - 1.0) * motion_gain
     rotation *= motion_gain
     crop = crop.resize((max(2, int(crop.width * scale)), max(2, int(crop.height * scale))), Image.Resampling.BICUBIC)
     crop = crop.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=False)
-    ox = int(x0 + dx - (crop.width - (x1 - x0)) / 2)
-    oy = int(y0 + dy - (crop.height - (y1 - y0)) / 2)
+    pivot = _joint(source_name, "left_shoulder" if side == "left" else "right_shoulder") if source_name else None
+    ox = int(x0 + dx - (crop.width - (x1 - x0)) / 2) if pivot is None else int(pivot[0] + dx - crop.width / 2)
+    oy = int(y0 + dy - (crop.height - (y1 - y0)) / 2) if pivot is None else int(pivot[1] + dy - crop.height / 2)
     base = frame.copy()
     base.paste(crop.convert("RGB"), (ox, oy), crop.getchannel("A"))
     return base
@@ -708,9 +775,9 @@ def motion_frame(
             rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
             layers = load_action_layers(image, rig_dir)
             base = layers["body_plate"].convert("RGB")
-            base = _apply_torso_layer(base, layers["torso"], p, beat, motion_gain=motion_gain)
-            base = _apply_arm_layer(base, layers["left_arm"], p, beat, "left", motion_gain=motion_gain)
-            base = _apply_arm_layer(base, layers["right_arm"], p, beat, "right", motion_gain=motion_gain)
+            base = _apply_torso_layer(base, layers["torso"], p, beat, motion_gain=motion_gain, performance=voice_performance, source_name=image.name)
+            base = _apply_arm_layer(base, layers["left_arm"], p, beat, "left", motion_gain=motion_gain, performance=voice_performance, source_name=image.name)
+            base = _apply_arm_layer(base, layers["right_arm"], p, beat, "right", motion_gain=motion_gain, performance=voice_performance, source_name=image.name)
         except (OSError, ValueError):
             pass
         base = _apply_rig_performance(base, rig, p, beat, motion_gain=motion_gain, performance=voice_performance)
@@ -1004,9 +1071,13 @@ def render_cartoon_motion(
         "reaction": 0.40,
         "punchline": 0.72,
     }
+    measured_peaks = [
+        max(0.10, min(0.90, float(row.get("performance_peak_fraction", row.get("peak_fraction", peak_by_beat.get(beat, 0.40))))))
+        for row, beat in zip(voice_performance, beats)
+    ]
     audio = _audio_for_shots(
         work, voice_lines, effective_durations, sfx_kinds, ffmpeg,
-        [peak_by_beat.get(beat, 0.40) for beat in beats],
+        measured_peaks,
         voice_performance=voice_performance,
     )
     if audio:
@@ -1029,7 +1100,12 @@ def render_cartoon_motion(
             {
                 "engine": "cartoon-motion-3.6",
                 "rig_mode": "flattened-art-performance-proxy",
-                "performance_engine": "character-performance-v1",
+                "performance_engine": "character-performance-v1.6",
+                "attention_model": "targeted-gaze-and-camera-follow",
+                "attachment_model": "clean-semantic-limbs-center-root",
+                "joint_pivot_model": "neck-and-shoulder-anchors",
+                "shared_kinematic_clock": True,
+                "secondary_motion": ["root", "head", "arms", "backpack", "camera"],
                 "fps": fps,
                 "source_fps": source_fps,
                 "interpolation": "none",
@@ -1055,7 +1131,7 @@ def render_cartoon_motion(
                     "sfx_peak_sync": True,
                 },
                 "audio_sync": {
-                    "sfx_peak_fractions": [peak_by_beat.get(beat, 0.40) for beat in beats],
+                    "sfx_peak_fractions": measured_peaks,
                     "voice_start_fractions": [0.0 for _ in voice_performance],
                     "sfx_mode": "short_peak_accent",
                     "voice_engine": "local-mac-say-character-performance-v1",

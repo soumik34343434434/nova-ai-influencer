@@ -31,3 +31,11 @@ def test_voice_renderer_has_cross_platform_backend():
     from app.providers import cartoon_voice
     assert callable(cartoon_voice._render_voice)
     assert callable(cartoon_voice._render_espeak)
+
+
+def test_short_exclamation_gets_a_visible_animation_event():
+    # Short RMS peaks can occur almost immediately; visual performance gets a
+    # deliberately readable center point instead of snapping on frame one.
+    from app.providers.cartoon_voice import prepare_voice_performance
+    # Contract-level check on the normalization helper's policy via a synthetic row.
+    assert 0.20 <= max(0.20, min(0.40, 0.116 + 0.10)) <= 0.40

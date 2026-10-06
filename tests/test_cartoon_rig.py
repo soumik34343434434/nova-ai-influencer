@@ -72,3 +72,21 @@ def test_face_motion_has_explicit_blink_window():
     from app.providers.cartoon_animation import _face_motion
     assert _face_motion(0.22, "reaction")[4] > 0.0
     assert _face_motion(0.50, "reaction")[4] < 1e-6
+
+
+def test_kinematic_state_shares_root_motion_across_character_parts():
+    from app.providers.cartoon_performance import kinematic_state, arm_motion, head_motion
+    state = kinematic_state(0.5, "reaction")
+    left = arm_motion(0.5, "reaction", "left")
+    head = head_motion(0.5, "reaction")
+    assert state["root_dx"] != 0
+    assert left[0] != 0
+    assert head[0] != 0
+    assert abs(state["camera_dx"]) < abs(state["root_dx"])
+
+
+def test_punchline_shared_state_becomes_stable_after_hold():
+    from app.providers.cartoon_performance import kinematic_state
+    a = kinematic_state(0.72, "punchline")
+    b = kinematic_state(0.96, "punchline")
+    assert a == b

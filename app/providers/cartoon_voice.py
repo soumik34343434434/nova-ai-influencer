@@ -231,6 +231,13 @@ def prepare_voice_performance(
         _add_padding(raw, final, profile.pre_pause, profile.post_pause)
         duration = _duration(final)
         activity, onset, peak = _rms_activity(final)
+        performance_peak = peak
+        if beat == "escalation":
+            performance_peak = max(0.20, min(0.40, peak + 0.10))
+        elif beat == "reaction":
+            performance_peak = max(0.28, min(0.58, peak))
+        elif beat == "punchline":
+            performance_peak = max(0.48, min(0.78, peak))
         results.append({
             "shot": i,
             "beat": beat,
@@ -246,6 +253,7 @@ def prepare_voice_performance(
             "target_duration": target,
             "onset_fraction": round(onset, 4),
             "peak_fraction": round(peak, 4),
+            "performance_peak_fraction": round(performance_peak, 4),
             "activity": [round(v, 4) for v in activity],
             "path": str(final),
         })
