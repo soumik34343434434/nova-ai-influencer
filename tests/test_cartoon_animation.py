@@ -79,7 +79,7 @@ def test_motion_metadata_declares_delivery_profile(tmp_path: Path):
     finally:
         animation._audio_for_shots = original_audio
     metadata = output.with_suffix(".motion.json").read_text()
-    assert '"engine": "cartoon-motion-3.1"' in metadata
+    assert '"engine": "cartoon-motion-3.3"' in metadata
     assert '"fps": 24' in metadata
     assert '"interpolation": "none"' in metadata
 
@@ -109,3 +109,43 @@ def test_transition_is_not_identical_at_midpoint(tmp_path: Path):
     last = _transition_frame(a, b, 0.95, 1)
     assert first.tobytes() != middle.tobytes()
     assert middle.tobytes() != last.tobytes()
+
+
+def test_pose_morph_moves_character_part_between_endpoints():
+    from app.providers.cartoon_animation import _morph_transparent_layers
+
+    previous = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
+    current = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
+    previous.paste(Image.new("RGBA", (100, 200), (10, 20, 30, 255)), (150, 700))
+    current.paste(Image.new("RGBA", (200, 100), (40, 50, 60, 255)), (700, 900))
+
+    mid = _morph_transparent_layers(previous, current, 0.5, 1)
+    bbox = mid.getchannel("A").getbbox()
+    assert bbox is not None
+    cx = (bbox[0] + bbox[2]) / 2
+    cy = (bbox[1] + bbox[3]) / 2
+    assert 350 < cx < 700
+    assert 750 < cy < 950
+
+
+def test_pose_transition_metadata_is_declared(tmp_path: Path):
+    source = tmp_path / "source.png"
+    Image.new("RGB", (768, 1376), "white").save(source)
+    from app.providers.cartoon_animation import _pose_transition_frame
+    from app.providers.cartoon_rig import get_rig
+
+    a = Path("assets/cartoon/actions/pip_press_button.png")
+    b = Path("assets/cartoon/actions/pip_shock.png")
+    ar = get_rig(str(a))
+    br = get_rig(str(b))
+    pa = motion_frame(a, "One", 1.0, 0, 2.3, "setup", rig=ar)
+    pb = motion_frame(b, "Two", 0.0, 1, 2.3, "escalation", rig=br)
+    out = _pose_transition_frame(pa, pb, a, b, ar, br, "setup", "escalation", 0.5, 1)
+    assert out.size == (1080, 1920)
+
+
+def test_pose_switches_are_staggered_for_follow_through():
+    from app.providers.cartoon_animation import POSE_SWITCH_FRACTIONS
+    assert POSE_SWITCH_FRACTIONS["left_arm"] < POSE_SWITCH_FRACTIONS["torso"]
+    assert POSE_SWITCH_FRACTIONS["torso"] < POSE_SWITCH_FRACTIONS["head"]
+    assert POSE_SWITCH_FRACTIONS["head"] < POSE_SWITCH_FRACTIONS["face"]

@@ -206,6 +206,248 @@ def _transition_frame(previous: Image.Image, current: Image.Image, progress: flo
     return result.convert("RGB")
 
 
+def _camera_geometry(progress: float, beat: str) -> tuple[int, int, int, int, float, float, float]:
+    """Return the camera crop/rotation/squash used by motion_frame."""
+    profile = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"])
+    p = max(0.0, min(1.0, progress))
+    if beat == "punchline" and p >= 0.72:
+        p = 0.72
+    eased = _ease_in_out(p)
+    energy = profile.energy
+    settle = max(0.0, min(1.0, (p - 0.72) / 0.28))
+    spring = _spring(max(0.0, (p - 0.12) / 0.88))
+    zoom = profile.zoom_start + (profile.zoom_end - profile.zoom_start) * eased
+    zoom += 0.012 * math.sin(p * math.tau) * energy
+    if beat == "reaction":
+        zoom += 0.022 * math.sin((p * 1.2) * math.tau) * (1.0 - settle)
+
+    crop_w = max(2, int(W / zoom))
+    crop_h = max(2, int(H / zoom))
+    max_x = max(0, W - crop_w)
+    max_y = max(0, H - crop_h)
+    drift_x = profile.pan_x * max_x * math.sin(math.pi * eased)
+    drift_y = profile.pan_y * max_y * math.sin(math.pi * eased)
+    x = max(0, min(int(max_x * 0.5 + drift_x), max_x))
+    y = max(0, min(int(max_y * 0.5 + drift_y), max_y))
+    angle = profile.rotation * math.sin(math.pi * eased) * (1.0 - 0.55 * settle)
+    sx = 1.0 + 0.010 * math.sin(math.pi * spring) * energy
+    sy = 1.0 - 0.006 * math.sin(math.pi * spring) * energy
+    if beat == "escalation":
+        sx += 0.014 * max(0.0, math.sin(p * math.pi * 2.0))
+        sy -= 0.010 * max(0.0, math.sin(p * math.pi * 2.0))
+    return x, y, crop_w, crop_h, angle, sx, sy
+
+
+def _transform_part(layer: Image.Image, dx: float, dy: float, scale: float, rotation: float) -> Image.Image:
+    """Transform one full-frame RGBA character part around its visible pixels."""
+    alpha = layer.getchannel("A")
+    bbox = alpha.getbbox()
+    out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    if not bbox:
+        return out
+    x0, y0, x1, y1 = bbox
+    crop = layer.crop((x0, y0, x1, y1))
+    crop = crop.resize(
+        (max(2, int(crop.width * scale)), max(2, int(crop.height * scale))),
+        Image.Resampling.BICUBIC,
+    )
+    crop = crop.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=False)
+    ox = int((x0 + x1) / 2 - crop.width / 2 + dx)
+    oy = int((y0 + y1) / 2 - crop.height / 2 + dy)
+    out.alpha_composite(crop, (ox, oy))
+    return out
+
+
+def _project_part_to_camera(layer: Image.Image, progress: float, beat: str) -> Image.Image:
+    """Apply the same camera transform used for the finished motion frame."""
+    x, y, crop_w, crop_h, angle, sx, sy = _camera_geometry(progress, beat)
+    crop = layer.crop((x, y, x + crop_w, y + crop_h))
+    crop = crop.resize((W, H), Image.Resampling.LANCZOS)
+    crop = crop.rotate(angle, resample=Image.Resampling.BICUBIC, expand=False)
+    crop = crop.resize((int(W * sx), int(H * sy)), Image.Resampling.BICUBIC)
+    if crop.size != (W, H):
+        left = max(0, (crop.width - W) // 2)
+        top = max(0, (crop.height - H) // 2)
+        crop = crop.crop((left, top, left + W, top + H))
+    return crop
+
+
+def _endpoint_character_parts(image: Path, rig: CharacterRig, beat: str, progress: float) -> dict[str, Image.Image]:
+    """Build endpoint character parts in final-camera coordinates."""
+    if beat == "punchline" and progress >= 0.72:
+        progress = 0.72
+    rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
+    layers = load_action_layers(image, rig_dir)
+
+    torso = layers["torso"]
+    energy = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"]).energy
+    anticipation = math.sin(math.pi * min(1.0, progress / 0.28))
+    settle = max(0.0, min(1.0, (progress - 0.68) / 0.32))
+    torso_dx = math.sin(progress * math.pi * 1.35) * (3.0 + 5.0 * energy)
+    torso_dy = -anticipation * (3.0 + 8.0 * energy) + settle * 3.0
+    torso_scale = 1.0 + math.sin(math.pi * progress) * 0.010 * energy
+    torso_rot = math.sin(math.pi * progress) * {
+        "setup": -0.7, "escalation": 1.8, "reaction": -2.2, "punchline": 0.4,
+    }.get(beat, 0.0)
+    torso = _transform_part(torso, torso_dx, torso_dy, torso_scale, torso_rot)
+
+    left_dx, left_dy, left_scale, left_rot = arm_motion(progress, beat, "left")
+    right_dx, right_dy, right_scale, right_rot = arm_motion(progress, beat, "right")
+    left_arm = _transform_part(layers["left_arm"], left_dx, left_dy, left_scale, left_rot)
+    right_arm = _transform_part(layers["right_arm"], right_dx, right_dy, right_scale, right_rot)
+
+    head_dx, head_dy, head_scale, head_rot = head_motion(progress, beat)
+    head = _transform_part(rig.head_layer, head_dx, head_dy, head_scale, head_rot)
+    face_dx, face_dy, face_sx, face_sy, _ = _face_motion(progress, beat)
+    face = _transform_part(rig.face_layer, face_dx, face_dy, (face_sx + face_sy) * 0.5, 0.0)
+
+    # Keep backpack attached to the torso with a restrained secondary motion.
+    backpack = _transform_part(
+        layers["backpack"],
+        torso_dx * 0.55,
+        torso_dy * 0.65,
+        1.0 + (torso_scale - 1.0) * 0.6,
+        torso_rot * 0.55,
+    )
+
+    parts: dict[str, Image.Image] = {}
+    for name, layer in (
+        ("torso", torso),
+        ("backpack", backpack),
+        ("head", head),
+        ("left_arm", left_arm),
+        ("right_arm", right_arm),
+        ("face", face),
+    ):
+        parts[name] = _project_part_to_camera(layer, progress, beat)
+    return parts
+
+
+POSE_SWITCH_FRACTIONS = {
+    "left_arm": 0.40,
+    "right_arm": 0.47,
+    "torso": 0.44,
+    "backpack": 0.46,
+    "head": 0.52,
+    "face": 0.54,
+}
+
+
+def _morph_transparent_layers(
+    previous: Image.Image,
+    current: Image.Image,
+    progress: float,
+    direction: int,
+    part_name: str = "body",
+) -> Image.Image:
+    """Travel between endpoint geometry, then stagger each part into the new pose."""
+    t = max(0.0, min(1.0, progress))
+    a = previous.convert("RGBA")
+    b = current.convert("RGBA")
+    ab = a.getchannel("A").getbbox()
+    bb = b.getchannel("A").getbbox()
+    out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    if not ab and not bb:
+        return out
+
+    def crop_info(layer: Image.Image, box: tuple[int, int, int, int] | None):
+        if not box:
+            return None
+        x0, y0, x1, y1 = box
+        crop = layer.crop(box)
+        return crop, ((x0 + x1) * 0.5, (y0 + y1) * 0.5), (max(2, x1 - x0), max(2, y1 - y0))
+
+    ai = crop_info(a, ab)
+    bi = crop_info(b, bb)
+    eased = _ease_in_out(t)
+
+    if ai and bi:
+        _, ac, asz = ai
+        _, bc, bsz = bi
+        cx = ac[0] + (bc[0] - ac[0]) * eased + direction * 10.0 * math.sin(math.pi * t)
+        cy = ac[1] + (bc[1] - ac[1]) * eased - 4.0 * math.sin(math.pi * t)
+        width = int(asz[0] + (bsz[0] - asz[0]) * eased)
+        height = int(asz[1] + (bsz[1] - asz[1]) * eased)
+        threshold = POSE_SWITCH_FRACTIONS.get(part_name, 0.50)
+        chosen = ai[0] if t < threshold else bi[0]
+        crop = chosen.resize((width, height), Image.Resampling.BICUBIC)
+
+        # A very small trailing echo sells travel without creating a duplicate
+        # character. It is deliberately blurred and capped at low opacity.
+        travel = math.sin(math.pi * t)
+        trail = crop.filter(ImageFilter.GaussianBlur(1.2))
+        trail.putalpha(trail.getchannel("A").point(lambda v: int(v * 0.12 * travel)))
+        out.alpha_composite(
+            trail,
+            (int(cx - width / 2 - direction * 10 * travel), int(cy - height / 2)),
+        )
+        out.alpha_composite(crop, (int(cx - width / 2), int(cy - height / 2)))
+    elif ai:
+        crop, center, size = ai
+        crop = crop.copy()
+        crop.putalpha(crop.getchannel("A").point(lambda v: int(v * (1.0 - eased))))
+        out.alpha_composite(crop, (int(center[0] - size[0] / 2), int(center[1] - size[1] / 2)))
+    else:
+        crop, center, size = bi
+        crop = crop.copy()
+        crop.putalpha(crop.getchannel("A").point(lambda v: int(v * eased)))
+        out.alpha_composite(crop, (int(center[0] - size[0] / 2), int(center[1] - size[1] / 2)))
+
+    return out
+
+
+def _pose_transition_frame(
+    previous_frame: Image.Image,
+    current_frame: Image.Image,
+    previous_image: Path,
+    current_image: Path,
+    previous_rig: CharacterRig,
+    current_rig: CharacterRig,
+    previous_beat: str,
+    current_beat: str,
+    progress: float,
+    direction: int,
+) -> Image.Image:
+    """Move the character itself between action poses during a short bridge."""
+    t = max(0.0, min(1.0, progress))
+    # Keep the scene transition as a directional cut rather than a full-frame
+    # dissolve. The character itself is what we interpolate; dissolving the
+    # entire kitchen creates duplicate sandwich stacks/background geometry.
+    base = _transition_frame(
+        previous_frame.convert("RGB"),
+        current_frame.convert("RGB"),
+        t,
+        direction,
+    )
+
+    # Remove the ghosted character from the endpoint base and rebuild it from
+    # independently moving parts. Keep the caption zone untouched.
+    mask = Image.new("L", (W, H), 0)
+    md = ImageDraw.Draw(mask)
+    for rig in (previous_rig, current_rig):
+        x0, y0, x1, y1 = rig.bbox
+        y1 = min(y1, H - 440)
+        if y1 > y0:
+            md.rounded_rectangle((max(0, x0 - 35), max(0, y0 - 35), min(W, x1 + 35), y1), radius=70, fill=235)
+    mask = mask.filter(ImageFilter.GaussianBlur(24))
+    blurred = base.filter(ImageFilter.GaussianBlur(7.5))
+    base = Image.composite(blurred, base, mask)
+
+    prev_parts = _endpoint_character_parts(previous_image, previous_rig, previous_beat, 1.0)
+    curr_parts = _endpoint_character_parts(current_image, current_rig, current_beat, 0.0)
+    result = base.convert("RGBA")
+    for name in ("torso", "backpack", "head", "left_arm", "right_arm", "face"):
+        result.alpha_composite(
+            _morph_transparent_layers(prev_parts[name], curr_parts[name], t, direction, name)
+        )
+
+    # A restrained one-beat flash right after the midpoint sells the pose snap.
+    impact = max(0.0, math.sin(math.pi * max(0.0, min(1.0, (t - 0.58) / 0.26))))
+    if impact > 0.0:
+        result.alpha_composite(Image.new("RGBA", (W, H), (255, 255, 255, int(13 * impact))))
+    return result.convert("RGB")
+
+
 def _visible_caption(text: str, progress: float, punch: bool = False) -> str:
     words = " ".join(text.split()).split()
     if not words:
@@ -418,7 +660,7 @@ def motion_frame(
         p = 0.72
     if rig is not None:
         try:
-            rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v1"
+            rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
             layers = load_action_layers(image, rig_dir)
             base = layers["body_plate"].convert("RGB")
             base = _apply_torso_layer(base, layers["torso"], p, beat)
@@ -572,7 +814,11 @@ def render_cartoon_motion(
     frame_map = []
     previous_shot_frame: Image.Image | None = None
     previous_shot_rig: CharacterRig | None = None
-    transition_frames = max(1, round(0.16 * source_fps))
+    previous_shot_image: Path | None = None
+    previous_shot_beat: str | None = None
+    # Five frames at 24fps (~0.21s) is long enough to see the pose travel while
+    # still reading as a snappy comedic cut.
+    transition_frames = max(2, round(0.20 * source_fps))
     transition_directions: list[int] = []
     for shot, (image, caption, duration, beat) in enumerate(zip(images, captions, durations, beats)):
         count = max(2, round(duration * source_fps))
@@ -584,9 +830,34 @@ def render_cartoon_motion(
             except ValueError:
                 rig = None
             frame = motion_frame(image, caption, progress, shot, duration, beat, rig=rig)
-            if previous_shot_frame is not None and i < transition_frames:
+            if (
+                previous_shot_frame is not None
+                and previous_shot_image is not None
+                and previous_shot_rig is not None
+                and previous_shot_beat is not None
+                and rig is not None
+                and i < transition_frames
+            ):
                 if i == 0:
                     transition_directions.append(_transition_direction(previous_shot_rig, rig))
+                transition_p = i / max(1, transition_frames - 1)
+                direction = transition_directions[-1] if transition_directions else 1
+                try:
+                    frame = _pose_transition_frame(
+                        previous_shot_frame,
+                        frame,
+                        previous_shot_image,
+                        image,
+                        previous_shot_rig,
+                        rig,
+                        previous_shot_beat,
+                        beat,
+                        transition_p,
+                        direction,
+                    )
+                except (OSError, ValueError, KeyError):
+                    frame = _transition_frame(previous_shot_frame, frame, transition_p, direction)
+            elif previous_shot_frame is not None and i < transition_frames:
                 transition_p = i / max(1, transition_frames - 1)
                 direction = transition_directions[-1] if transition_directions else 1
                 frame = _transition_frame(previous_shot_frame, frame, transition_p, direction)
@@ -594,6 +865,8 @@ def render_cartoon_motion(
             frame_index += 1
         previous_shot_frame = frame
         previous_shot_rig = rig
+        previous_shot_image = image
+        previous_shot_beat = beat
 
     video_silent = output.with_suffix(".silent.mp4")
     subprocess.run(
@@ -644,7 +917,7 @@ def render_cartoon_motion(
     metadata.write_text(
         json.dumps(
             {
-                "engine": "cartoon-motion-3.1",
+                "engine": "cartoon-motion-3.3",
                 "rig_mode": "flattened-art-performance-proxy",
                 "fps": fps,
                 "source_fps": source_fps,
@@ -655,6 +928,8 @@ def render_cartoon_motion(
                     "character_micro_motion": True,
                     "anticipation_recoil_settle": True,
                     "punchline_hold": True,
+                    "pose_morph_bridge": True,
+                    "pose_interpolation_mode": "staggered-geometric-pose",
                     "audio_performance_clock": True,
                     "per_shot_voice": True,
                     "sfx_peak_sync": True,
