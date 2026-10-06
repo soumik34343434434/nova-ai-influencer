@@ -88,6 +88,94 @@ def _spring(t: float, damping: float = 6.2, frequency: float = 8.0) -> float:
     return 1.0 - math.exp(-damping * t) * math.cos(frequency * t)
 
 
+def _performance_accent(frame: Image.Image, progress: float, beat: str, shot_index: int) -> Image.Image:
+    """Apply a feathered character-centric performance accent.
+
+    The source art is flattened, so we cannot rig limbs. Instead we animate a
+    soft upper-body/head window over the already animated camera frame. The
+    generated action assets are character-centered, making this a useful,
+    deterministic proxy for a tiny lean/bob/tilt without inventing pixels.
+    """
+    energy = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"]).energy
+    p = max(0.0, min(1.0, progress))
+    if beat == "setup":
+        amp = 3.0 * energy
+    elif beat == "escalation":
+        amp = 10.0 * energy
+    elif beat == "reaction":
+        amp = 8.0 * energy
+    else:
+        amp = 2.5 * energy
+
+    # Subject window: upper-middle character area used by the factory's
+    # consistent portrait action assets. Keep the mask broad and feathered so
+    # background seams remain unobtrusive.
+    cx, cy = int(W * 0.50), int(H * 0.40)
+    rw, rh = int(W * 0.36), int(H * 0.31)
+    local = frame.crop((max(0, cx-rw), max(0, cy-rh), min(W, cx+rw), min(H, cy+rh))).copy()
+
+    phase = p * math.tau
+    if beat == "escalation":
+        dx = amp * math.sin(phase * 1.35 + shot_index)
+        dy = -amp * 0.55 * math.sin(phase * 1.8)
+        angle = 2.0 * math.sin(phase * 1.15)
+        scale = 1.0 + 0.018 * math.sin(phase * 1.6)
+    elif beat == "reaction":
+        dx = -amp * math.sin(phase * 1.05)
+        dy = amp * 0.65 * math.sin(phase * 1.7)
+        angle = -3.0 * math.sin(phase * 1.1)
+        scale = 1.0 + 0.026 * math.sin(phase * 1.25)
+    elif beat == "punchline":
+        dx = 0.9 * amp * math.sin(phase * 0.7)
+        dy = -0.35 * amp * math.sin(phase)
+        angle = 0.8 * math.sin(phase * 0.8)
+        scale = 1.0 + 0.008 * math.sin(phase)
+    else:
+        dx = 0.6 * amp * math.sin(phase)
+        dy = -0.35 * amp * math.cos(phase)
+        angle = 0.7 * math.sin(phase)
+        scale = 1.0 + 0.006 * math.sin(phase)
+
+    local = local.resize((max(2, int(local.width * scale)), max(2, int(local.height * scale))), Image.Resampling.BICUBIC)
+    local = local.rotate(angle, resample=Image.Resampling.BICUBIC, expand=False)
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    lx = int(cx - local.width / 2 + dx)
+    ly = int(cy - local.height / 2 + dy)
+    layer.alpha_composite(local.convert("RGBA"), (lx, ly))
+
+    mask = Image.new("L", (W, H), 0)
+    md = ImageDraw.Draw(mask)
+    md.ellipse((cx-rw, cy-rh, cx+rw, cy+rh), fill=225)
+    mask = mask.filter(ImageFilter.GaussianBlur(42))
+    frame_rgba = frame.convert("RGBA")
+    return Image.composite(layer, frame_rgba, mask).convert("RGB")
+
+
+def _transition_frame(previous: Image.Image, current: Image.Image, progress: float, direction: int) -> Image.Image:
+    """Turn a pose change into a quick snap instead of a simple dissolve."""
+    t = _ease_out(progress)
+    out = previous.convert("RGBA")
+    inc = current.convert("RGBA")
+    out_scale = 1.0 - 0.035 * t
+    inc_scale = 0.965 + 0.035 * t
+    out = out.resize((int(W*out_scale), int(H*out_scale)), Image.Resampling.BICUBIC)
+    inc = inc.resize((int(W*inc_scale), int(H*inc_scale)), Image.Resampling.BICUBIC)
+    out_canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    inc_canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    out_canvas.alpha_composite(out, ((W-out.width)//2 + int(direction*22*t), (H-out.height)//2))
+    inc_canvas.alpha_composite(inc, ((W-inc.width)//2 - int(direction*48*(1-t)), (H-inc.height)//2))
+    mask = Image.new("L", (W, H), 0)
+    md = ImageDraw.Draw(mask)
+    edge = int(W * (0.10 + 0.82 * t))
+    if direction > 0:
+        md.rectangle((0, 0, edge, H), fill=255)
+    else:
+        md.rectangle((W-edge, 0, W, H), fill=255)
+    mask = mask.filter(ImageFilter.GaussianBlur(18))
+    result = Image.composite(inc_canvas, out_canvas, mask)
+    return result.convert("RGB")
+
+
 def _visible_caption(text: str, progress: float, punch: bool = False) -> str:
     words = " ".join(text.split()).split()
     if not words:
@@ -220,6 +308,11 @@ def motion_frame(
         top = max(0, (frame.height - H) // 2)
         frame = frame.crop((left, top, left + W, top + H))
 
+    # A broad, feathered subject accent creates a small lean/bob/tilt from the
+    # flattened action art. This is deliberately subtle so it reads as motion,
+    # not as a distorted character.
+    frame = _performance_accent(frame, p, beat, shot_index)
+
     # Deterministic impact shake around escalation/reaction peaks.
     shake_window = math.sin(math.pi * max(0.0, min(1.0, (p - 0.28) / 0.22)))
     shake = profile.shake * shake_window
@@ -261,9 +354,10 @@ def _audio_for_shots(
     durations: list[float],
     sfx_kinds: list[str],
     ffmpeg: str,
+    sfx_peak_fractions: list[float] | None = None,
 ) -> Path | None:
     from app.providers.cartoon_media import _audio_for_shots as build_audio
-    return build_audio(work, voice_lines, durations, sfx_kinds, ffmpeg)
+    return build_audio(work, voice_lines, durations, sfx_kinds, ffmpeg, sfx_peak_fractions)
 
 
 def render_cartoon_motion(
@@ -296,17 +390,27 @@ def render_cartoon_motion(
         shutil.rmtree(work)
     work.mkdir(parents=True, exist_ok=True)
 
-    source_fps = min(12, fps)
+    # Render at the requested delivery cadence directly. The old implementation
+    # rendered 12fps and used minterpolate to synthesize 24fps, which could create
+    # rubbery motion around captions and pose changes. Deterministic 24fps frames
+    # are more faithful and avoid an expensive interpolation pass.
+    source_fps = fps
     frame_index = 0
     frame_map = []
+    previous_shot_frame: Image.Image | None = None
+    transition_frames = max(1, round(0.12 * source_fps))
     for shot, (image, caption, duration, beat) in enumerate(zip(images, captions, durations, beats)):
         count = max(2, round(duration * source_fps))
         frame_map.append({"shot": shot, "beat": beat, "frames": count, "duration": duration})
         for i in range(count):
             progress = i / max(1, count - 1)
             frame = motion_frame(image, caption, progress, shot, duration, beat)
+            if previous_shot_frame is not None and i < transition_frames:
+                transition_p = i / max(1, transition_frames - 1)
+                frame = _transition_frame(previous_shot_frame, frame, transition_p, 1 if shot % 2 else -1)
             frame.save(work / f"frame_{frame_index:05d}.jpg", quality=91, optimize=True)
             frame_index += 1
+        previous_shot_frame = frame
 
     video_silent = output.with_suffix(".silent.mp4")
     subprocess.run(
@@ -325,23 +429,17 @@ def render_cartoon_motion(
     )
 
     video_for_mux = video_silent
-    if fps > source_fps:
-        video_smooth = output.with_suffix(".smooth.mp4")
-        subprocess.run(
-            [
-                ffmpeg, "-y", "-i", str(video_silent),
-                "-vf", f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:vsbmc=1",
-                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-                str(video_smooth),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        video_silent.unlink(missing_ok=True)
-        video_for_mux = video_smooth
 
-    audio = _audio_for_shots(work, voice_lines, durations, sfx_kinds, ffmpeg)
+    peak_by_beat = {
+        "setup": 0.62,
+        "escalation": 0.43,
+        "reaction": 0.30,
+        "punchline": 0.18,
+    }
+    audio = _audio_for_shots(
+        work, voice_lines, durations, sfx_kinds, ffmpeg,
+        [peak_by_beat.get(beat, 0.40) for beat in beats],
+    )
     if audio:
         subprocess.run(
             [
@@ -360,9 +458,16 @@ def render_cartoon_motion(
     metadata.write_text(
         json.dumps(
             {
-                "engine": "cartoon-motion-2.0",
+                "engine": "cartoon-motion-2.1",
                 "fps": fps,
                 "source_fps": source_fps,
+                "interpolation": "none",
+                "performance": {
+                    "action_transitions": True,
+                    "character_micro_motion": True,
+                    "anticipation_recoil_settle": True,
+                    "punchline_hold": True,
+                },
                 "frames": frame_index,
                 "shots": frame_map,
             },

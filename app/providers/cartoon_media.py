@@ -102,6 +102,7 @@ def _audio_for_shots(
     durations: list[float],
     sfx_kinds: list[str],
     ffmpeg: str,
+    sfx_peak_fractions: list[float] | None = None,
 ) -> Path | None:
     total = sum(durations)
     voice_path = work / "episode_voice.wav"
@@ -113,11 +114,13 @@ def _audio_for_shots(
     sfx_paths: list[Path] = []
     offsets: list[int] = []
     elapsed = 0.0
+    peak_fractions = sfx_peak_fractions or [0.0] * len(durations)
     for i, (duration, sfx) in enumerate(zip(durations, sfx_kinds)):
         path = work / f"sfx_{i:02d}.wav"
         make_sfx(sfx, duration, path)
         sfx_paths.append(path)
-        offsets.append(round(elapsed * 1000))
+        fraction = max(0.0, min(0.95, float(peak_fractions[i]) if i < len(peak_fractions) else 0.0))
+        offsets.append(round((elapsed + duration * fraction) * 1000))
         elapsed += duration
 
     inputs = []
