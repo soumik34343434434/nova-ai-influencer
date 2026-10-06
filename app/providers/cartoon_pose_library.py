@@ -151,13 +151,51 @@ def build_pose_library(base: dict[str, Any], character: str) -> dict[str, dict[s
     _arm(sleepy, "right", -2, 8, 24, 14, 34)
     p["sleepy"] = sleepy
 
-    # Character personality slightly biases the expressive library.
+    # Character-specific acting geometry. The rig stays reusable, but the
+    # silhouette of a sleepy cat, robot and bird should not perform the exact
+    # same gesture. These are deliberately still conservative enough for the
+    # compiled cutout layers to deform cleanly.
     if character.upper() == "MOMO":
         p["idle"]["eye_open"] = 0.92
         p["sleepy"]["eye_open"] = 0.52
+        p["present"]["root"] = _shift(base["root"], -4, -10)
+        p["present"]["head_center"] = _shift(base["head_center"], -6, -16)
+        _arm(p["present"], "left", -4, -58, -34, -112, -54)
+        _arm(p["present"], "right", 6, 62, -34, 116, -50)
+        p["shock"]["root"] = _shift(base["root"], 0, 8)
+        p["shock"]["head_center"] = _shift(base["head_center"], 2, -2)
+        p["shock"]["head_rot"] = 2.5
+        _arm(p["shock"], "left", -8, -46, -92, -76, -138)
+        _arm(p["shock"], "right", 8, 46, -92, 76, -138)
+        p["overwhelmed"]["root"] = _shift(base["root"], -14, 66)
+        p["overwhelmed"]["head_center"] = _shift(base["head_center"], -30, 48)
+        p["overwhelmed"]["head_rot"] = -14.0
+        _arm(p["overwhelmed"], "left", -20, -62, 46, -92, 118)
+        _arm(p["overwhelmed"], "right", -2, 70, 46, 118, 120)
     elif character.upper() == "BUBU":
         p["excited"]["root"] = _shift(p["excited"]["root"], 0, -18)
         p["excited"]["eye_open"] = 1.24
+        p["present"]["root"] = _shift(base["root"], 0, -16)
+        p["present"]["head_center"] = _shift(base["head_center"], 8, -22)
+        p["present"]["head_rot"] = -5.0
+        _arm(p["present"], "left", -10, -62, -24, -120, -36)
+        _arm(p["present"], "right", 12, 68, -24, 124, -42)
+        p["shock"]["root"] = _shift(base["root"], 0, 4)
+        p["shock"]["head_center"] = _shift(base["head_center"], 0, -8)
+        p["shock"]["eye_open"] = 1.30
+        _arm(p["shock"], "left", -6, -52, -102, -86, -150)
+        _arm(p["shock"], "right", 6, 52, -102, 86, -150)
+        p["overwhelmed"]["root"] = _shift(base["root"], -22, 70)
+        p["overwhelmed"]["head_center"] = _shift(base["head_center"], -20, 44)
+        p["overwhelmed"]["head_rot"] = -10.0
+        _arm(p["overwhelmed"], "left", -22, -72, 52, -104, 132)
+        _arm(p["overwhelmed"], "right", -4, 82, 52, 132, 128)
+        p["tap"]["root"] = _shift(base["root"], 0, -8)
+        _arm(p["tap"], "left", -12, -72, -36, -106, -62)
+        _arm(p["tap"], "right", 12, 92, -10, 158, 8)
+        p["present"]["gaze"] = [0.20, -0.04]
+        p["shock"]["gaze"] = [-0.06, -0.05]
+        p["overwhelmed"]["gaze"] = [0.22, 0.06]
 
     return p
 
@@ -192,34 +230,38 @@ DEFAULT_ACTION_TRANSITION_PROFILES: dict[str, dict[str, float]] = {
         "settle_t": 1.00,
     },
     "press_button": {
+        "arc_strength_px": 22.0,
         "anticipation_t": -0.24,
         "contact_approach_t": 0.76,
         "overshoot_t": 1.16,
         "recoil_t": 0.90,
     },
     "tap_alarm": {
+        "arc_strength_px": 26.0,
         "anticipation_t": -0.20,
         "contact_approach_t": 0.78,
         "overshoot_t": 1.14,
         "recoil_t": 0.90,
     },
     "shock": {
+        "arc_strength_px": 12.0,
         "anticipation_t": -0.14,
         "contact_approach_t": 0.76,
         "overshoot_t": 1.10,
         "recoil_t": 0.91,
     },
     "overwhelmed": {
+        "arc_strength_px": 18.0,
         "anticipation_t": -0.14,
         "contact_approach_t": 0.74,
         "overshoot_t": 1.07,
         "recoil_t": 0.93,
     },
-    "reach": {"anticipation_t": -0.18, "overshoot_t": 1.12, "recoil_t": 0.92},
-    "present": {"anticipation_t": -0.10, "overshoot_t": 1.06, "recoil_t": 0.95},
-    "tap": {"anticipation_t": -0.18, "overshoot_t": 1.10, "recoil_t": 0.92},
-    "deadpan": {"anticipation_t": -0.08, "overshoot_t": 1.02, "recoil_t": 0.97},
-    "sleepy": {"anticipation_t": -0.06, "overshoot_t": 1.02, "recoil_t": 0.98},
+    "reach": {"arc_strength_px": 30.0, "anticipation_t": -0.18, "overshoot_t": 1.12, "recoil_t": 0.92},
+    "present": {"arc_strength_px": 24.0, "anticipation_t": -0.10, "overshoot_t": 1.06, "recoil_t": 0.95},
+    "tap": {"arc_strength_px": 28.0, "anticipation_t": -0.18, "overshoot_t": 1.10, "recoil_t": 0.92},
+    "deadpan": {"arc_strength_px": 8.0, "anticipation_t": -0.08, "overshoot_t": 1.02, "recoil_t": 0.97},
+    "sleepy": {"arc_strength_px": 10.0, "anticipation_t": -0.06, "overshoot_t": 1.02, "recoil_t": 0.98},
 }
 
 
@@ -249,6 +291,23 @@ def make_action_pose_chain(
             "right_shoulder", "right_elbow", "right_wrist",
         ):
             out[k] = [a[k][i] + (b[k][i] - a[k][i]) * u for i in (0, 1)]
+
+        # Cartoon hand-drawn motion rarely travels in a perfect straight line.
+        # Add a small configurable arc to elbows/wrists while preserving the
+        # real anticipation/overshoot extrapolation outside [0, 1].
+        arc_px = float(profile.get("arc_strength_px", 0.0))
+        if arc_px and 0.0 <= float(t) <= 1.0:
+            import math
+            arc = math.sin(math.pi * float(t)) * arc_px
+            for side, sign in (("left", 1.0), ("right", -1.0)):
+                dx = float(b[f"{side}_wrist"][0] - a[f"{side}_wrist"][0])
+                dy = float(b[f"{side}_wrist"][1] - a[f"{side}_wrist"][1])
+                length = max(1.0, math.hypot(dx, dy))
+                nx, ny = -dy / length, dx / length
+                out[f"{side}_elbow"][0] += nx * arc * 0.55 * sign
+                out[f"{side}_elbow"][1] += ny * arc * 0.55 * sign
+                out[f"{side}_wrist"][0] += nx * arc * sign
+                out[f"{side}_wrist"][1] += ny * arc * sign
         for k in ("head_rot", "root_rot", "eye_open"):
             out[k] = a[k] + (b[k] - a[k]) * u
         out["gaze"] = [a["gaze"][i] + (b["gaze"][i] - a["gaze"][i]) * u for i in (0, 1)]

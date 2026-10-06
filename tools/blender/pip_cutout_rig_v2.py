@@ -168,15 +168,41 @@ def action_pose_chain(prev, target, beat, action, start, end):
     """Adapt the shared physical action-chain primitive to absolute frame numbers."""
     profiles=PROFILE.get('transition_profiles') or {}
     chain=make_action_pose_chain(prev,target,action,span=max(8,end-start),transition_profiles=profiles)
-    dx=float(target['root'][0]-prev['root'][0]); dy=float(target['root'][1]-prev['root'][1])
+    root_dx=float(target['root'][0]-prev['root'][0]); root_dy=float(target['root'][1]-prev['root'][1])
+    wrist_dx=sum(float(target[k][0]-prev[k][0]) for k in ('left_wrist','right_wrist'))/2.0
+    wrist_dy=sum(float(target[k][1]-prev[k][1]) for k in ('left_wrist','right_wrist'))/2.0
+    dx=wrist_dx*0.72+root_dx*0.28; dy=wrist_dy*0.72+root_dy*0.28
     return [(start+offset,{**spec,'_motion':(dx,dy),'_action':action},phase) for offset,spec,phase in chain]
 
 
 def write_pose(arm,frame,spec):
  bpy.context.scene.frame_set(frame)
+ transition=PROFILE.get('transition_profiles') or {}
+ default_transition=transition.get('default',{})
+ action_transition=transition.get(spec.get('_action',''),{})
+ secondary=dict(default_transition.get('secondary',{}))
+ secondary.update(action_transition.get('secondary',{}))
+ joint_lag=max(0,int(secondary.get('joint_lag_frames',1)))
+ head_lag=max(0,int(secondary.get('head_lag_frames',2)))
+ hand_lag=max(0,int(secondary.get('hand_lag_frames',3)))
+ accessory_lag=max(0,int(secondary.get('accessory_lag_frames',4)))
+ max_frame=int(bpy.context.scene.frame_end)
+ def kframe(offset):
+  return min(max_frame,max(1,int(frame)+int(offset)))
+ motion=spec.get('_motion',(0.0,0.0))
+ motion_len=max(1.0,math.hypot(float(motion[0]),float(motion[1])))
+ ux,uy=float(motion[0])/motion_len,float(motion[1])/motion_len
+ drive=max(-1.0,min(1.0,float(motion[0])/140.0 + float(motion[1])/220.0*0.45))
+ phase=spec.get('_phase','settle')
+ phase_weight={'approach':0.0,'anticipation':0.32,'contact_approach':0.68,'contact':1.0,'overshoot':1.25,'recoil':0.82,'settle':0.20}.get(phase,0.0)
+ impulse_phase={'approach':0.0,'anticipation':-0.26,'contact_approach':0.48,'contact':1.0,'overshoot':1.34,'recoil':-0.78,'settle':0.08}.get(phase,0.0)
+ impact_translate=float(action_transition.get('impact_translate_px',default_transition.get('impact_translate_px',18.0)))
+ impulse=impact_translate*impulse_phase
  root=arm.pose.bones['root']
  root.location=px(spec['root'])-px(BASE['root'])
- root.rotation_euler.z=math.radians(spec['root_rot'])
+ root.location.x += ux*(impulse/PX)
+ root.location.y += uy*(impulse/PX)
+ root.rotation_euler.z=math.radians(spec['root_rot'] + drive*impulse_phase*3.2)
  root.keyframe_insert('location',frame=frame)
  root.keyframe_insert('rotation_euler',index=2,frame=frame)
  for side,s,e,w,ab,fb in [('L','left_shoulder','left_elbow','left_wrist','arm.L','forearm.L'),('R','right_shoulder','right_elbow','right_wrist','arm.R','forearm.R')]:
@@ -189,32 +215,24 @@ def write_pose(arm,frame,spec):
   p2.rotation_euler.z=(tb-ta)-(base_b-base_a)
   p3=arm.pose.bones[f'hand.{side}']
   p3.rotation_euler.z=(tb-ta)*0.12
-  p1.keyframe_insert('rotation_euler',index=2,frame=frame)
-  p2.keyframe_insert('rotation_euler',index=2,frame=frame)
-  p3.keyframe_insert('rotation_euler',index=2,frame=frame)
- transition=PROFILE.get('transition_profiles') or {}
- default_transition=transition.get('default',{})
- action_transition=transition.get(spec.get('_action',''),{})
- secondary=dict(default_transition.get('secondary',{}))
- secondary.update(action_transition.get('secondary',{}))
- motion=spec.get('_motion',(0.0,0.0))
- drive=max(-1.0,min(1.0,float(motion[0])/140.0 + float(motion[1])/220.0*0.45))
- phase=spec.get('_phase','settle')
- phase_weight={'approach':0.0,'anticipation':0.32,'contact_approach':0.68,'contact':1.0,'overshoot':1.25,'recoil':0.82,'settle':0.20}.get(phase,0.0)
- # Secondary motion intentionally lags the main pose. Keeping it small prevents
- # the generated cutout layers from separating while giving the motion a hand-
- # animated "follow-through" instead of a rigid puppet feel.
+  arm_frame=kframe(joint_lag)
+  p1.keyframe_insert('rotation_euler',index=2,frame=arm_frame)
+  p2.keyframe_insert('rotation_euler',index=2,frame=arm_frame)
+  p3.keyframe_insert('rotation_euler',index=2,frame=kframe(hand_lag))
  head_lag_deg=float(secondary.get('head_lag_deg',0.0))
  hand_follow_deg=float(secondary.get('hand_follow_deg',0.0))
  accessory_follow_deg=float(secondary.get('accessory_follow_deg',0.0))
  head=arm.pose.bones['head']
  head.rotation_euler.z=math.radians(spec['head_rot']-head_lag_deg*drive*phase_weight)
- head.keyframe_insert('rotation_euler',index=2,frame=frame)
+ head.location.x=-ux*min(0.028,abs(impulse)/9000.0)
+ head.location.y=-uy*min(0.028,abs(impulse)/9000.0)
+ head.keyframe_insert('rotation_euler',index=2,frame=kframe(head_lag))
+ head.keyframe_insert('location',frame=kframe(head_lag))
  hand_follow=math.radians(hand_follow_deg*drive*phase_weight)
  for side in ('L','R'):
   hand=arm.pose.bones[f'hand.{side}']
   hand.rotation_euler.z += hand_follow*(1.0 if side=='R' else -1.0)
-  hand.keyframe_insert('rotation_euler',index=2,frame=frame)
+  hand.keyframe_insert('rotation_euler',index=2,frame=kframe(hand_lag))
  beat_scale={'setup':1.0,'escalation':1.035,'reaction':0.965,'punchline':0.99}.get(spec.get('_beat','setup'),1.0)
  phase_scale={'approach':1.0,'anticipation':0.975,'contact_approach':1.015,'contact':1.055,'overshoot':0.94,'recoil':1.02,'settle':1.0}.get(phase,1.0)
  scale=beat_scale*phase_scale
@@ -222,7 +240,7 @@ def write_pose(arm,frame,spec):
  root.keyframe_insert('scale',frame=frame)
  bp=arm.pose.bones['backpack']
  bp.rotation_euler.z=math.radians(spec['root_rot']*.45-accessory_follow_deg*drive*phase_weight)
- bp.keyframe_insert('rotation_euler',index=2,frame=frame)
+ bp.keyframe_insert('rotation_euler',index=2,frame=kframe(accessory_lag))
 
 def key_face(face,frame,spec):
  phase=spec.get('_phase','settle')
@@ -231,7 +249,7 @@ def key_face(face,frame,spec):
   f=FACE_PROFILE; offsets={'Eye.L':px(((f['eye_left'][0]+f['eye_left'][2])//2,(f['eye_left'][1]+f['eye_left'][3])//2))-base_c,'Eye.R':px(((f['eye_right'][0]+f['eye_right'][2])//2,(f['eye_right'][1]+f['eye_right'][3])//2))-base_c,'Mouth':px(((f['mouth'][0]+f['mouth'][2])//2,(f['mouth'][1]+f['mouth'][3])//2))-base_c}
   def wp(v): return Vector((c.x+co*v.x-si*v.y,c.y+si*v.x+co*v.y,0))
   for obj,name in [(face['eyes'][0],'Eye.L'),(face['eyes'][1],'Eye.R'),(face['mouth'],'Mouth')]:
-   obj.location=wp(offsets[name]); obj.rotation_euler.z=a; obj.keyframe_insert('location',frame=frame); obj.keyframe_insert('rotation_euler',index=2,frame=frame)
+   obj.location=wp(offsets[name]); obj.rotation_euler.z=a; obj.keyframe_insert('location',frame=frame+1); obj.keyframe_insert('rotation_euler',index=2,frame=frame+1)
   for i,(eye,sign) in enumerate(zip(face['eyes'],(-1,1))):
    impact_eye=float((PROFILE.get('transition_profiles') or {}).get('default',{}).get('secondary',{}).get('impact_eye_open',0.06))
    reaction_boost=impact_eye*(1.0 if phase=='contact' else 0.65 if phase=='overshoot' else 0.35 if phase=='recoil' else 0.0)

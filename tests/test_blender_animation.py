@@ -133,3 +133,25 @@ def test_blender_episode_audio_uses_the_effective_voice_clock():
     assert 'effective_shot_durations' in text
     assert '_audio_for_shots(work / "audio", voice_lines, effective_shot_durations' in text
     assert 'total_seconds = sum(effective_shot_durations)' in text
+
+
+def test_character_specific_acting_poses_have_distinct_silhouettes():
+    import json
+    root=Path(__file__).resolve().parents[1]
+    data=json.loads((root/'config'/'cartoon_blender_profiles.json').read_text(encoding='utf-8'))
+    from app.providers.cartoon_pose_library import build_pose_library
+    momo=build_pose_library(data['characters']['MOMO']['base'],'MOMO')
+    bubu=build_pose_library(data['characters']['BUBU']['base'],'BUBU')
+    assert momo['present']['left_wrist'] != data['characters']['MOMO']['base']['left_wrist']
+    assert bubu['shock']['right_wrist'] != data['characters']['BUBU']['base']['right_wrist']
+    assert momo['present']['right_wrist'] != bubu['present']['right_wrist']
+
+
+def test_action_profiles_define_impact_translation():
+    import json
+    root=Path(__file__).resolve().parents[1]
+    data=json.loads((root/'config'/'cartoon_blender_profiles.json').read_text(encoding='utf-8'))
+    for character in ('PIP','MOMO','BUBU'):
+        profile=data['characters'][character]['transition_profiles']
+        assert profile['default']['impact_translate_px'] > 0
+        assert profile['shock']['impact_translate_px'] > 0
