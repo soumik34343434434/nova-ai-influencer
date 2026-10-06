@@ -12,7 +12,7 @@ from mathutils import Vector
 
 ROOT = Path(os.environ.get('NOVA_REPO', Path(__file__).resolve().parents[2])).resolve()
 sys.path.insert(0, str(ROOT))
-from app.providers.cartoon_pose_library import DEFAULT_ACTION_POSES, build_pose_library
+from app.providers.cartoon_pose_library import DEFAULT_ACTION_POSES, build_pose_library, make_action_pose_chain
 ASSET = ROOT / 'artifacts' / 'cartoon' / 'blender' / 'pip_cutout_layers'
 PROFILE_FILE = ROOT / 'config' / 'cartoon_blender_profiles.json'
 CHARACTER = 'PIP'
@@ -164,6 +164,12 @@ def pose_spec(a,b,t):
  out['gaze']=tuple(a['gaze'][i]+(b['gaze'][i]-a['gaze'][i])*t for i in (0,1)); out['mouth']=b['mouth'] if t>=.65 else a['mouth']; return out
 
 
+def action_pose_chain(prev, target, beat, action, start, end):
+    """Adapt the shared physical action-chain primitive to absolute frame numbers."""
+    chain=make_action_pose_chain(prev,target,action,span=max(8,end-start))
+    return [(start+offset,spec,phase) for offset,spec,phase in chain]
+
+
 def write_pose(arm,frame,spec):
  bpy.context.scene.frame_set(frame)
  root=arm.pose.bones['root']; root.location=px(spec['root'])-px(BASE['root']); root.rotation_euler.z=math.radians(spec['root_rot']); root.keyframe_insert('location',frame=frame); root.keyframe_insert('rotation_euler',index=2,frame=frame)
@@ -173,7 +179,10 @@ def write_pose(arm,frame,spec):
   ta=math.atan2(px(spec[e]).y-px(spec[s]).y,px(spec[e]).x-px(spec[s]).x); tb=math.atan2(px(spec[w]).y-px(spec[e]).y,px(spec[w]).x-px(spec[e]).x)
   p1.rotation_euler.z=ta-base_a; p2.rotation_euler.z=(tb-ta)-(base_b-base_a); p3=arm.pose.bones[f'hand.{side}']; p3.rotation_euler.z=(tb-ta)*0.12; p1.keyframe_insert('rotation_euler',index=2,frame=frame); p2.keyframe_insert('rotation_euler',index=2,frame=frame); p3.keyframe_insert('rotation_euler',index=2,frame=frame)
  head=arm.pose.bones['head']; head.rotation_euler.z=math.radians(spec['head_rot']); head.keyframe_insert('rotation_euler',index=2,frame=frame)
- scale=1.0+({'setup':0,'escalation':0.035,'reaction':-0.035,'punchline':-0.01}.get(spec.get('_beat','setup'),0)); root.scale=(1/scale,scale,1); root.keyframe_insert('scale',frame=frame)
+ beat_scale={'setup':1.0,'escalation':1.035,'reaction':0.965,'punchline':0.99}.get(spec.get('_beat','setup'),1.0)
+ phase=spec.get('_phase','settle')
+ phase_scale={'approach':1.0,'anticipation':0.975,'contact_approach':1.015,'contact':1.055,'overshoot':0.94,'recoil':1.02,'settle':1.0}.get(phase,1.0)
+ scale=beat_scale*phase_scale; root.scale=(1/scale,scale,1); root.keyframe_insert('scale',frame=frame)
  bp=arm.pose.bones['backpack']; bp.rotation_euler.z=math.radians(spec['root_rot']*.45); bp.keyframe_insert('rotation_euler',index=2,frame=frame)
 
 
@@ -302,10 +311,10 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
  prev=pose_for_index('setup',0,rows)
  for idx,(beat,start,end) in enumerate(BEATS):
   target=pose_for_index(beat,idx,rows)
-  dur=end-start
-  specs=[(start,pose_spec(prev,target,-0.12)),(start+round(dur*.48),pose_spec(prev,target,1.10)),(start+round(dur*.72),target),(end,target)]
-  for frame,spec in specs:
-   spec=dict(spec); spec['_beat']=beat; write_pose(arm,frame,spec); key_face(face,frame,spec)
+  action=(rows[idx].get('action') if idx < len(rows) else None) or beat
+  chain=action_pose_chain(prev,target,beat,action,start,end)
+  for frame,spec,phase in chain:
+   spec=dict(spec); spec['_beat']=beat; spec['_phase']=phase; spec['_action']=action; write_pose(arm,frame,spec); key_face(face,frame,spec)
   prev=target
  # Add speech-reactive mouth shape cues: fast micro-open/close around each phrase center.
  rows=load_voice_rows(voice_json)
@@ -337,7 +346,7 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
  # real continuous in-betweens between performance poses.
  scene.frame_start=1; scene.frame_end=frames; scene.render.image_settings.file_format='PNG'; scene.render.filepath=str(OUTDIR/'frame_####')
  effective_rows=load_voice_rows(voice_json); effective_shot_durations=[round(max(1.0,float(r.get('duration',0.0) or 0.0))+tail,3) for r,tail in zip(effective_rows[:4],(0.48,0.58,0.60,0.82))] if rows else [round((b-a)/24,3) for _,a,b in BEATS]
- meta={'engine':'blender-cutout-performance-rig-v3','character':CHARACTER,'beats':BEATS,'voice_json':str(voice_json) if voice_json else None,'effective_shot_durations':effective_shot_durations,'actions':[r.get('action') for r in effective_rows[:4]],'resolution':[W,H],'fps':24,'frames':frames,'deformable_layers':['torso','head','left_arm','right_arm','backpack'],'armature_bones':['root','head','arm.L','forearm.L','hand.L','arm.R','forearm.R','hand.R','backpack'],'facial_controls':['blink','gaze','mouth_shape','speech_micro_motion','organic_face_patches'],'pose_library':list(PROFILE.get('_pose_library',{}).keys()),'pose_map':dict(PROFILE.get('_pose_map',{})),'in_between':'overshoot-and-settle-bezier','source':'clean-pip-master-cutout'}
+ meta={'engine':'blender-cutout-performance-rig-v3','character':CHARACTER,'beats':BEATS,'voice_json':str(voice_json) if voice_json else None,'effective_shot_durations':effective_shot_durations,'actions':[r.get('action') for r in effective_rows[:4]],'resolution':[W,H],'fps':24,'frames':frames,'deformable_layers':['torso','head','left_arm','right_arm','backpack'],'armature_bones':['root','head','arm.L','forearm.L','hand.L','arm.R','forearm.R','hand.R','backpack'],'facial_controls':['blink','gaze','mouth_shape','speech_micro_motion','organic_face_patches'],'pose_library':list(PROFILE.get('_pose_library',{}).keys()),'pose_map':dict(PROFILE.get('_pose_map',{})),'in_between':'action-chain-anticipation-contact-overshoot-recoil-settle','action_chain':['approach','anticipation','contact_approach','contact','overshoot','recoil','settle'],'source':'clean-pip-master-cutout'}
  t=bpy.data.texts.new('NOVA_BLENDER_RIG_METADATA.json'); t.write(json.dumps(meta,indent=2)); return scene,meta
 
 

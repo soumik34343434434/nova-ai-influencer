@@ -172,3 +172,28 @@ DEFAULT_ACTION_POSES = {
     "overwhelmed": "overwhelmed",
     "deadpan": "deadpan",
 }
+
+
+def make_action_pose_chain(prev: dict[str, Any], target: dict[str, Any], action: str,
+                           span: int = 100) -> list[tuple[int, dict[str, Any], str]]:
+    """Build the deterministic physical action phases shared by Blender and tests."""
+    def blend(a: dict[str, Any], b: dict[str, Any], t: float) -> dict[str, Any]:
+        out=deepcopy(a)
+        for k in ('root','neck','head_center','left_shoulder','left_elbow','left_wrist','right_shoulder','right_elbow','right_wrist'):
+            out[k]=[a[k][i]+(b[k][i]-a[k][i])*t for i in (0,1)]
+        for k in ('head_rot','root_rot','eye_open'):
+            out[k]=a[k]+(b[k]-a[k])*t
+        out['gaze']=[a['gaze'][i]+(b['gaze'][i]-a['gaze'][i])*t for i in (0,1)]
+        out['mouth']=b['mouth'] if t>=0.65 else a['mouth']
+        return out
+    span=max(8,int(span)); accent=1.0 if action in {'press_button','tap_alarm','shock','overwhelmed'} else 0.72
+    phases=[
+        (0, 0.0, 'approach'),
+        (0.24, -0.16*accent, 'anticipation'),
+        (0.46, 0.72, 'contact_approach'),
+        (0.60, 1.0, 'contact'),
+        (0.70, 1.08+0.04*accent, 'overshoot'),
+        (0.82, 0.93, 'recoil'),
+        (1.00, 1.0, 'settle'),
+    ]
+    return [(round(span*when), blend(prev,target,t), phase) for when,t,phase in phases]

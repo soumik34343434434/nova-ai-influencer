@@ -13,7 +13,7 @@ def test_blender_provider_contract():
 def test_blender_rig_script_has_performance_features():
     root = Path(__file__).resolve().parents[1]
     text = (root / "tools" / "blender" / "pip_cutout_rig_v2.py").read_text(encoding="utf-8")
-    for marker in ("Rig", "ARMATURE", "vertex_groups", "TARGETS", "Eye.L", "Pupil.L", "overshoot-and-settle-bezier"):
+    for marker in ("Rig", "ARMATURE", "vertex_groups", "TARGETS", "Eye.L", "Pupil.L", "action-chain-anticipation-contact-overshoot-recoil-settle"):
         assert marker in text
 
 
@@ -54,3 +54,21 @@ def test_pose_library_is_action_driven():
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
     assert 'pose_for_index' in text
     assert "row.get('action')" in text
+
+
+def test_action_pose_chain_has_physical_phases():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    for phase in ('anticipation','contact','overshoot','recoil','settle'):
+        assert f"'{phase}'" in text
+    assert 'action_pose_chain' in text
+
+
+def test_pose_chain_is_deterministic_and_overshoots():
+    from app.providers.cartoon_pose_library import make_action_pose_chain
+    base={"root":[0,0],"neck":[0,0],"head_center":[0,0],"left_shoulder":[0,0],"left_elbow":[0,0],"left_wrist":[0,0],"right_shoulder":[0,0],"right_elbow":[0,0],"right_wrist":[0,0],"head_rot":0,"root_rot":0,"eye_open":1,"gaze":[0,0],"mouth":"flat"}
+    target={**base,"root":[100,50],"neck":[100,50],"head_center":[100,50]}
+    chain=make_action_pose_chain(base,target,'shock',span=100)
+    assert [x[2] for x in chain]==['approach','anticipation','contact_approach','contact','overshoot','recoil','settle']
+    assert chain[1][1]['root'][0] < 0
+    assert chain[4][1]['root'][0] > target['root'][0]
