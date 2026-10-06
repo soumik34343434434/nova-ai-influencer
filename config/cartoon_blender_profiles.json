@@ -634,17 +634,17 @@
           "settle_at": 1.0,
           "settle_t": 1.0,
           "secondary": {
-            "head_lag_deg": 3.0,
-            "hand_follow_deg": 2.2,
-            "accessory_follow_deg": 4.0,
+            "head_lag_deg": 4.0,
+            "hand_follow_deg": 3.0,
+            "accessory_follow_deg": 5.2,
             "impact_eye_open": 0.05,
             "joint_lag_frames": 2,
             "head_lag_frames": 2,
-            "hand_lag_frames": 3,
-            "accessory_lag_frames": 5
+            "hand_lag_frames": 4,
+            "accessory_lag_frames": 6
           },
-          "arc_strength_px": 14.0,
-          "impact_translate_px": 18.0
+          "arc_strength_px": 18.0,
+          "impact_translate_px": 20.0
         },
         "press_button": {
           "anticipation_t": -0.24,
@@ -766,6 +766,24 @@
           },
           "arc_strength_px": 10.0,
           "impact_translate_px": 18.0
+        }
+      },
+      "world_overrides": {
+        "give_homework": {
+          "x": 2.25,
+          "y": -2.55
+        },
+        "shock": {
+          "x": 2.1,
+          "y": -2.35
+        },
+        "overwhelmed": {
+          "x": -1.65,
+          "y": -3.15
+        },
+        "deadpan": {
+          "x": 1.85,
+          "y": -3.05
         }
       }
     },

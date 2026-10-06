@@ -347,34 +347,43 @@ def _action_focus(action):
 
 
 def camera_performance_keys(arm, cam, beats, rows=None):
-    """Animator-style push/pull camera with phase-aware impact and reaction beats."""
+    """Beat-specific camera acting with smooth handoffs and readable shot-size contrast."""
     rows=rows or []
-    phase_points=(0.00,0.22,0.46,0.60,0.70,0.82,1.00)
+    phase_points=(0.00,0.18,0.42,0.58,0.72,0.84,1.00)
     phase_names=('approach','anticipation','contact_approach','contact','overshoot','recoil','settle')
-    scale_base={'setup':13.8,'escalation':13.4,'reaction':13.0,'punchline':13.6}
-    action_scale={'give_homework':0.94,'press_button':0.94,'shock':0.88,'overwhelmed':0.97,'deadpan':0.99,'tap_alarm':0.90,'open_fridge':0.93,'tap_shoes':0.90}
+    base_scale={'setup':14.0,'escalation':12.7,'reaction':14.3,'punchline':12.8}
+    action_scale={'give_homework':0.96,'press_button':0.96,'shock':0.90,'overwhelmed':0.97,'deadpan':0.95,'tap_alarm':0.92,'open_fridge':0.94,'tap_shoes':0.92}
+    previous_state=None
     for idx,(beat,start,end) in enumerate(beats):
         action=(rows[idx].get('action') if idx < len(rows) else '') or beat
-        fx,fy=_action_focus(action)
-        span=max(1,end-start)
+        fx,fy=_action_focus(action); span=max(1,end-start)
         for frac,phase in zip(phase_points,phase_names):
-            frame=min(end,max(start,round(start+span*frac)))
-            bpy.context.scene.frame_set(frame)
-            root=arm.pose.bones['root']
-            loc=root.matrix.to_translation()
-            focus_weight={'approach':0.42,'anticipation':0.32,'contact_approach':0.62,'contact':0.90,'overshoot':1.0,'recoil':0.72,'settle':0.35}[phase]
-            punch={'approach':0.0,'anticipation':-0.018,'contact_approach':0.010,'contact':-0.075,'overshoot':-0.105,'recoil':-0.045,'settle':0.0}[phase]
-            shake_amp={'approach':0.0,'anticipation':0.0,'contact_approach':0.0,'contact':0.028,'overshoot':0.040,'recoil':0.018,'settle':0.0}[phase]
-            shake=math.sin(frame*0.91)*(shake_amp)
-            cam.location.x=loc.x*0.16 + fx*focus_weight + shake
-            cam.location.y=loc.y*0.10 + fy*focus_weight + math.cos(frame*0.73)*shake_amp*0.45
+            frame=min(end,max(start,round(start+span*frac))); bpy.context.scene.frame_set(frame)
+            root=arm.pose.bones['root']; loc=root.matrix.to_translation()
+            if previous_state is not None and phase=='approach':
+                cam.location.x,cam.location.y,cam.location.z=previous_state[0]
+                cam.rotation_euler.z=previous_state[1]
+                cam.data.ortho_scale=previous_state[2]
+                cam.keyframe_insert('location',frame=frame); cam.keyframe_insert('rotation_euler',index=2,frame=frame); cam.data.keyframe_insert('ortho_scale',frame=frame)
+                continue
+            focus_w={'approach':0.08,'anticipation':0.16,'contact_approach':0.38,'contact':0.62,'overshoot':0.74,'recoil':0.56,'settle':0.34}[phase]
+            punch={
+                'setup':{'approach':0.0,'anticipation':-0.008,'contact_approach':-0.015,'contact':-0.022,'overshoot':-0.018,'recoil':0.0,'settle':0.0},
+                'escalation':{'approach':0.0,'anticipation':0.0,'contact_approach':-0.014,'contact':-0.065,'overshoot':-0.085,'recoil':-0.035,'settle':-0.010},
+                'reaction':{'approach':0.0,'anticipation':0.010,'contact_approach':0.020,'contact':0.008,'overshoot':0.0,'recoil':0.018,'settle':0.045},
+                'punchline':{'approach':0.0,'anticipation':-0.008,'contact_approach':-0.018,'contact':-0.040,'overshoot':-0.052,'recoil':-0.020,'settle':-0.060},
+            }[beat][phase]
+            lateral={'setup':0.0,'escalation':0.055,'reaction':-0.075,'punchline':0.085}.get(beat,0.0)
+            curve=math.sin(math.pi*frac); shake_amp={'setup':0.0,'escalation':0.010 if phase in ('contact','overshoot') else 0.0,'reaction':0.003,'punchline':0.003 if phase in ('contact','settle') else 0.0}.get(beat,0.0)
+            shake=math.sin(frame*1.21)*shake_amp
+            cam.location.x=loc.x*0.08 + fx*focus_w + lateral*curve + shake
+            cam.location.y=loc.y*0.06 + fy*focus_w + math.cos(frame*0.71)*shake_amp*0.40
             cam.location.z=30.0
-            target_scale=scale_base.get(beat,13.6)*action_scale.get(action,1.0)
-            cam.data.ortho_scale=max(9.8,target_scale*(1.0+punch))
-            cam.rotation_euler.z=root.rotation_euler.z*0.08 + math.radians(shake*1.8)
-            cam.keyframe_insert('location',frame=frame)
-            cam.keyframe_insert('rotation_euler',index=2,frame=frame)
-            cam.data.keyframe_insert('ortho_scale',frame=frame)
+            cam.data.ortho_scale=max(10.0,base_scale[beat]*action_scale.get(action,1.0)*(1.0+punch))
+            cam.rotation_euler.z=root.rotation_euler.z*0.05 + math.radians(shake*1.2)
+            cam.keyframe_insert('location',frame=frame); cam.keyframe_insert('rotation_euler',index=2,frame=frame); cam.data.keyframe_insert('ortho_scale',frame=frame)
+        previous_state=(tuple(cam.location),cam.rotation_euler.z,cam.data.ortho_scale)
+
 
 def load_profile(character='PIP', profile_path=None):
     path=Path(profile_path) if profile_path else PROFILE_FILE
@@ -438,12 +447,31 @@ def build_story_world(rows,beats):
     for obj in (stage,trim):
         obj.keyframe_insert('scale',frame=1); obj.keyframe_insert('scale',frame=int(bpy.context.scene.frame_end))
     shadow.scale=(1.0,0.90,1.0); shadow.keyframe_insert('scale',frame=1); shadow.keyframe_insert('scale',frame=int(bpy.context.scene.frame_end))
+    # Persistent environment dressing: recognizable shelving and varied book spines.
+    for n,sy in enumerate((-0.85,-1.75,-2.65)):
+        shelf=prop_box(f'LibraryShelfBoard.{n}',(-3.75,sy),(2.55,0.12,0.22),mats['warm'],z=0.02); shelf.keyframe_insert('location',frame=1); shelf.keyframe_insert('location',frame=int(bpy.context.scene.frame_end))
+    for n,sx in enumerate((-5.02,-2.48)):
+        post=prop_box(f'LibraryShelfPost.{n}',(sx,-1.72),(0.14,3.55,0.22),mats['warm'],z=0.02); post.keyframe_insert('location',frame=1); post.keyframe_insert('location',frame=int(bpy.context.scene.frame_end))
+    book_layout=[(-4.72,-0.55,0.28,0.72),(-4.36,-0.56,0.22,0.78),(-3.98,-0.55,0.30,0.70),(-3.52,-0.56,0.24,0.82),(-3.15,-0.55,0.26,0.74),(-4.62,-1.45,0.24,0.75),(-4.28,-1.44,0.30,0.82),(-3.90,-1.43,0.21,0.70),(-3.50,-1.44,0.27,0.78),(-3.12,-1.43,0.23,0.72),(-4.68,-2.35,0.31,0.80),(-4.25,-2.34,0.22,0.70),(-3.90,-2.35,0.28,0.76),(-3.50,-2.35,0.25,0.82),(-3.12,-2.34,0.27,0.68)]
+    for n,(bx,by,bw,bh) in enumerate(book_layout):
+        book=prop_box(f'LibraryBook.{n}',(bx,by),(bw,bh,0.14),mats['accent'] if n%3 else mats['device'],z=0.20); book.keyframe_insert('location',frame=1); book.keyframe_insert('location',frame=int(bpy.context.scene.frame_end))
+    for name,loc,size,z,mat in (
+        ('DeskLampBase',(3.55,-2.90),(0.62,0.20,0.16),0.20,mats['device']),
+        ('DeskLampArm',(3.68,-2.35),(0.10,1.10,0.10),0.24,mats['accent']),
+        ('DeskLampHead',(3.48,-1.82),(0.62,0.18,0.14),0.27,mats['warm']),
+    ):
+        lamp=prop_box(name,loc,size,mat,z=z); lamp.keyframe_insert('location',frame=1); lamp.keyframe_insert('location',frame=int(bpy.context.scene.frame_end))
+    sign_font=bpy.data.curves.new('LibrarySignCurve','FONT'); sign_font.body='LIBRARY'; sign_font.align_x='CENTER'; sign_font.size=0.72; sign_font.extrude=0.008
+    sign=bpy.data.objects.new('LibrarySign',sign_font); bpy.context.collection.objects.link(sign); sign.location=(0.0,2.75,-0.20); sign.data.materials.append(mats['dark']); sign.keyframe_insert('location',frame=1); sign.keyframe_insert('location',frame=int(bpy.context.scene.frame_end))
+    board=prop_box('HomeworkNoticeBoard',(4.35,0.05),(1.30,1.75,0.08),mats['paper'],z=-0.18); board.keyframe_insert('location',frame=1); board.keyframe_insert('location',frame=int(bpy.context.scene.frame_end))
+    for n,(dx,dy,rot) in enumerate(((-0.15,0.48,-6),(0.12,0.05,5),(-0.10,-0.42,2))):
+        note=prop_box(f'HomeworkNote.{n}',(4.35+dx,0.05+dy),(0.32,0.32,0.035),mats['accent'],z=-0.02); note.rotation_euler.z=math.radians(rot); note.keyframe_insert('location',frame=1); note.keyframe_insert('rotation_euler',index=2,frame=1); note.keyframe_insert('location',frame=int(bpy.context.scene.frame_end)); note.keyframe_insert('rotation_euler',index=2,frame=int(bpy.context.scene.frame_end))
     action_rows=rows[:4] if rows else []
     action_specs={
-        'give_homework': ('printer',3.35,-4.05), 'press_button': ('console',3.35,-4.25),
-        'shock': ('printer',3.35,-4.05), 'overwhelmed': ('papers',-3.15,-4.85),
-        'deadpan': ('book',3.05,-4.85), 'tap_alarm': ('alarm',3.20,-4.35),
-        'open_fridge': ('fridge',3.35,-3.70), 'tap_shoes': ('shoes',3.0,-5.05),
+        'give_homework': ('printer',2.20,-2.55), 'press_button': ('console',2.20,-2.65),
+        'shock': ('printer',2.05,-2.35), 'overwhelmed': ('papers',-1.75,-3.00),
+        'deadpan': ('book',1.85,-2.98), 'tap_alarm': ('alarm',2.15,-2.58),
+        'open_fridge': ('fridge',2.35,-2.55), 'tap_shoes': ('shoes',2.15,-2.95),
     }
     for idx,(beat,start,end) in enumerate(beats):
         action=(action_rows[idx].get('action') if idx < len(action_rows) else '') or beat
@@ -452,6 +480,8 @@ def build_story_world(rows,beats):
         if kind=='printer':
             body=prop_box(f'PropPrinter.{idx}',(x,y),(2.0,1.05,0.42),mats['device']); objs.append(body)
             slot=prop_box(f'PropPrinterSlot.{idx}',(x,y+0.42),(1.20,0.12,0.06),mats['dark']); objs.append(slot)
+            tray=prop_box(f'PropPrinterTray.{idx}',(x,y-0.58),(1.55,0.28,0.12),mats['warm'],z=0.24); objs.append(tray)
+            status=make_ellipse(f'PropPrinterStatus.{idx}',(W/2+x*PX,H/2-y*PX-18),0.08,0.08,mats['accent'],z=0.37,n=24); objs.append(status)
             paper=prop_box(f'PropPaper.{idx}',(x,y+0.73),(0.86,0.70,0.035),mats['paper'],z=0.30); objs.append(paper)
             paper.keyframe_insert('location',frame=start); paper.location.y += 0.25; paper.keyframe_insert('location',frame=round(start+(end-start)*0.32)); paper.location.y += 0.18; paper.keyframe_insert('location',frame=round(start+(end-start)*0.58)); paper.location.y += 0.12; paper.keyframe_insert('location',frame=end)
             if action=='shock':
@@ -484,6 +514,33 @@ def build_story_world(rows,beats):
                 key_visibility(obj,start,end,1.0)
     return {'stage':'desk_stage','props_per_shot':[action_rows[i].get('action') if i < len(action_rows) else beats[i][0] for i in range(len(beats))]}
 
+def add_micro_performance_accents(arm, face, beats, rows):
+    """Small, mesh-safe acting beats between major pose keys."""
+    scene=bpy.context.scene
+    for idx,(beat,start,end) in enumerate(beats):
+        span=max(12,end-start)
+        marks=(0.27,0.43,0.58,0.72)
+        profiles={
+            'setup': ((7,0,2.4),(0,0,-1.2),(-4,0,0.6),(0,0,0)),
+            'escalation': ((12,-3,3.0),(5,0,-2.0),(-10,3,1.4),(0,0,0)),
+            'reaction': ((-10,2,-2.4),(-4,0,1.6),(7,0,-0.9),(0,0,0)),
+            'punchline': ((8,0,1.8),(2,0,-1.0),(-5,0,0.5),(0,0,0)),
+        }[beat]
+        root=arm.pose.bones['root']; head=arm.pose.bones['head']; accessory=arm.pose.bones.get('backpack')
+        for frac,(dx,dy,rot) in zip(marks,profiles):
+            f=min(end-2,max(start+2,round(start+span*frac))); scene.frame_set(f)
+            root.location.x += dx/PX; root.location.y += dy/PX; root.rotation_euler.z += math.radians(rot)
+            root.keyframe_insert('location',frame=f); root.keyframe_insert('rotation_euler',index=2,frame=f)
+            head.rotation_euler.z += math.radians(-rot*0.70 + (2.0 if beat=='reaction' and frac<0.5 else 0.0))
+            head.location.x -= dx/PX*0.18
+            head.keyframe_insert('rotation_euler',index=2,frame=f); head.keyframe_insert('location',frame=f)
+            if accessory is not None:
+                lag={0.27:1.0,0.43:-0.72,0.58:0.46,0.72:-0.18}[frac]
+                accessory.rotation_euler.z += math.radians(5.0*lag)
+                accessory.location.x -= dx/PX*0.14; accessory.location.y -= dy/PX*0.10
+                accessory.keyframe_insert('rotation_euler',frame=min(end,f+2)); accessory.keyframe_insert('location',frame=min(end,f+2))
+
+
 def build(frames=190, voice_json=None, character='PIP', profile_path=None, background_path=None):
  global ASSET,BASE,TARGETS,FACE_PROFILE,CHARACTER,PROFILE
  PROFILE,BASE,TARGETS,FACE_PROFILE=load_profile(character,profile_path); CHARACTER=character; ASSET=profile_asset_dir(PROFILE)
@@ -492,7 +549,10 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
  bgmesh=bpy.data.meshes.new('BackgroundMesh'); bgmesh.from_pydata([(-WORLD_W*2,-WORLD_H*2,-.3),(WORLD_W*2,-WORLD_H*2,-.3),(WORLD_W*2,WORLD_H*2,-.3),(-WORLD_W*2,WORLD_H*2,-.3)],[],[(0,1,2,3)]); bgmesh.update(); uv=bgmesh.uv_layers.new(name='UVMap');
  for poly in bgmesh.polygons:
   for li,uvv in zip(poly.loop_indices,[(0,0),(1,0),(1,1),(0,1)]): uv.data[li].uv=uvv
- bg=bpy.data.objects.new('Background',bgmesh); bpy.context.collection.objects.link(bg); bg_path=Path(background_path) if background_path else ROOT / PROFILE['background']; bg.data.materials.append(image_material('BG',bg_path))
+ bg=bpy.data.objects.new('Background',bgmesh); bpy.context.collection.objects.link(bg); bg_mat=color_material('BG_Procedural',(0.76,0.86,0.94)); bg.data.materials.append(bg_mat)
+ # Subtle lighter wall panel makes the environment feel intentional without relying on texture upload.
+ panel=prop_box('WorldLightPanel',(0.0,1.30),(13.0,5.0,0.08),color_material('WorldPanel',(0.86,0.92,0.97)),z=-0.24)
+ panel.keyframe_insert('location',frame=1); panel.keyframe_insert('location',frame=int(scene.frame_end))
  arm=create_armature()
  for part,z,segx,segy in [('torso',0.0,28,34),('backpack',0.02,20,32),('left_arm',0.04,24,28),('right_arm',0.05,24,28),('head',0.10,32,34)]:
   filename=PROFILE['layers'].get(part,f'{character.lower()}_{part}.png'); obj=make_grid(part,ASSET/filename,segx,segy,z); bind(obj,arm,part)
@@ -560,6 +620,7 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
     try: energy=max(0.0,min(1.0,float(activity[ai])))
     except (TypeError,ValueError): energy=0.0
     head=arm.pose.bones['head']; head.location.y += math.sin(f*0.42)*(0.012+0.024*energy); head.keyframe_insert('location',frame=f)
+ add_micro_performance_accents(arm,face,BEATS,rows)
  bpy.ops.object.camera_add(location=(0,0,30)); cam=bpy.context.object; cam.name=f'{CHARACTER}_Camera'; cam.data.type='ORTHO'; cam.data.ortho_scale=WORLD_H; scene.camera=cam
  camera_performance_keys(arm,cam,BEATS,rows)
  # Blender's keyed transforms use its default BEZIER interpolation, providing

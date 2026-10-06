@@ -55,9 +55,9 @@ PREMISES = (
         "title": "MOMO vs the Homework Robot",
         "hook": "MOMO asked a homework robot for ONE answer. Big mistake.",
         "beats": (
-            ("setup", "PIP hands the robot one tiny math problem.", "confident"),
+            ("setup", "MOMO hands the robot one tiny math problem.", "confident"),
             ("escalation", "The robot prints a 300-page solution.", "shocked"),
-            ("reaction", "PIP hugs the calculator in confusion.", "overloaded"),
+            ("reaction", "MOMO hugs the calculator in confusion.", "overloaded"),
             ("punchline", "MOMO: I asked for help—not a textbook.", "deadpan"),
         ),
     },
