@@ -145,6 +145,39 @@ class CartoonMotionQA:
         return None
 
     @staticmethod
+    def _audio_sync_check(metadata: dict[str, Any], duration: float) -> tuple[float | None, list[str]]:
+        """Validate that measured voice performance fits its authored shot clock."""
+        audio = metadata.get("audio_sync") if isinstance(metadata, dict) else None
+        if not isinstance(audio, dict):
+            return None, []
+        rows = audio.get("voice_performance")
+        shot_durations = audio.get("effective_shot_durations")
+        if not isinstance(rows, list) or not isinstance(shot_durations, list) or not rows:
+            return None, []
+        reasons: list[str] = []
+        max_overrun = 0.0
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict) or index >= len(shot_durations):
+                continue
+            spoken = float(row.get("duration", 0.0) or 0.0)
+            shot = float(shot_durations[index] or 0.0)
+            overrun = max(0.0, spoken - max(0.0, shot - 0.04))
+            max_overrun = max(max_overrun, overrun)
+            if overrun > 0.08:
+                reasons.append(f"voice_overrun_shot_{index}")
+            peak = float(row.get("peak_fraction", 0.0) or 0.0)
+            if not 0.0 <= peak <= 1.0:
+                reasons.append(f"voice_peak_out_of_range_shot_{index}")
+        target_total = sum(float(v or 0.0) for v in shot_durations)
+        total_delta = abs(target_total - duration)
+        if total_delta > 0.16:
+            reasons.append("audio_video_duration_mismatch")
+        score = 1.0
+        score -= min(0.65, max_overrun * 4.0)
+        score -= min(0.35, total_delta * 2.0)
+        return round(max(0.0, score), 3), reasons
+
+    @staticmethod
     def _caption_collisions(metadata: dict[str, Any]) -> list[str]:
         zone = metadata.get("caption_zone")
         boxes = metadata.get("character_bboxes")
@@ -201,10 +234,13 @@ class CartoonMotionQA:
             reasons.append("duration_outside_range")
 
         metadata = self._load_metadata(path)
+        audio_sync_score = None
         if metadata:
             if metadata.get("interpolation") not in {"none", None}:
                 reasons.append("unexpected_frame_interpolation")
             reasons.extend(self._caption_collisions(metadata))
+            audio_sync_score, audio_sync_reasons = self._audio_sync_check(metadata, duration)
+            reasons.extend(audio_sync_reasons)
 
         cap = cv2.VideoCapture(str(path))
         if not cap.isOpened():
@@ -393,6 +429,7 @@ class CartoonMotionQA:
             "median_laplacian": round(lap_median, 2),
             "dark_frame_ratio": round(dark_ratio, 3),
             "near_duplicate_ratio": round(near_duplicate_ratio, 3),
+            "audio_sync_score": audio_sync_score,
             "motion_score": round(motion_score, 3),
             "continuity_score": round(continuity_score, 3),
             "blur_score": round(blur_score, 3),

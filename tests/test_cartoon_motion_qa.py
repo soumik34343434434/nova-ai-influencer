@@ -53,3 +53,32 @@ def test_repair_plan_moves_caption_when_collision_is_reported():
     plan = CartoonMotionQA.plan_repair(["caption_character_collision_shot_2"])
     assert plan["profile"]["caption_y"] < 1515
     assert plan["profile"]["caption_zone"][1] < 1480
+
+
+def test_audio_sync_check_rejects_voice_overrun():
+    from app.agents.cartoon_motion_qa import CartoonMotionQA
+    metadata = {
+        "audio_sync": {
+            "effective_shot_durations": [1.0],
+            "voice_performance": [{"duration": 1.2, "peak_fraction": 0.5}],
+        }
+    }
+    score, reasons = CartoonMotionQA._audio_sync_check(metadata, 1.0)
+    assert score < 1.0
+    assert "voice_overrun_shot_0" in reasons
+
+
+def test_audio_sync_check_accepts_measured_performance():
+    from app.agents.cartoon_motion_qa import CartoonMotionQA
+    metadata = {
+        "audio_sync": {
+            "effective_shot_durations": [1.7, 1.2],
+            "voice_performance": [
+                {"duration": 1.1, "peak_fraction": 0.59},
+                {"duration": 0.55, "peak_fraction": 0.12},
+            ],
+        }
+    }
+    score, reasons = CartoonMotionQA._audio_sync_check(metadata, 2.9)
+    assert score > 0.98
+    assert reasons == []
