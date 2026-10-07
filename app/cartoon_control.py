@@ -15,6 +15,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
 
+from app.agent_memory import ensure_experiment_identity, record_failure
+
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS_DIR = ROOT / "artifacts" / "cartoon" / "runs"
@@ -73,12 +75,14 @@ class CartoonRunStore:
         self.path = RUNS_DIR / self.run_id / "run.json"
 
     def create(self, payload: dict[str, Any] | None = None) -> CartoonRun:
+        run_payload = dict(payload or {})
+        ensure_experiment_identity(run_payload, self.run_id)
         run = CartoonRun(
             run_id=self.run_id,
             created_at=utc_now(),
             current_stage=CartoonStage.RESEARCH.value,
             status="running",
-            payload=payload or {},
+            payload=run_payload,
             stages={},
         )
         self._write(run)
@@ -144,6 +148,15 @@ class CartoonRunStore:
         record.status = "failed"
         record.finished_at = utc_now()
         record.error = error[:4000]
+        experiment = run.payload.get("experiment", {})
+        record_failure(
+            run_id=run.run_id,
+            experiment_id=str(experiment.get("experiment_id", "")),
+            stage=stage.value,
+            error_type=error.split(":", 1)[0] if ":" in error else type(error).__name__,
+            message=error,
+            attempt=record.attempts,
+        )
         run.status = "failed"
         run.current_stage = stage.value
         self._write(run)

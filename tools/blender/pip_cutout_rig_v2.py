@@ -482,7 +482,7 @@ def build_story_world(rows,beats):
         ('DeskLampHead',(3.48,-1.82),(0.62,0.18,0.14),0.27,mats['warm']),
     ):
         lamp=prop_box(name,loc,size,mat,z=z); lamp.keyframe_insert('location',frame=1); lamp.keyframe_insert('location',frame=int(bpy.context.scene.frame_end))
-    sign_font=bpy.data.curves.new('LibrarySignCurve','FONT'); sign_font.body='LIBRARY'; sign_font.align_x='CENTER'; sign_font.size=0.72; sign_font.extrude=0.008
+    sign_font=bpy.data.curves.new('LibrarySignCurve','FONT'); sign_font.body='MOMO WORK DESK'; sign_font.align_x='CENTER'; sign_font.size=0.72; sign_font.extrude=0.008
     sign=bpy.data.objects.new('LibrarySign',sign_font); bpy.context.collection.objects.link(sign); sign.location=(0.0,2.75,-0.20); sign.data.materials.append(mats['dark']); sign.keyframe_insert('location',frame=1); sign.keyframe_insert('location',frame=int(bpy.context.scene.frame_end))
     board=prop_box('HomeworkNoticeBoard',(4.35,0.05),(1.30,1.75,0.08),mats['paper'],z=-0.18); board.keyframe_insert('location',frame=1); board.keyframe_insert('location',frame=int(bpy.context.scene.frame_end))
     for n,(dx,dy,rot) in enumerate(((-0.15,0.48,-6),(0.12,0.05,5),(-0.10,-0.42,2))):
@@ -490,8 +490,9 @@ def build_story_world(rows,beats):
     action_rows=rows[:4] if rows else []
     action_specs={
         'give_homework': ('printer',2.20,-2.55), 'press_button': ('console',2.20,-2.65),
+        'checks_phone': ('phone',2.10,-3.10), 'finish_work': ('papers',-1.20,-3.20),
         'shock': ('printer',2.05,-2.35), 'overwhelmed': ('papers',-1.75,-3.00),
-        'deadpan': ('book',1.85,-2.98), 'tap_alarm': ('alarm',2.15,-2.58),
+        'deadpan': ('phone',2.10,-3.10), 'tap_alarm': ('alarm',2.15,-2.58),
         'open_fridge': ('fridge',2.35,-2.55), 'tap_shoes': ('shoes',2.15,-2.95),
     }
     for idx,(beat,start,end) in enumerate(beats):
@@ -511,6 +512,13 @@ def build_story_world(rows,beats):
                 for n,(ox,oy,dx,dy,rz) in enumerate(((-0.72,0.15,-0.18,0.82,-18),(0.18,0.22,0.24,0.96,12),(0.86,0.04,0.36,0.72,24))):
                     burst=prop_box(f'PropFlyingPaper.{idx}.{n}',(x+ox,y+oy),(0.54,0.72,0.03),mats['paper'],z=0.29+0.01*n); burst.rotation_euler.z=math.radians(rz); objs.append(burst)
                     burst.keyframe_insert('location',frame=round(start+(end-start)*0.20)); burst.location.x += dx; burst.location.y += dy; burst.keyframe_insert('location',frame=round(start+(end-start)*0.72)); burst.location.x += dx*0.35; burst.location.y += dy*0.25; burst.keyframe_insert('location',frame=end)
+        elif kind=='phone':
+            body=prop_box(f'PropPhone.{idx}',(x,y),(1.35,0.68,0.10),mats['dark'],z=0.31); objs.append(body)
+            screen=prop_box(f'PropPhoneScreen.{idx}',(x,y+0.01),(1.08,0.52,0.035),mats['accent'],z=0.38); objs.append(screen)
+            text_font=bpy.data.curves.new(f'PhoneTextCurve.{idx}','FONT'); text_font.body='47 NEW TASKS'; text_font.align_x='CENTER'; text_font.size=0.12; text_font.extrude=0.003
+            label=bpy.data.objects.new(f'PhoneText.{idx}',text_font); bpy.context.collection.objects.link(label); label.location=(x,y-0.42,0.40); label.data.materials.append(mats['paper']); objs.append(label)
+            for obj in (body,screen,label):
+                obj.keyframe_insert('location',frame=start); obj.keyframe_insert('location',frame=end)
         elif kind=='console':
             base=prop_box(f'PropConsole.{idx}',(x,y),(1.65,0.85,0.35),mats['device']); objs.append(base)
             button=prop_box(f'PropButton.{idx}',(x,y+0.48),(0.40,0.22,0.12),mats['accent'],z=0.36); objs.append(button)

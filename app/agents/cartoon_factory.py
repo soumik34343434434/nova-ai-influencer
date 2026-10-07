@@ -52,6 +52,18 @@ CAST = {
 
 PREMISES = (
     {
+        "slug": "momo_47_tasks",
+        "title": "MOMO vs 47 New Tasks",
+        "hook": "MOMO FINALLY FINISHED. THEN THE PHONE BUZZED.",
+        "character": "MOMO",
+        "beats": (
+            ("setup", "finish_work", "Done. Finally.", "none"),
+            ("escalation", "checks_phone", "My phone is buzzing... wait, backlog cleared?", "notification"),
+            ("reaction", "checks_phone", "I reread the phone. New tasks: forty-seven?!", "notification"),
+            ("punchline", "deadpan", "I should have left the phone on silent.", "punchline"),
+        ),
+    },
+    {
         "slug": "smart_kitchen",
         "title": "PIP vs the Smart Kitchen",
         "hook": "PIP asked a smart kitchen for ONE sandwich. It misunderstood.",

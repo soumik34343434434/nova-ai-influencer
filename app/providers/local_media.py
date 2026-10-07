@@ -229,7 +229,8 @@ def _action_asset(canonical_image: Path, action: str) -> Path:
         "deadpan_camera_reaction": "deadpan.png",
     }
     filename = mapping.get(action)
-    # Never return the action directory itself for an uncovered action.
+    # Never return the action directory itself for an uncovered action. A
+    # missing optional pose should fall back to the canonical character image.
     if not filename:
         return canonical_image
     candidate = action_dir / filename

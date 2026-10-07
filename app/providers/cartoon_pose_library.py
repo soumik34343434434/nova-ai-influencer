@@ -222,6 +222,8 @@ def build_pose_library(base: dict[str, Any], character: str) -> dict[str, dict[s
 
 DEFAULT_ACTION_POSES = {
     "press_button": "reach",
+    "checks_phone": "reach",
+    "finish_work": "deadpan",
     "give_homework": "present",
     "tap_alarm": "tap",
     "open_fridge": "reach",

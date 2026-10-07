@@ -987,6 +987,7 @@ def render_cartoon_motion(
     transition_frames = max(2, round(tuning["transition_seconds"] * source_fps))
     transition_directions: list[int] = []
     character_bboxes: list[list[int] | None] = []
+    character_frame_bboxes: list[list[int] | None] = []
     for shot, (image, caption, duration, beat) in enumerate(zip(images, captions, effective_durations, beats)):
         count = max(2, round(duration * source_fps))
         frame_map.append({"shot": shot, "beat": beat, "frames": count, "duration": duration})
@@ -1002,6 +1003,10 @@ def render_cartoon_motion(
                 character_bboxes.append(list(rig.head_bbox))
             elif i == 0:
                 character_bboxes.append(None)
+            if rig is not None:
+                character_frame_bboxes.append(list(rig.head_bbox))
+            else:
+                character_frame_bboxes.append(None)
             frame = motion_frame(
                 image, caption, progress, shot, duration, beat, rig=rig,
                 render_tuning=tuning, voice_performance=voice_performance[shot],
@@ -1109,7 +1114,10 @@ def render_cartoon_motion(
                 "fps": fps,
                 "source_fps": source_fps,
                 "interpolation": "none",
+                "width": 1080,
+                "height": 1920,
                 "character_bboxes": character_bboxes,
+                "character_frame_bboxes": character_frame_bboxes,
                 "transition_seconds": round(transition_frames / source_fps, 3),
                 "caption_y": tuning["caption_y"],
                 "caption_zone": tuning["caption_zone"],

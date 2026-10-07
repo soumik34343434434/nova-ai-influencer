@@ -178,6 +178,24 @@ class CartoonMotionQA:
         return round(max(0.0, score), 3), reasons
 
     @staticmethod
+    def _subject_exit_frame(metadata: dict[str, Any], margin_fraction: float = 0.02) -> list[str]:
+        boxes = metadata.get("character_frame_bboxes")
+        if not isinstance(boxes, list):
+            return []
+        width = int(metadata.get("width", 1080) or 1080)
+        height = int(metadata.get("height", 1920) or 1920)
+        mx = round(width * margin_fraction)
+        my = round(height * margin_fraction)
+        reasons = []
+        for frame_index, box in enumerate(boxes):
+            if not isinstance(box, list) or len(box) != 4:
+                continue
+            x0, y0, x1, y1 = [int(v) for v in box]
+            if x0 < mx or y0 < my or x1 > width - mx or y1 > height - my:
+                reasons.append(f"subject_exit_frame_{frame_index}")
+        return reasons
+
+    @staticmethod
     def _caption_collisions(metadata: dict[str, Any]) -> list[str]:
         zone = metadata.get("caption_zone")
         boxes = metadata.get("character_bboxes")
@@ -239,6 +257,7 @@ class CartoonMotionQA:
             if metadata.get("interpolation") not in {"none", None}:
                 reasons.append("unexpected_frame_interpolation")
             reasons.extend(self._caption_collisions(metadata))
+            reasons.extend(self._subject_exit_frame(metadata))
             audio_sync_score, audio_sync_reasons = self._audio_sync_check(metadata, duration)
             reasons.extend(audio_sync_reasons)
 

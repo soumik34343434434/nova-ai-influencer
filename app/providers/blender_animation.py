@@ -154,17 +154,16 @@ class BlenderAnimationProvider:
             caption = voice_lines[shot] if voice_lines else ""
             img = Image.open(frame).convert("RGB")
             draw = ImageDraw.Draw(img, "RGBA")
-            font = _font(66)
+            font = _font(max(22, round(66 * max(0.35, min(1.0, resolution_percent / 100.0)))))
             # A short top hook is shown only during the first ~0.9 seconds. It
             # front-loads the premise for silent scroll viewers while the normal
             # dialogue caption remains at the bottom.
             if shot == 0 and hook_text:
                 hook = " ".join(str(hook_text).split())
-                hook = hook.replace("Big mistake.", "BIG MISTAKE").replace("Big mistake", "BIG MISTAKE")
                 # Prefer the whole hook when it fits; otherwise wrap it to two
                 # balanced lines and reduce the font until the card fits the frame.
-                hf_size=48
-                while hf_size > 30:
+                hf_size=max(20, round(48 * max(0.35, min(1.0, resolution_percent / 100.0))))
+                while hf_size > 16:
                     hf=_font(hf_size)
                     words=hook.split(); lines=[]; line=""
                     max_width=img.width-90
@@ -177,9 +176,9 @@ class BlenderAnimationProvider:
                     if line: lines.append(line)
                     if len(lines)<=2 and all(draw.textbbox((0,0),ln,font=hf,stroke_width=2)[2] <= max_width for ln in lines):
                         break
-                    hf_size-=2
-                if len(lines)>2:
-                    lines=["ONE ANSWER.","BIG MISTAKE."]; hf=_font(min(hf_size,44))
+                    hf_size=max(16, hf_size-2)
+                if len(lines)>3:
+                    lines=lines[:3]
                 line_boxes=[draw.textbbox((0,0),ln,font=hf,stroke_width=2) for ln in lines]
                 card_w=max(box[2]-box[0] for box in line_boxes); line_h=max(box[3]-box[1] for box in line_boxes); gap=8; card_h=line_h*len(lines)+gap*(len(lines)-1)
                 x=max(34,(img.width-card_w)//2); y=64; pad_x=22; pad_y=14
@@ -187,10 +186,13 @@ class BlenderAnimationProvider:
                 for li,ln in enumerate(lines):
                     draw.text((x,y+li*(line_h+gap)),ln,font=hf,fill=(255,255,255,255),stroke_width=3,stroke_fill=(0,0,0,220))
             lines = _caption_lines(caption)
+            scale = max(0.35, min(1.0, resolution_percent / 100.0))
+            caption_bottom_offset = round(390 * scale)
+            caption_gap = round(74 * scale)
             for row,line in enumerate(lines):
-                box=draw.textbbox((0,0),line,font=font,stroke_width=2); tw=box[2]-box[0]
-                draw.text(((img.width-tw)/2,img.height-390+row*74),line,font=font,fill=(255,255,255,255),stroke_width=7,stroke_fill=(0,0,0,235))
-            df=_font(30); disclosure="AI-generated • fictional cartoon"; db=draw.textbbox((0,0),disclosure,font=df)
+                box=draw.textbbox((0,0),line,font=font,stroke_width=max(2, round(7*scale))); tw=box[2]-box[0]
+                draw.text(((img.width-tw)/2,img.height-caption_bottom_offset+row*caption_gap),line,font=font,fill=(255,255,255,255),stroke_width=max(2, round(7*scale)),stroke_fill=(0,0,0,235))
+            df=_font(max(12, round(30 * max(0.35, min(1.0, resolution_percent / 100.0))))); disclosure="AI-generated • fictional cartoon"; db=draw.textbbox((0,0),disclosure,font=df)
             draw.text((img.width-(db[2]-db[0])-42,img.height-56),disclosure,font=df,fill=(245,245,245,230))
             img.save(captioned_dir/f"frame_{idx+1:05d}.png")
 

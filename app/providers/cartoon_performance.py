@@ -73,6 +73,24 @@ def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
 def _event_fraction(beat: str, voice_performance: dict | None) -> float:
     defaults = {"setup": 0.46, "escalation": 0.16, "reaction": 0.40, "punchline": 0.64}
     if voice_performance:
+        # Director AI can provide an explicit temporal acting plan. Prefer its
+        # impact/action timing over a generic beat default so local animation
+        # and hosted video prompts share the same performance choreography.
+        spec = voice_performance.get("shot_spec")
+        if isinstance(spec, dict):
+            phases = spec.get("phases")
+            if isinstance(phases, list) and phases:
+                preferred = next((p for p in phases if p.get("name") == "impact"), None)
+                if preferred is None:
+                    preferred = next((p for p in phases if p.get("name") == "action"), None)
+                if isinstance(preferred, dict):
+                    try:
+                        start = float(preferred.get("start"))
+                        end = float(preferred.get("end"))
+                        if 0.0 <= start <= end <= 1.0 and end > start:
+                            return (start + end) / 2.0
+                    except (TypeError, ValueError):
+                        pass
         measured = voice_performance.get("performance_peak_fraction", voice_performance.get("peak_fraction"))
         if measured is not None:
             try:
@@ -128,6 +146,14 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
     anticipation = _anticipation(p, peak, width * 0.85)
     settle = _settle_oscillation(p, peak)
     energy = performance_plan(beat).energy
+    spec = voice_performance.get("shot_spec") if isinstance(voice_performance, dict) else None
+    if isinstance(spec, dict):
+        peak_phase = next((p for p in spec.get("phases", []) if p.get("name") == "impact"), None)
+        if isinstance(peak_phase, dict):
+            try:
+                energy *= max(0.85, min(1.25, float(peak_phase.get("intensity", 1.0))))
+            except (TypeError, ValueError):
+                pass
     idle_phase = 0.65 if beat == "setup" else 1.25 if beat == "reaction" else 2.10 if beat == "punchline" else 0.90
     idle_gate = max(0.12, 1.0 - min(1.0, impact * 1.8))
     idle = math.sin(math.tau * (p * 1.18) + idle_phase) * idle_gate

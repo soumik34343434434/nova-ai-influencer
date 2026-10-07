@@ -14,6 +14,21 @@ from typing import Any
 from app.agents.cartoon_director import CartoonDirector
 from app.agents.cartoon_factory import action_asset, coverage
 from app.agents.cartoon_format_intelligence import best_format, format_to_dict
+from app.agents.trend_intelligence_v2 import discover_social_trends, enrich_signals, signal_to_dict
+from app.agents.format_engine_v2 import rank_format_candidates
+from app.agents.idea_generator_v2 import generate_ideas
+from app.learning_v2 import build_strategy_memory, ingest as ingest_learning_metrics, select_portfolio
+from app.agent_memory import (
+    build_next_loop_plan,
+    ensure_experiment_identity,
+    record_provider_observation,
+    summarize_failures,
+    summarize_providers,
+    update_experiment_learning,
+    upsert_experiment,
+)
+from app.providers.platform_analytics import collect_platform_metrics, metric_to_record
+from app.trend_history import snapshot as snapshot_trends, attach_historical_signals
 from app.agents.cartoon_jury import CartoonIdeaJury, jury_to_dict
 from app.agents.cartoon_animatic import render_animatic
 from app.agents.cartoon_animatic_judge import AnimaticJudge
@@ -24,6 +39,10 @@ from app.agents.storyboard import build_storyboard
 from app.cartoon_control import CartoonControlPlane, CartoonRun, CartoonRunStore, CartoonStage
 from app.providers.cartoon_animation import render_cartoon_motion, rerender_cartoon_shots
 from app.providers.blender_animation import BlenderAnimationProvider
+from app.providers.ai_performance import (
+    RunwayPerformanceProvider,
+    build_runway_repair_request,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,56 +103,150 @@ class CartoonFactoryOrchestrator:
         self.plane.store = store
         return self.plane.repair(run_id, stage)
 
+    def _sync_experiment(self, run: CartoonRun, **updates: Any) -> dict[str, Any]:
+        identity = ensure_experiment_identity(run.payload, run.run_id)
+        identity.update({k: v for k, v in updates.items() if v is not None})
+        run.payload["experiment"] = identity
+        upsert_experiment(identity)
+        self.plane.store.set_payload(run, experiment=identity)
+        return identity
+
+    def bind_published_content(self, run_id: str, published_content_map: dict[str, dict[str, Any]]) -> CartoonRun:
+        """Attach real platform content IDs to an experiment after external publishing."""
+        store = CartoonRunStore(run_id)
+        run = store.load()
+        self.plane.store = store
+        store.set_payload(
+            run,
+            published_content_map=published_content_map,
+            publish_status="published",
+            metrics_pending=True,
+        )
+        self._sync_experiment(
+            run,
+            publish_status="published",
+            published_content_map=published_content_map,
+        )
+        return run
+
+    def refresh_metrics_and_learning(self, run_id: str) -> CartoonRun:
+        """Re-run only analytics + learning after platform metrics become available."""
+        store = CartoonRunStore(run_id)
+        run = store.load()
+        self.plane.store = store
+        store.repair_from(run, CartoonStage.ANALYTICS)
+        return self.plane.run(run, from_stage=CartoonStage.ANALYTICS)
+
     def _signals(self, run: CartoonRun) -> list[ResearchSignal]:
         return [ResearchSignal(**row) for row in run.payload.get("research_signals", [])]
 
     def _research(self, run: CartoonRun) -> dict[str, Any]:
-        signals = discover(limit=24)
-        self.plane.store.set_payload(run, research_signals=[asdict(x) for x in signals])
-        return {"count": len(signals), "source": "google_news+gdelt"}
+        signals = discover(limit=30)
+        base_rows = [asdict(x) for x in signals]
+        social_rows, connector_status = discover_social_trends()
+        combined = base_rows + social_rows
+        trend_v2 = [signal_to_dict(x) for x in enrich_signals(combined)]
+        trend_v2 = attach_historical_signals(trend_v2)
+        snapshot_trends(trend_v2)
+        self.plane.store.set_payload(
+            run,
+            research_signals=base_rows,
+            trend_signals_v2=trend_v2,
+            social_connector_status=connector_status,
+        )
+        return {
+            "count": len(signals),
+            "social_records": len(social_rows),
+            "trend_signals_v2": len(trend_v2),
+            "source": "google_news+gdelt+optional_social_connectors",
+        }
 
     def _trend_intelligence(self, run: CartoonRun) -> dict[str, Any]:
-        signals = rank(self._signals(run), run.payload.get("recent_topics", []))
-        chosen = signals[:8]
-        enriched = []
-        for signal in chosen:
-            pattern = best_format(signal.title, signal.category, [x.title for x in chosen[:5]])
-            enriched.append({**asdict(signal), "format": format_to_dict(pattern)})
-        self.plane.store.set_payload(run, ranked_signals=enriched)
+        trend_rows = list(run.payload.get("trend_signals_v2", []))
+        trend_rows.sort(key=lambda x: (float(x.get("opportunity_score", 0.0)), float(x.get("velocity_score", 0.0))), reverse=True)
+        memory = build_strategy_memory()
+        policy = dict(run.payload.get("next_loop_plan", {}).get("policy", {}))
+        formats = rank_format_candidates(trend_rows[:20], memory=memory, limit=40)
+        preferred = set(policy.get("preferred_formats", []))
+        avoid_errors = set(policy.get("avoid_error_types", []))
+        if preferred:
+            for item in formats:
+                item["learned_priority"] = 1.0 if item.get("format_name") in preferred else 0.0
+                item["policy_adjusted_score"] = float(item.get("score", 0.0)) + 0.12 * item["learned_priority"]
+            formats.sort(key=lambda x: float(x.get("policy_adjusted_score", x.get("score", 0.0))), reverse=True)
+        self.plane.store.set_payload(
+            run,
+            ranked_signals_v2=trend_rows[:20],
+            format_candidates=formats,
+            learning_policy=policy,
+            avoid_error_types=sorted(avoid_errors),
+        )
         return {
-            "ranked_count": len(enriched),
-            "top_score": chosen[0].score if chosen else 0.0,
+            "ranked_count": len(trend_rows[:20]),
+            "top_score": trend_rows[0].get("opportunity_score", 0.0) if trend_rows else 0.0,
+            "format_candidates": len(formats),
             "format_intelligence": True,
+            "hook_detection": True,
+            "emotion_detection": True,
+            "saturation_proxy": True,
         }
 
     def _idea_generator(self, run: CartoonRun) -> dict[str, Any]:
-        ranked_rows = list(run.payload.get("ranked_signals", []))
-        ranked = [ResearchSignal(**{k: row[k] for k in ("title", "source", "category", "url", "published_at", "score")}) for row in ranked_rows]
-        topic = run.payload.get("topic") or (ranked[0].title if ranked else "evergreen cartoon")
-        learning = {}
-        learning_file = ARTIFACTS / "learning.json"
-        if learning_file.exists():
-            try:
-                learning = json.loads(learning_file.read_text())
-            except json.JSONDecodeError:
-                learning = {}
-        strategy = str(learning.get("strategy", ""))
-        candidates: list[dict[str, Any]] = []
-        format_by_title = {row["title"]: row.get("format", {}) for row in ranked_rows}
-        for signal in ranked[:4]:
-            for candidate in self.director.candidates(
-                signal.title,
-                count=2,
-                strategy=json.dumps(format_by_title.get(signal.title, {}), ensure_ascii=False) + " " + strategy,
-            ):
-                candidate["research"] = asdict(signal)
-                candidate["format"] = format_by_title.get(signal.title, {})
-                candidate["asset_ready"] = all(
-                    action_asset(candidate["character"], beat["asset_action"]) for beat in candidate["beats"]
-                )
-                candidates.append(candidate)
-        self.plane.store.set_payload(run, candidates=candidates, idea_topic=topic)
-        return {"count": len(candidates), "topic": topic}
+        trend_rows = list(run.payload.get("ranked_signals_v2", []))
+        format_rows = list(run.payload.get("format_candidates", []))
+        raw_ideas = generate_ideas(trend_rows[:20], format_rows[:20], count=100)
+        memory = build_strategy_memory()
+        policy = dict(run.payload.get("learning_policy", {}))
+        candidates = select_portfolio(raw_ideas, memory=memory, limit=min(60, len(raw_ideas)))
+        preferred_formats = set(policy.get("preferred_formats", []))
+        preferred_hooks = set(policy.get("preferred_hooks", []))
+        preferred_emotions = set(policy.get("preferred_emotions", []))
+        preferred_characters = set(policy.get("preferred_characters", []))
+        exploration_rate = float(policy.get("exploration_rate", 0.30) or 0.30)
+        for candidate in candidates:
+            candidate["learning_adjustment"] = (
+                0.10 * float(candidate.get("format_name") in preferred_formats)
+                + 0.06 * float(candidate.get("hook_pattern") in preferred_hooks)
+                + 0.04 * float(candidate.get("emotion") in preferred_emotions)
+                + 0.04 * float(candidate.get("character") in preferred_characters)
+            )
+            candidate["exploration_rate"] = exploration_rate
+        candidates.sort(key=lambda x: float(x.get("learning_adjustment", 0.0)), reverse=True)
+        # Adapt the high-volume idea pool to the production contract used by the
+        # existing jury/animatic stages. Generation remains cheap; only a small
+        # portfolio is rendered later.
+        normalized = []
+        for idea in candidates:
+            candidate = dict(idea)
+            candidate["premise_slug"] = candidate.get("idea_id", "idea")
+            candidate["caption"] = f"{candidate.get('title','')} — original cartoon short."
+            candidate["hook_pattern"] = str(candidate.get("hook_pattern") or "")
+            if not candidate["hook_pattern"]:
+                candidate["hook_pattern"] = str((candidate.get("hook_patterns") or [""])[0])
+            if not candidate["hook_pattern"] and run.payload.get("ranked_signals_v2"):
+                candidate["hook_pattern"] = str((run.payload["ranked_signals_v2"][0].get("hook_patterns") or [""])[0])
+            candidate["research"] = {
+                "title": candidate.get("title", ""),
+                "source": "trend_engine_v2",
+                "category": candidate.get("format_name", ""),
+                "url": "",
+                "published_at": "",
+                "score": float(candidate.get("trend_score", 0.0) or 0.0),
+            }
+            candidate["format"] = {"name": candidate.get("format_name", "")}
+            candidate["asset_ready"] = all(
+                action_asset(candidate["character"], beat["asset_action"]) is not None
+                for beat in candidate["beats"]
+            ) or __import__("os").environ.get("NOVA_CARTOON_ANIMATION_BACKEND", "pillow").strip().lower() == "blender"
+            normalized.append(candidate)
+        topic = run.payload.get("topic") or (trend_rows[0].get("title") if trend_rows else "evergreen cartoon")
+        self.plane.store.set_payload(run, candidates=normalized, idea_topic=topic)
+        return {
+            "count": len(normalized),
+            "generated_pool": len(raw_ideas),
+            "topic": topic,
+            "strategy_memory": memory.get("observations", 0),
+        }
 
     def _idea_evaluator(self, run: CartoonRun) -> dict[str, Any]:
         candidates = run.payload.get("candidates", [])
@@ -181,6 +294,20 @@ class CartoonFactoryOrchestrator:
             winner=winner,
             alternates=preselected[1:4],
             animatic_attempts=attempts,
+        )
+        chosen = winner["candidate"]
+        self._sync_experiment(
+            run,
+            idea_id=chosen.get("idea_id", chosen.get("premise_slug", "")),
+            trend_id=chosen.get("trend_id", ""),
+            format_name=chosen.get("format_name", ""),
+            hook_pattern=chosen.get("hook_pattern", ""),
+            hook_text=chosen.get("hook", ""),
+            emotion=chosen.get("emotion", ""),
+            character=chosen.get("character", ""),
+            angle=chosen.get("angle", ""),
+            duration=chosen.get("duration_target", 0.0),
+            production_method=__import__("os").environ.get("NOVA_CARTOON_ANIMATION_BACKEND", "pillow"),
         )
         return {
             "winner_score": winner["score"],
@@ -231,6 +358,22 @@ class CartoonFactoryOrchestrator:
         beats = [beat["beat"] for beat in candidate["beats"]]
         durations = [float(beat.get("duration", 2.0)) for beat in candidate["beats"]]
         slug = candidate["premise_slug"] + "_factory"
+
+        # Build the zero-credit Runway handoff for every storyboard shot.
+        # Local rendering remains the default worker until a Runway execution
+        # adapter is explicitly enabled; the plan is still persisted now so QA
+        # and future provider workers consume the same Director intent.
+        storyboard_shots = list(run.payload.get("storyboard", {}).get("shots", []))
+        if storyboard_shots and len(storyboard_shots) == len(images):
+            runway_plan = RunwayPerformanceProvider().build_storyboard_plan(
+                storyboard_shots,
+                images,
+                aspect_ratio="9:16",
+                resolution="720p",
+            )
+            runway_plan_path = ARTIFACTS / f"{slug}.runway_plan.json"
+            _save(runway_plan_path, runway_plan)
+            self.plane.store.set_payload(run, runway_plan=str(runway_plan_path))
         output = ARTIFACTS / f"{slug}.mp4"
         backend = __import__("os").environ.get("NOVA_CARTOON_ANIMATION_BACKEND", "pillow").strip().lower()
         if backend == "blender" and candidate.get("character") in {"PIP", "MOMO", "BUBU"}:
@@ -293,6 +436,50 @@ class CartoonFactoryOrchestrator:
             target_shots = list(range(len(images)))
 
         plan = CartoonMotionQA.plan_repair(reasons, target_shots)
+
+        # Build a zero-credit external-worker repair manifest alongside the
+        # local rerender. A future Runway worker can consume this manifest
+        # without regenerating the entire storyboard or spending credits on
+        # unaffected shots.
+        runway_plan_path = run.payload.get("runway_plan")
+        runway_repair_path = None
+        if runway_plan_path:
+            try:
+                runway_plan = json.loads(Path(runway_plan_path).read_text(encoding="utf-8"))
+                runway_shots = list(runway_plan.get("shots", []))
+                repair_shots = []
+                for shot_index in target_shots:
+                    if 0 <= shot_index < len(runway_shots):
+                        repair_shots.append(
+                            build_runway_repair_request(
+                                runway_shots[shot_index],
+                                {
+                                    "reasons": reasons,
+                                    "repair_shots": [shot_index],
+                                },
+                            )
+                        )
+                if repair_shots:
+                    runway_repair = {
+                        "provider": runway_plan.get("provider", "runway"),
+                        "source_plan": str(runway_plan_path),
+                        "strategy": "targeted-rerender",
+                        "trigger_reasons": reasons,
+                        "shots": repair_shots,
+                        "estimated_total_credits": round(
+                            sum(float(item.get("estimated_credits", 0.0)) for item in repair_shots),
+                            2,
+                        ),
+                    }
+                    runway_repair_path = ARTIFACTS / f"{candidate['premise_slug']}_factory.runway_repair_plan.json"
+                    _save(runway_repair_path, runway_repair)
+                    self.plane.store.set_payload(
+                        run,
+                        runway_repair_plan=str(runway_repair_path),
+                    )
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                runway_repair_path = None
+
         tuning = {
             **plan["profile"],
             "repair_attempt": attempt,
@@ -359,6 +546,13 @@ class CartoonFactoryOrchestrator:
 
         motion = self.quality.motion_check(video)
         if motion["passed"]:
+            record_provider_observation(
+                provider=str(run.payload.get("animation_backend", "pillow")),
+                task="animation",
+                success=True,
+                experiment_id=str(run.payload.get("experiment", {}).get("experiment_id", "")),
+                repaired=bool(run.payload.get("motion_repair_attempts", 0)),
+            )
             return {
                 "passed": True,
                 "media": media,
@@ -385,6 +579,13 @@ class CartoonFactoryOrchestrator:
                 + ", ".join(repaired_motion["reasons"])
             )
 
+        record_provider_observation(
+            provider=str(run.payload.get("animation_backend", "pillow")),
+            task="animation",
+            success=True,
+            experiment_id=str(run.payload.get("experiment", {}).get("experiment_id", "")),
+            repaired=True,
+        )
         return {
             "passed": True,
             "media": repaired_media,
@@ -397,14 +598,27 @@ class CartoonFactoryOrchestrator:
 
     def _publish(self, run: CartoonRun) -> dict[str, Any]:
         candidate = run.payload["winner"]["candidate"]
+        experiment = ensure_experiment_identity(run.payload, run.run_id)
         item = {
             "run_id": run.run_id,
+            "experiment_id": experiment.get("experiment_id", ""),
             "video": run.payload["video"],
             "title": candidate["title"],
             "caption": candidate.get("caption", ""),
             "ai_generated": True,
             "status": "ready_for_review",
             "audience_classification_review_required": True,
+            "experiment_metadata": {
+                "idea_id": candidate.get("idea_id", candidate.get("premise_slug", "")),
+                "trend_id": candidate.get("trend_id", ""),
+                "format_name": candidate.get("format_name", ""),
+                "hook_pattern": candidate.get("hook_pattern", ""),
+                "emotion": candidate.get("emotion", ""),
+                "character": candidate.get("character", ""),
+                "angle": candidate.get("angle", ""),
+                "duration_target": candidate.get("duration_target", 0.0),
+                "production_cost": candidate.get("production_cost", 0.0),
+            },
         }
         queue = []
         if OUTBOX.exists():
@@ -414,18 +628,97 @@ class CartoonFactoryOrchestrator:
                 queue = []
         queue.append(item)
         _save(OUTBOX, queue)
-        return {"provider": "outbox", "status": "ready_for_review"}
+        content_metadata = dict(run.payload.get("content_metadata", {}))
+        content_metadata[run.run_id] = dict(item["experiment_metadata"], experiment_id=experiment.get("experiment_id", ""))
+        content_metadata[experiment.get("experiment_id", run.run_id)] = content_metadata[run.run_id]
+        self.plane.store.set_payload(run, content_metadata=content_metadata)
+        self._sync_experiment(
+            run,
+            publish_status="ready_for_review",
+            video=run.payload.get("video", ""),
+            experiment_metadata=item["experiment_metadata"],
+        )
+        return {"provider": "outbox", "status": "ready_for_review", "experiment_metadata": item["experiment_metadata"]}
 
     def _analytics(self, run: CartoonRun) -> dict[str, Any]:
-        # Real platform metrics arrive asynchronously after publication. This
-        # stage records the dependency instead of pretending metrics exist.
-        return {"status": "awaiting_platform_metrics", "metric_sources": ["instagram_reels", "youtube_shorts"]}
+        # Pull first-party metrics only for content IDs explicitly bound to this
+        # experiment. Never ingest unrelated recent platform posts.
+        content_map = run.payload.get("published_content_map", {})
+        known = {
+            (str(platform), str(content_id))
+            for platform, mapping in content_map.items()
+            if isinstance(mapping, dict)
+            for content_id in mapping.keys()
+        }
+        if not known:
+            snapshots, status = [], {"connectors": [], "records": 0, "status": "awaiting_published_content_map"}
+        else:
+            snapshots, status = collect_platform_metrics(content_map)
+            snapshots = [row for row in snapshots if (row.platform, row.content_id) in known]
+
+        if snapshots:
+            rows = []
+            for snapshot in snapshots:
+                metadata = dict(run.payload.get("content_metadata", {}).get(snapshot.content_id, {}))
+                metadata.update(content_map.get(snapshot.platform, {}).get(snapshot.content_id, {}))
+                metadata["experiment_id"] = run.payload.get("experiment", {}).get("experiment_id", metadata.get("experiment_id", ""))
+                rows.append(metric_to_record(snapshot, metadata))
+            merged = ingest_learning_metrics(rows)
+            self._sync_experiment(run, platform_metrics=len(rows), last_metrics_at=max((r.get("captured_at", "") for r in rows), default=""))
+        else:
+            merged = []
+        self.plane.store.set_payload(
+            run,
+            platform_metrics_status=status,
+            platform_metric_records=len(merged),
+            metrics_pending=not bool(snapshots),
+        )
+        return {
+            "status": "metrics_collected" if snapshots else "awaiting_published_content_map_or_metrics",
+            "records": len(snapshots),
+            "connectors": status.get("connectors", []),
+        }
 
     def _learning(self, run: CartoonRun) -> dict[str, Any]:
+        memory = build_strategy_memory()
+        failure_summary = summarize_failures()
+        provider_summary = summarize_providers()
+        next_loop_plan = build_next_loop_plan(
+            memory,
+            failure_summary=failure_summary,
+            provider_summary=provider_summary,
+        )
+        # Keep the legacy snapshot too so older dashboards and tests remain valid.
         from app.learning import build_learning_snapshot
-        snapshot = build_learning_snapshot()
-        self.plane.store.set_payload(run, learning=snapshot)
-        return snapshot
+        legacy = build_learning_snapshot()
+        experiment = update_experiment_learning(
+            {
+                **run.payload.get("experiment", {}),
+                "learning_state": {
+                    "strategy_observations": memory.get("observations", 0),
+                    "failure_observations": failure_summary.get("observations", 0),
+                    "provider_observations": provider_summary.get("observations", 0),
+                    "next_loop": next_loop_plan.get("experiments", []),
+                },
+            },
+            strategy_memory=memory,
+            next_loop_plan=next_loop_plan,
+        )
+        result = {
+            "v2": memory,
+            "legacy": legacy,
+            "failure_memory": failure_summary,
+            "provider_memory": provider_summary,
+            "next_loop_plan": next_loop_plan,
+            "experiment": experiment,
+        }
+        self.plane.store.set_payload(
+            run,
+            learning=result,
+            strategy_memory=memory,
+            next_loop_plan=next_loop_plan,
+        )
+        return result
 
 
 if __name__ == "__main__":

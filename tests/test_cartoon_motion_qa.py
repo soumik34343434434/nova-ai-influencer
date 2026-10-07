@@ -82,3 +82,17 @@ def test_audio_sync_check_accepts_measured_performance():
     score, reasons = CartoonMotionQA._audio_sync_check(metadata, 2.9)
     assert score > 0.98
     assert reasons == []
+
+
+def test_subject_exit_frame_flags_bbox_at_frame_edge():
+    metadata = {
+        "width": 1080,
+        "height": 1920,
+        "character_frame_bboxes": [[100, 200, 1000, 900], [0, 240, 1000, 900], [80, 240, 1070, 900]],
+    }
+    reasons = CartoonMotionQA._subject_exit_frame(metadata)
+    assert reasons == ["subject_exit_frame_1", "subject_exit_frame_2"]
+
+
+def test_subject_exit_frame_is_silent_without_frame_bboxes():
+    assert CartoonMotionQA._subject_exit_frame({"character_bboxes": [[0, 0, 1080, 900]]}) == []

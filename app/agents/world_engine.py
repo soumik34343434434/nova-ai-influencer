@@ -18,7 +18,7 @@ class WorldEngine:
         lower = text.lower()
         scenes = self.data["scenes"]
         direct = {
-            "office": ("meeting", "manager", "calendar", "presentation", "deadline", "office"),
+            "office": ("meeting", "manager", "calendar", "presentation", "deadline", "office", "backlog", "task", "tasks", "work", "phone", "notification", "message"),
             "home": ("tabs", "browser", "late night", "doomscrolling", "bedroom", "home desk"),
             "cafe": ("coffee", "cafe", "caffeine", "weekend"),
             "metro": ("metro", "commute", "notification", "earbuds", "train carriage"),

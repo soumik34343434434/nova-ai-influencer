@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass
 
 from app.agents.world_engine import WorldEngine
 from app.agents.performance import plan_performance
+from app.agents.shot_performance import build_shot_performance_spec
+from app.agents.reference_preflight import build_reference_manifest, assert_reference_preflight
 
 
 @dataclass(frozen=True)
@@ -51,9 +53,11 @@ def _camera_for(index: int, text: str) -> str:
     lower = text.lower()
     if index == 0:
         return "hook_close_up"
+    if index == 3:
+        return "reaction_close_up"
     if "manager" in lower or "meeting" in lower:
         return "over_shoulder"
-    if "looks at camera" in lower or "stares" in lower:
+    if "looks at camera" in lower or "looks at the camera" in lower or "stares" in lower:
         return "reaction_close_up"
     if "result" in lower or "conclusion" in lower:
         return "medium"
@@ -62,12 +66,14 @@ def _camera_for(index: int, text: str) -> str:
 
 def _action_for(camera: str, text: str) -> str:
     lower = text.lower()
+    if "looks at camera" in lower or "looks at the camera" in lower or "stares" in lower or camera == "reaction_close_up":
+        return "deadpan_camera_reaction"
     if "phone" in lower or "notification" in lower:
         return "checks_phone"
+    if "done" in lower or "finished" in lower or "finally" in lower:
+        return "finish_work"
     if "meeting" in lower or "calendar" in lower:
         return "sees_calendar"
-    if "looks at camera" in lower or "stares" in lower:
-        return "deadpan_camera_reaction"
     if "coffee" in lower:
         return "reaches_for_coffee"
     if "tabs" in lower:
@@ -92,8 +98,26 @@ def build_storyboard(draft: dict) -> Storyboard:
         camera = _camera_for(index, text)
         action = _action_for(camera, text)
         world = world_engine.plan_shot(text, index)
-        performance = plan_performance(action, text, index)
         duration = max(2.6, min(4.8, 2.6 + len(text) / 45.0))
+        performance = plan_performance(action, text, index)
+        performance["shot_spec"] = build_shot_performance_spec(
+            action=action,
+            dialogue=text,
+            duration=duration,
+            camera=camera,
+        )
+        performance["expected_scene"] = str(world["scene"])
+        performance["reference_manifest"] = build_reference_manifest(
+            character=str(draft.get("character", "")),
+            scene=str(world["scene"]),
+            props=[world["prop"]],
+        )
+        assert_reference_preflight(
+            action,
+            str(draft.get("character", "")),
+            performance["reference_manifest"],
+            expected_scene=str(world["scene"]),
+        )
         shots.append(
             Shot(
                 index=index,
@@ -123,7 +147,15 @@ def build_storyboard(draft: dict) -> Storyboard:
                 s.dialogue,
                 s.visual,
                 s.world,
-                s.performance,
+                {
+                    **s.performance,
+                    "shot_spec": build_shot_performance_spec(
+                        action=s.action,
+                        dialogue=s.dialogue,
+                        duration=round(max(2.4, s.duration * factor), 2),
+                        camera=s.camera,
+                    ),
+                },
             )
             for s in shots
         ]

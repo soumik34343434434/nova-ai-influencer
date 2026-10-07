@@ -1,0 +1,289 @@
+"""Experiment-aware learning memory for NOVA.
+
+Uses normalized content scores plus lightweight Bayesian/UCB-style posteriors.
+The goal is to learn durable tendencies without overfitting one viral outlier.
+"""
+from __future__ import annotations
+
+from collections import Counter, defaultdict
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+import json
+import math
+from pathlib import Path
+from typing import Any, Iterable
+
+
+ROOT = Path(__file__).resolve().parents[1]
+METRICS_FILE = ROOT / "artifacts" / "cartoon" / "metrics.json"
+STRATEGY_FILE = ROOT / "artifacts" / "cartoon" / "strategy_memory.json"
+
+
+@dataclass
+class ExperimentMetric:
+    content_id: str
+    platform: str
+    title: str = ""
+    views: int = 0
+    likes: int = 0
+    comments: int = 0
+    shares: int = 0
+    saves: int = 0
+    retention_pct: float = 0.0
+    avg_watch_seconds: float = 0.0
+    duration_seconds: float = 0.0
+    followers_gained: int = 0
+    captured_at: str = ""
+    published_at: str = ""
+    experiment_id: str = ""
+    format_name: str = ""
+    hook_pattern: str = ""
+    emotion: str = ""
+    character: str = ""
+    trend_id: str = ""
+
+
+def _load_rows(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return value if isinstance(value, list) else []
+
+
+def _write_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def normalize_metric(row: dict[str, Any]) -> dict[str, Any]:
+    views = max(int(row.get("views", 0) or 0), 1)
+    duration = max(float(row.get("duration_seconds", 0) or 0), 0.1)
+    avg_watch = float(row.get("avg_watch_seconds", 0) or 0)
+    retention = float(row.get("retention_pct", 0) or 0)
+
+    # When native retention is unavailable, derive a conservative watch-ratio
+    # from average watch time. Derived values are explicitly marked.
+    derived_retention = False
+    if retention <= 0 and avg_watch > 0:
+        retention = min(100.0, avg_watch / duration * 100.0)
+        derived_retention = True
+
+    share_rate = int(row.get("shares", 0) or 0) / views
+    save_rate = int(row.get("saves", 0) or 0) / views
+    comment_rate = int(row.get("comments", 0) or 0) / views
+    like_rate = int(row.get("likes", 0) or 0) / views
+    follow_rate = int(row.get("followers_gained", 0) or 0) / views
+
+    # Deliberately reward deep actions more than passive likes.
+    score = (
+        min(retention / 100.0, 1.0) * 0.42
+        + min(share_rate * 100.0, 1.0) * 0.24
+        + min(save_rate * 100.0, 1.0) * 0.12
+        + min(comment_rate * 100.0, 1.0) * 0.07
+        + min(like_rate * 20.0, 1.0) * 0.08
+        + min(follow_rate * 200.0, 1.0) * 0.07
+    )
+    normalized = dict(row)
+    normalized.update({
+        "retention_pct_normalized": round(retention, 3),
+        "score": round(score, 6),
+        "share_rate": round(share_rate, 8),
+        "save_rate": round(save_rate, 8),
+        "comment_rate": round(comment_rate, 8),
+        "like_rate": round(like_rate, 8),
+        "follow_rate": round(follow_rate, 8),
+        "derived_retention": derived_retention,
+    })
+    return normalized
+
+
+def ingest(rows: Iterable[dict[str, Any] | ExperimentMetric]) -> list[dict[str, Any]]:
+    existing = _load_rows(METRICS_FILE)
+    by_key = {(str(x.get("content_id")), str(x.get("platform"))): x for x in existing}
+    for item in rows:
+        row = asdict(item) if isinstance(item, ExperimentMetric) else dict(item)
+        by_key[(str(row.get("content_id", "")), str(row.get("platform", "")))] = normalize_metric(row)
+    merged = list(by_key.values())
+    _write_json(METRICS_FILE, merged)
+    return merged
+
+
+def _beta_posterior(values: list[float], prior_alpha: float = 2.0, prior_beta: float = 2.0) -> tuple[float, float, float]:
+    """Return posterior alpha, beta and mean for bounded [0,1] outcomes."""
+    if not values:
+        mean = prior_alpha / (prior_alpha + prior_beta)
+        return prior_alpha, prior_beta, mean
+    successes = sum(max(0.0, min(1.0, v)) for v in values)
+    failures = len(values) - successes
+    alpha = prior_alpha + successes
+    beta = prior_beta + failures
+    return alpha, beta, alpha / (alpha + beta)
+
+
+def _ucb(mean: float, observations: int, total_observations: int) -> float:
+    if observations <= 0:
+        return 1.0
+    bonus = math.sqrt(2.0 * math.log(max(total_observations, 2)) / observations)
+    return min(1.0, mean + 0.18 * bonus)
+
+
+def _group(rows: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
+    groups: dict[str, list[float]] = defaultdict(list)
+    for row in rows:
+        value = str(row.get(key, "") or "").strip()
+        if value:
+            groups[value].append(float(row.get("score", 0.0) or 0.0))
+    total = max(len(rows), 1)
+    result = {}
+    for value, vals in groups.items():
+        alpha, beta, mean = _beta_posterior(vals)
+        result[value] = {
+            "observations": len(vals),
+            "posterior_mean": round(mean, 4),
+            "ucb": round(_ucb(mean, len(vals), total), 4),
+            "raw_mean": round(sum(vals) / len(vals), 4),
+        }
+    return result
+
+
+def build_strategy_memory(rows: Iterable[dict[str, Any]] | None = None) -> dict[str, Any]:
+    data = list(rows) if rows is not None else _load_rows(METRICS_FILE)
+    normalized = [normalize_metric(x) for x in data]
+    if not normalized:
+        memory = {
+            "version": 2,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "observations": 0,
+            "strategy": {
+                "exploration_rate": 0.30,
+                "preferred_formats": [],
+                "preferred_hooks": [],
+                "preferred_emotions": [],
+                "preferred_characters": [],
+            },
+            "posteriors": {},
+            "lessons": ["collect first-party platform metrics before claiming a creative winner"],
+        }
+        _write_json(STRATEGY_FILE, memory)
+        return memory
+
+    ranked = sorted(normalized, key=lambda r: float(r.get("score", 0.0)), reverse=True)
+    posteriors = {
+        key: _group(normalized, key)
+        for key in ("format_name", "hook_pattern", "emotion", "character", "trend_id")
+    }
+
+    def top_keys(key: str, n: int = 4) -> list[str]:
+        table = posteriors[key]
+        return [
+            item[0]
+            for item in sorted(
+                table.items(),
+                key=lambda kv: (kv[1]["ucb"], kv[1]["observations"]),
+                reverse=True,
+            )[:n]
+        ]
+
+    preferred_formats = top_keys("format_name")
+    preferred_hooks = top_keys("hook_pattern")
+    preferred_emotions = top_keys("emotion")
+    preferred_characters = top_keys("character")
+
+    exploration = 0.30
+    if len(normalized) >= 20:
+        exploration = 0.22
+    if len(normalized) >= 50:
+        exploration = 0.16
+
+    lessons: list[str] = []
+    if float(ranked[0].get("retention_pct_normalized", 0)) >= 75:
+        lessons.append("preserve hooks and structures that sustain three-quarter-plus completion")
+    if float(ranked[0].get("share_rate", 0)) > float(ranked[0].get("like_rate", 0)):
+        lessons.append("prioritize shareable visual premises over like-only bait")
+    if float(ranked[-1].get("retention_pct_normalized", 100)) < 45:
+        lessons.append("shorten or front-load weak openings")
+    lessons.append("use posterior uncertainty to keep exploring under-tested formats")
+
+    memory = {
+        "version": 2,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "observations": len(normalized),
+        "strategy": {
+            "exploration_rate": exploration,
+            "preferred_formats": preferred_formats,
+            "preferred_hooks": preferred_hooks,
+            "preferred_emotions": preferred_emotions,
+            "preferred_characters": preferred_characters,
+        },
+        "posteriors": posteriors,
+        "leaders": [
+            {
+                "content_id": r.get("content_id"),
+                "platform": r.get("platform"),
+                "title": r.get("title"),
+                "score": r.get("score"),
+                "retention_pct": r.get("retention_pct_normalized"),
+            }
+            for r in ranked[:5]
+        ],
+        "lessons": lessons,
+    }
+    _write_json(STRATEGY_FILE, memory)
+    return memory
+
+
+def score_candidate(candidate: dict[str, Any], memory: dict[str, Any] | None = None) -> float:
+    memory = memory or (json.loads(STRATEGY_FILE.read_text()) if STRATEGY_FILE.exists() else build_strategy_memory([]))
+    strategy = memory.get("strategy", {})
+    post = memory.get("posteriors", {})
+    exploration = float(strategy.get("exploration_rate", 0.30))
+
+    features = (
+        ("format_name", str(candidate.get("format_name", ""))),
+        ("hook_pattern", str(candidate.get("hook_pattern", ""))),
+        ("emotion", str(candidate.get("emotion", ""))),
+        ("character", str(candidate.get("character", ""))),
+    )
+    known = []
+    for key, value in features:
+        if value and value in post.get(key, {}):
+            known.append(float(post[key][value].get("ucb", 0.5)))
+        elif value:
+            known.append(0.55 + exploration * 0.25)
+
+    exploitation = sum(known) / len(known) if known else 0.5
+    novelty = 1.0 - float(candidate.get("saturation_score", 0.0) or 0.0)
+    trend = float(candidate.get("trend_score", 0.0) or 0.0)
+    cost = float(candidate.get("production_cost", 0.5) or 0.5)
+    return round(
+        0.38 * exploitation
+        + 0.28 * trend
+        + 0.18 * novelty
+        + 0.10 * min(1.0, exploration + 0.25)
+        + 0.06 * (1.0 - cost),
+        6,
+    )
+
+
+def select_portfolio(candidates: Iterable[dict[str, Any]], memory: dict[str, Any] | None = None,
+                     limit: int = 12) -> list[dict[str, Any]]:
+    rows = [dict(x) for x in candidates]
+    memory = memory or build_strategy_memory()
+    for row in rows:
+        row["learning_score"] = score_candidate(row, memory)
+    rows.sort(key=lambda x: (-float(x["learning_score"]), str(x.get("idea_id", ""))))
+
+    # Diversity-aware portfolio: don't let one format/character consume all slots.
+    chosen = []
+    counts: Counter[str] = Counter()
+    for row in rows:
+        key = f"{row.get('format_name','')}|{row.get('character','')}"
+        penalty = counts[key] / max(1, limit)
+        row["portfolio_score"] = round(float(row["learning_score"]) - 0.12 * penalty, 6)
+        chosen.append(row)
+        counts[key] += 1
+    chosen.sort(key=lambda x: (-float(x["portfolio_score"]), str(x.get("idea_id", ""))))
+    return chosen[:max(1, limit)]
