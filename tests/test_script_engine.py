@@ -41,6 +41,20 @@ def test_script_engine_protects_long_dialogue_within_its_beat():
     assert pacing["score"] >= QUALITY_FLOOR
 
 
+def test_long_payoff_caption_marks_truncation_without_exceeding_mobile_limit():
+    story = _story()
+    story["beats"][-1]["voice"] = (
+        "Extraordinarily elaborate misunderstandings deserve an equally elaborate response today"
+    )
+
+    contract = ScriptEngine().build(story).to_dict()
+    caption = contract["beats"][-1]["caption"]
+
+    assert len(caption.split()) <= 8
+    assert len(caption) <= 42
+    assert caption.endswith("…")
+
+
 def test_script_engine_outputs_production_contract():
     contract = ScriptEngine().build(_story()).to_dict()
     assert len(contract["beats"]) == 4
@@ -66,6 +80,18 @@ def test_script_engine_outputs_production_contract():
 def test_script_engine_keeps_four_beat_story_roles():
     contract = ScriptEngine().build(_story()).to_dict()
     assert [row["story_role"] for row in contract["beats"]] == ["setup", "escalation", "reaction", "payoff"]
+
+
+def test_approved_hook_is_the_exact_first_spoken_line():
+    story = _story()
+    story["beats"][0]["voice"] = (
+        "PIP asked for one sandwich. Big mistake! Also, extra setup dialogue."
+    )
+
+    contract = ScriptEngine().build(story).to_dict()
+
+    assert contract["beats"][0]["dialogue"] == story["hook"]
+    assert contract["text"].splitlines()[0] == story["hook"]
 
 
 def test_script_engine_rejects_too_few_story_beats():

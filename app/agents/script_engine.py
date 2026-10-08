@@ -134,19 +134,21 @@ def _caption(text: str, role: str) -> str:
         return ""
     if len(words) <= MAX_CAPTION_WORDS and len(text) <= MAX_CAPTION_CHARS:
         return text
-    # Prefer a compact leading phrase; never add words that are absent from the dialogue.
+    # Prefer a compact leading phrase and mark that it continues. Reserve the
+    # marker's character up front so payoff punctuation cannot overflow the cap.
     selected: list[str] = []
     size = 0
     for word in words:
         projected = size + (1 if selected else 0) + len(word)
-        if len(selected) >= MAX_CAPTION_WORDS or projected > MAX_CAPTION_CHARS:
+        if len(selected) >= MAX_CAPTION_WORDS or projected + 1 > MAX_CAPTION_CHARS:
             break
         selected.append(word)
         size = projected
-    result = " ".join(selected)
-    if role == "payoff" and result and result[-1] not in ".!?":
-        result += "."
-    return result
+    if not selected:
+        # _words() only returns alphanumeric tokens; this is defensive for a
+        # future limit change that is smaller than the first token.
+        return ""
+    return " ".join(selected) + "…"
 
 
 def _duration_for_beat(role: str, target: float, text: str) -> float:
@@ -534,11 +536,13 @@ class ScriptEngine:
         for index, row in enumerate(rows):
             role = str(row["story_role"])
             line = _repair_dialogue(row, role, character)
-            if index == 0 and story_hook and story_hook.lower() not in line.lower():
+            if index == 0 and story_hook:
                 # The approved hook owns the first spoken beat. The setup action
                 # and story intent remain attached to this beat, but dialogue is
                 # not concatenated with setup prose; this preserves clean hook
                 # delivery and gives downstream timing a single spoken intent.
+                # Require an exact match: allowing the hook as a substring can
+                # silently append setup dialogue and dilute the approved opener.
                 line = story_hook
             lines.append(line)
 
