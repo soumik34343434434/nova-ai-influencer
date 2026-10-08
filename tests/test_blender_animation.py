@@ -85,6 +85,20 @@ def test_action_pose_chain_accepts_data_driven_transition_profile():
     assert chain[4][1]["root"][0] == 122
 
 
+def test_action_pose_chain_gaze_leads_body_without_erasing_extrapolation():
+    from app.providers.cartoon_pose_library import make_action_pose_chain
+    base={"root":[0,0],"neck":[0,0],"head_center":[0,0],"left_shoulder":[0,0],"left_elbow":[0,0],"left_wrist":[0,0],"right_shoulder":[0,0],"right_elbow":[0,0],"right_wrist":[0,0],"head_rot":0,"root_rot":0,"eye_open":1,"gaze":[0,0],"mouth":"flat"}
+    target={**base,"root":[100,0],"gaze":[1,0]}
+    chain=make_action_pose_chain(base,target,'default',span=100)
+    approach=chain[0][1]
+    assert approach["root"][0] == 0
+    # At contact approach the body follows smoothstep (0.82), while the
+    # gaze's ease-out is further along toward its target (0.9728).
+    assert chain[2][1]["gaze"][0] > chain[2][1]["root"][0] / 100
+    assert chain[1][1]["gaze"][0] < 0  # anticipation still looks with the pose
+    assert chain[4][1]["gaze"][0] > 1  # overshoot remains physical extrapolation
+
+
 def test_transition_profiles_exist_for_all_cartoon_characters():
     import json
     root=Path(__file__).resolve().parents[1]

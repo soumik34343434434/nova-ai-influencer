@@ -332,7 +332,11 @@ def make_action_pose_chain(
                 out[f"{side}_wrist"][1] += ny * arc * sign
         for k in ("head_rot", "root_rot", "eye_open"):
             out[k] = a[k] + (b[k] - a[k]) * u
-        out["gaze"] = [a["gaze"][i] + (b["gaze"][i] - a["gaze"][i]) * u for i in (0, 1)]
+        # Eyes lead the head/body through ordinary transitions. Keep the raw
+        # extrapolation for anticipation and overshoot, where gaze must travel
+        # with the pose rather than snapping to an endpoint.
+        gaze_u = 1.0 - (1.0 - float(t)) ** 3 if 0.0 < float(t) < 1.0 else u
+        out["gaze"] = [a["gaze"][i] + (b["gaze"][i] - a["gaze"][i]) * gaze_u for i in (0, 1)]
         out["mouth"] = b["mouth"] if u >= 0.65 else a["mouth"]
         return out
 
