@@ -114,6 +114,7 @@ def test_orchestrator_story_stage_persists_locked_contract(tmp_path, monkeypatch
 
     script_result = factory._script_engine(run)
     assert script_result["story_locked"] is True
-    assert run.payload["script"] == "\n\n".join(
-        beat["voice"] for beat in run.payload["story"]["beats"]
-    )
+    assert run.payload["script"] == run.payload["script_contract"]["text"]
+    assert [beat["story_role"] for beat in run.payload["script_contract"]["beats"]] == [
+        "setup", "escalation", "reaction", "payoff"
+    ]
