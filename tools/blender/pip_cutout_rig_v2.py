@@ -428,7 +428,9 @@ def camera_performance_keys(arm, cam, beats, rows=None):
             focus_y=fy+(contact_focus[1]-fy)*focus_mix
             punch={
                 'setup':{'approach':0.0,'anticipation':-0.008,'contact_approach':-0.015,'contact':-0.022,'overshoot':-0.018,'recoil':0.0,'settle':0.0},
-                'escalation':{'approach':0.0,'anticipation':0.0,'contact_approach':-0.014,'contact':-0.065,'overshoot':-0.085,'recoil':-0.035,'settle':-0.010},
+                # Make the impact push readable at portrait-video scale, then
+                # carry a little more of it through overshoot before releasing.
+                'escalation':{'approach':0.0,'anticipation':0.0,'contact_approach':-0.020,'contact':-0.105,'overshoot':-0.125,'recoil':-0.045,'settle':-0.010},
                 'reaction':{'approach':0.0,'anticipation':0.010,'contact_approach':0.020,'contact':0.008,'overshoot':0.0,'recoil':0.018,'settle':0.045},
                 'punchline':{'approach':0.0,'anticipation':-0.008,'contact_approach':-0.018,'contact':-0.040,'overshoot':-0.052,'recoil':-0.020,'settle':-0.060},
             }[beat][phase]
