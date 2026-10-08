@@ -1,0 +1,113 @@
+[
+  {
+    "updatedAt": "2026-10-08T04:37:36.000Z",
+    "createdAt": "2026-10-08T03:44:28.600Z",
+    "id": "nova-overnight-upgrade-agent",
+    "name": "NOVA Overnight Upgrade Agent",
+    "description": null,
+    "active": false,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "minutes",
+                "minutesInterval": 15
+              }
+            ]
+          }
+        },
+        "id": "nova-upgrade-schedule",
+        "name": "15-Minute Upgrade Trigger",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://host.docker.internal:8787/action",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-NOVA-API-Key",
+                "value": "={{$env.NOVA_API_TOKEN}}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "json",
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ action: 'codex_cycle' }) }}",
+          "options": {
+            "timeout": 900000
+          }
+        },
+        "id": "nova-codex-cycle",
+        "name": "NOVA Codex Upgrade Cycle",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          420,
+          300
+        ]
+      }
+    ],
+    "connections": {
+      "15-Minute Upgrade Trigger": {
+        "main": [
+          [
+            {
+              "node": "NOVA Codex Upgrade Cycle",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "staticData": null,
+    "meta": null,
+    "nodeGroups": [],
+    "pinData": {},
+    "versionId": "ae2be7be-8248-4728-b9e3-7dbe46be7d96",
+    "activeVersionId": "ae2be7be-8248-4728-b9e3-7dbe46be7d96",
+    "versionCounter": 3,
+    "triggerCount": 1,
+    "sourceWorkflowId": null,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-10-08T03:44:28.603Z",
+        "createdAt": "2026-10-08T03:44:28.603Z",
+        "role": "workflow:owner",
+        "workflowId": "nova-overnight-upgrade-agent",
+        "projectId": "wpj75ezIYGE6CkeF",
+        "project": {
+          "updatedAt": "2026-10-08T02:08:00.882Z",
+          "createdAt": "2026-10-08T02:05:41.228Z",
+          "id": "wpj75ezIYGE6CkeF",
+          "name": "Soumik Paul <soumikp922@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "customTelemetryTags": [],
+          "creatorId": "7b3061ff-8172-4165-bb59-c41215606fec"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
+    }
+  }
+]

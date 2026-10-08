@@ -1,0 +1,57 @@
+{
+  "name": "NOVA Upgrade Executor Tool",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "nova-upgrade-tool-trigger",
+      "name": "Execute Upgrade Tool",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8787/action",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ action: $json.action || '', path: $json.path || '', content: $json.content || '', command: $json.command || '', message: $json.message || '', branch: $json.branch || '', pr_number: $json.pr_number || null, limit: $json.limit || 80, pattern: $json.pattern || '' }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "nova-upgrade-http",
+      "name": "Execute Local NOVA Action",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 0]
+    }
+  ],
+  "connections": {
+    "Execute Upgrade Tool": {
+      "main": [
+        [
+          {
+            "node": "Execute Local NOVA Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}
