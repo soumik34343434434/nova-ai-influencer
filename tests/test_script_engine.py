@@ -105,6 +105,38 @@ def test_script_engine_rejects_too_few_story_beats():
         raise AssertionError("Expected Script Engine to reject an underspecified story")
 
 
+def test_script_engine_rejects_story_roles_out_of_causal_order():
+    story = _story()
+    story["beats"][1]["story_role"] = "reaction"
+    story["beats"][2]["story_role"] = "escalation"
+
+    try:
+        ScriptEngine().build(story)
+    except ValueError as exc:
+        assert "escalation before reaction and payoff" in str(exc)
+    else:
+        raise AssertionError("Expected Script Engine to reject reordered story roles")
+
+
+def test_script_engine_requires_payoff_to_close_story_contract():
+    story = _story()
+    story["beats"].append({
+        "story_role": "setup",
+        "asset_action": "checks_phone",
+        "voice": "The phone buzzes again.",
+        "visual": "PIP checks the phone.",
+        "story_intent": "add a final transition",
+        "sfx": "notification",
+    })
+
+    try:
+        ScriptEngine().build(story)
+    except ValueError as exc:
+        assert "payoff must be the final beat" in str(exc)
+    else:
+        raise AssertionError("Expected Script Engine to reject a beat after the payoff")
+
+
 def test_five_beats_fit_minimum_supported_duration():
     story = _story()
     story["duration_target"] = 5.0

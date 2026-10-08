@@ -517,6 +517,19 @@ class ScriptEngine:
         rows = _normalize_roles([row for row in story.get("beats", []) if isinstance(row, dict)])
         if len(rows) < 4:
             raise ValueError("Story Contract must contain at least four beats")
+        roles = [str(row["story_role"]) for row in rows]
+        # The script is a performance rendering of the approved story, so it
+        # must retain the causal order that makes the story legible. Do not
+        # silently reorder authored beats: reject an invalid contract instead.
+        if "escalation" not in roles or "reaction" not in roles or "payoff" not in roles:
+            raise ValueError("Story Contract must contain escalation, reaction and payoff beats")
+        first_escalation = roles.index("escalation")
+        first_reaction = roles.index("reaction")
+        last_payoff = len(roles) - 1 - roles[::-1].index("payoff")
+        if first_escalation >= first_reaction or first_reaction >= last_payoff:
+            raise ValueError("Story Contract beats must place escalation before reaction and payoff")
+        if last_payoff != len(roles) - 1:
+            raise ValueError("Story Contract payoff must be the final beat")
         character = str(story.get("character", "")).strip()
         target = float(story.get("duration_target", 8.0) or 8.0)
         target = max(5.0, min(30.0, target))
