@@ -22,7 +22,7 @@ ALLOWED_TEST_PREFIX = ".venv/bin/python -m pytest "
 CODEX_BIN = shutil.which("codex") or "/Users/sante/.nvm/versions/node/v24.21.0/bin/codex"
 CODEX_TIMEOUT = 660
 CODEX_MAX_PROMPT = 30_000
-CODEX_ALLOWED_PREFIXES = ("app/", "tests/", "docs/")
+CODEX_ALLOWED_PREFIXES = ("app/", "tests/", "docs/", "tools/blender/")
 CODEX_ALLOWED_FILES = {"pyproject.toml", "pytest.ini", "requirements.txt", "requirements-dev.txt"}
 BLOCKED_NAMES = {".env", ".env.local", ".git"}
 
