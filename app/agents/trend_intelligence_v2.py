@@ -125,6 +125,30 @@ def _similarity(a: str, b: str) -> float:
     return len(at & bt) / len(at | bt)
 
 
+def _set_overlap(a: Iterable[str], b: Iterable[str]) -> float:
+    left = {str(x).strip().lower() for x in a if str(x).strip()}
+    right = {str(x).strip().lower() for x in b if str(x).strip()}
+    if not left or not right:
+        return 0.0
+    return len(left & right) / min(len(left), len(right))
+
+
+def _trend_related(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Conservatively connect alternate descriptions of the same trend."""
+    title_similarity = _similarity(str(a.get("title", "")), str(b.get("title", "")))
+    if title_similarity >= 0.62:
+        return True
+
+    music_a = str(a.get("music", "") or "").strip().lower()
+    music_b = str(b.get("music", "") or "").strip().lower()
+    hashtag_overlap = _set_overlap(a.get("hashtags") or (), b.get("hashtags") or ())
+    if music_a and music_a == music_b and title_similarity >= 0.28:
+        return True
+    if hashtag_overlap >= 0.60 and title_similarity >= 0.32:
+        return True
+    return False
+
+
 def _parse_date(value: str) -> datetime | None:
     if not value:
         return None
@@ -237,10 +261,9 @@ def _engagement_rate(row: dict[str, Any]) -> float:
 def _dedupe_groups(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     groups: list[list[dict[str, Any]]] = []
     for row in rows:
-        title = row.get("title", "")
         placed = False
         for group in groups:
-            if _similarity(title, group[0].get("title", "")) >= 0.62:
+            if any(_trend_related(row, existing) for existing in group):
                 group.append(row)
                 placed = True
                 break

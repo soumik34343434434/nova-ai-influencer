@@ -52,6 +52,36 @@ def test_enrich_signals_builds_opportunity_and_saturation_proxy():
     assert row.trend_id.startswith("trend-")
 
 
+def test_trend_clustering_uses_shared_music_for_differently_worded_posts():
+    rows = enrich_signals([
+        {
+            **_trend(),
+            "title": "POV: cute cat dance reaction to a viral song",
+            "music": "music-123",
+            "hashtags": ("#catdance", "#viral"),
+            "source_type": "youtube",
+        },
+        {
+            **_trend(),
+            "title": "Cat tries the viral dance reaction challenge",
+            "music": "music-123",
+            "hashtags": ("#catdance", "#challenge"),
+            "source_type": "tiktok_research",
+        },
+    ])
+    assert len(rows) == 1
+    assert rows[0].mention_count == 2
+    assert rows[0].source_count == 2
+
+
+def test_trend_clustering_does_not_merge_generic_unrelated_posts():
+    rows = enrich_signals([
+        {**_trend(), "title": "Cute cat sleeps on a sofa", "music": "music-a"},
+        {**_trend(), "title": "Cute cat wins a dance contest", "music": "music-b"},
+    ])
+    assert len(rows) == 2
+
+
 def test_historical_snapshot_changes_only_with_matching_history():
     row = _trend()
     row["trend_id"] = "same"
