@@ -60,3 +60,26 @@ def test_script_engine_rejects_too_few_story_beats():
         assert "at least four beats" in str(exc)
     else:
         raise AssertionError("Expected Script Engine to reject an underspecified story")
+
+
+def test_five_beats_fit_minimum_supported_duration():
+    story = _story()
+    story["duration_target"] = 5.0
+    story["beats"].insert(0, {
+        "story_role": "hook",
+        "asset_action": "checks_phone",
+        "voice": "Why is the kitchen texting me?",
+        "visual": "PIP checks the phone.",
+        "story_intent": "open with an immediate question",
+        "sfx": "room",
+    })
+
+    contract = ScriptEngine().build(story).to_dict()
+    beats = contract["beats"]
+
+    assert len(beats) == 5
+    assert abs(sum(beat["duration"] for beat in beats) - 5.0) < 0.001
+    assert all(beat["duration"] >= 0.999 for beat in beats)
+    assert all(abs(left["timing_end"] - right["timing_start"]) < 0.002
+               for left, right in zip(beats, beats[1:]))
+    assert beats[-1]["timing_end"] == 5.0
