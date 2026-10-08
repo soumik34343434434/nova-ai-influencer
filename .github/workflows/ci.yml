@@ -24,8 +24,11 @@ jobs:
       - name: Ensure media tools
         run: |
           if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v espeak-ng >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng
+            # Try the runner's existing apt index first; only refresh it when needed.
+            if ! timeout 120s sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng; then
+              timeout 120s sudo apt-get update -y
+              timeout 120s sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng
+            fi
           fi
       - run: pip install --prefer-binary -r requirements.txt
       - run: pytest -q
