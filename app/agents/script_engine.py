@@ -188,21 +188,27 @@ def _repair_dialogue(row: dict[str, Any], role: str, character: str) -> str:
 
 
 def _timing(target: float, rows: list[dict[str, Any]], lines: list[str]) -> list[dict[str, float]]:
+    if not rows:
+        return []
+    # At the supported five-second floor, five beats cannot each receive the
+    # normal 1.15-second minimum. Scale that readability floor to the available
+    # budget instead of producing an impossible schedule that is later shrunk.
+    min_beat = min(MIN_BEAT_SECONDS, target / len(rows))
     weights = [ROLE_WEIGHTS.get(str(row["story_role"]), 0.2) for row in rows]
-    raw = [max(MIN_BEAT_SECONDS, target * weight) for weight in weights]
+    raw = [max(min_beat, target * weight) for weight in weights]
     # Give longer dialogue enough room without changing the authored target.
     raw = [max(value, _word_count(line) / WORDS_PER_SECOND + 0.30) for value, line in zip(raw, lines)]
     total = sum(raw)
     if total > target:
         scale = target / total
-        raw = [max(MIN_BEAT_SECONDS, value * scale) for value in raw]
+        raw = [max(min_beat, value * scale) for value in raw]
     # Rebalance any minimum-duration expansion back into the longest beats.
     total = sum(raw)
     if total > target:
         excess = total - target
         order = sorted(range(len(raw)), key=lambda i: raw[i], reverse=True)
         for i in order:
-            room = max(0.0, raw[i] - MIN_BEAT_SECONDS)
+            room = max(0.0, raw[i] - min_beat)
             take = min(room, excess)
             raw[i] -= take
             excess -= take
@@ -316,7 +322,8 @@ def _quality_dimensions(
     elif error <= 0.15:
         timing_score += 1.5
         timing_evidence.append("beat durations stay within 150 ms")
-    if all(float(row.get("duration", 0.0)) >= MIN_BEAT_SECONDS for row in rows):
+    min_readable_duration = min(MIN_BEAT_SECONDS, target / len(rows)) if rows else MIN_BEAT_SECONDS
+    if all(float(row.get("duration", 0.0)) >= min_readable_duration - 0.001 for row in rows):
         timing_score += 1.0
         timing_evidence.append("every beat is readable")
     if rows and float(rows[-1].get("duration", 0.0)) >= 1.25:
