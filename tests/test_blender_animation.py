@@ -278,3 +278,13 @@ def test_blender_social_hook_and_visual_prop_reveal_are_declared():
     assert 'PropFlyingPaper' in rig
     assert 'phase-driven-hook-reveal-push-pull-impact-shake' in rig
     assert 'hook_text=candidate.get("hook", "")' in orch
+
+
+def test_shock_paper_burst_tracks_contact_overshoot_recoil_and_settle():
+    root=Path(__file__).resolve().parents[1]
+    rig=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "frame_at(0.58)" in rig  # contact launch
+    assert "frame_at(0.72)" in rig  # overshoot arc
+    assert "frame_at(0.84)" in rig  # recoil
+    assert "frame_at(1.0)" in rig  # settle
+    assert "burst.keyframe_insert('rotation_euler',index=2,frame=frame_at(0.84))" in rig
