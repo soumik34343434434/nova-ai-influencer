@@ -24,6 +24,23 @@ def test_script_engine_reaches_quality_floor():
     assert quality["all_dimensions_above_floor"] is True
 
 
+def test_script_engine_protects_long_dialogue_within_its_beat():
+    story = _story()
+    story["beats"][1]["voice"] = (
+        "Please make one sandwich because the kitchen keeps misunderstanding instructions"
+    )
+    story["beats"][2]["voice"] = "Wow."
+    story["beats"][3]["voice"] = "Fine."
+
+    contract = ScriptEngine().build(story).to_dict()
+    long_beat = contract["beats"][1]
+
+    assert long_beat["duration"] >= long_beat["word_count"] / 2.8 + 0.299
+    pacing = next(dimension for dimension in contract["quality"]["dimensions"]
+                  if dimension["name"] == "speech_pacing")
+    assert pacing["score"] >= QUALITY_FLOOR
+
+
 def test_script_engine_outputs_production_contract():
     contract = ScriptEngine().build(_story()).to_dict()
     assert len(contract["beats"]) == 4
