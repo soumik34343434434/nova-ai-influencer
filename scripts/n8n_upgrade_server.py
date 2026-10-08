@@ -133,8 +133,52 @@ def _open_pr_for_branch(branch: str) -> dict | None:
     return items[0] if items else None
 
 def _pr_checks(pr_number: int) -> tuple[bool, str]:
-    proc = subprocess.run(["gh", "pr", "checks", str(pr_number), "--required"], cwd=REPO, text=True, capture_output=True, timeout=120)
-    return proc.returncode == 0, (proc.stdout + proc.stderr).strip()
+    """Return (green, evidence) using the actual PR check rollup.
+
+    GitHub can report no required checks even when checks are still running.
+    Never interpret that as green; a PR is mergeable only when every reported
+    check is completed successfully and at least one check is present.
+    """
+    proc = subprocess.run(
+        ["gh", "pr", "view", str(pr_number), "--json", "statusCheckRollup"],
+        cwd=REPO,
+        text=True,
+        capture_output=True,
+        timeout=120,
+    )
+    raw = (proc.stdout + proc.stderr).strip()
+    if proc.returncode:
+        return False, raw or "unable to read PR check rollup"
+    try:
+        checks = json.loads(proc.stdout).get("statusCheckRollup") or []
+    except json.JSONDecodeError:
+        return False, raw or "invalid PR check rollup"
+    if not checks:
+        return False, "no CI checks reported; refusing to assume green"
+    pending = [
+        f"{check.get('name', 'check')}: {check.get('status', 'UNKNOWN')}"
+        for check in checks
+        if str(check.get("status", "")).upper() in {"IN_PROGRESS", "QUEUED", "PENDING"}
+    ]
+    failures = [
+        f"{check.get('name', 'check')}: {check.get('conclusion', 'UNKNOWN')}"
+        for check in checks
+        if str(check.get("status", "")).upper() == "COMPLETED"
+        and str(check.get("conclusion", "")).upper() not in {"SUCCESS", "NEUTRAL", "SKIPPED"}
+    ]
+    if pending:
+        return False, "pending checks: " + ", ".join(pending)
+    if failures:
+        return False, "failed checks: " + ", ".join(failures)
+    if all(
+        str(check.get("status", "")).upper() == "COMPLETED"
+        and str(check.get("conclusion", "")).upper() in {"SUCCESS", "NEUTRAL", "SKIPPED"}
+        for check in checks
+    ):
+        return True, "all reported checks completed successfully: " + ", ".join(
+            f"{check.get('name', 'check')}={check.get('conclusion', 'UNKNOWN')}" for check in checks
+        )
+    return False, raw or "unknown PR check state"
 
 def _codex_cycle() -> dict:
     state = current_state()
