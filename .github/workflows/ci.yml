@@ -1,18 +1,32 @@
 name: NOVA CI
 
 on:
-  push:
   pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: nova-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
-      - run: pip install -r requirements.txt
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Ensure media tools
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v espeak-ng >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng
+          fi
+      - run: pip install --prefer-binary -r requirements.txt
       - run: pytest -q
       - run: NOVA_MODE=backtest python -m app.orchestrator
