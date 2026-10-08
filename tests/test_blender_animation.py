@@ -25,6 +25,26 @@ def test_blender_script_has_camera_performance_and_voice_clock():
     assert 'camera_performance_keys' in text
 
 
+def test_camera_action_focus_tracks_performed_contact_hand():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert 'def _performed_action_focus(action, arm, fallback):' in text
+    assert "'press_button': 'R'" in text
+    assert "'give_homework': 'L'" in text
+    assert "contact_focus=_performed_action_focus(action,arm,(fx,fy))" in text
+    assert "'contact_approach':0.45,'contact':0.90,'overshoot':0.70,'recoil':0.25,'settle':0.0" in text
+    assert 'point = arm.matrix_world @ hand.tail' in text
+    assert 'point = arm.matrix_world @ hand.matrix.translation' not in text
+
+
+def test_camera_contact_focus_peaks_at_impact_and_releases_on_settle():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "'contact_approach':0.45,'contact':0.90,'overshoot':0.70,'recoil':0.25,'settle':0.0" in text
+    assert 'focus_x=fx+(contact_focus[0]-fx)*focus_mix' in text
+    assert 'focus_y=fy+(contact_focus[1]-fy)*focus_mix' in text
+
+
 def test_blender_episode_metadata_contract_in_source():
     root=Path(__file__).resolve().parents[1]
     text=(root/'app'/'providers'/'blender_animation.py').read_text(encoding='utf-8')
@@ -117,6 +137,14 @@ def test_blender_source_declares_secondary_motion_and_profile_driven_chain():
     for marker in ('transition_profiles','secondary','head_lag','hand_follow','accessory_follow','impact_eye_open','_motion','_phase'):
         assert marker in text
     assert "'engine':'blender-cutout-performance-rig-v5'" in text
+
+
+def test_impact_facial_reaction_is_asymmetric_toward_action_hand():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "contact_side={'press_button':1,'give_homework':-1" in text
+    assert 'side_weight=1.25 if contact_side and sign==contact_side else 0.75 if contact_side else 1.0' in text
+    assert 'side_weight=1.25 if contact_side and side==contact_side else 0.75 if contact_side else 1.0' in text
 
 
 def test_blender_episode_audio_helper_creates_missing_work_directory(tmp_path):

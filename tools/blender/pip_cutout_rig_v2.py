@@ -276,6 +276,7 @@ def key_face(face,frame,spec):
  c=px(spec['head_center']); base_c=px(BASE['head_center']); a=math.radians(spec['head_rot']); co,si=math.cos(a),math.sin(a)
  if face.get('mode')=='organic':
   f=FACE_PROFILE; action=spec.get('_action','')
+  contact_side={'press_button':1,'give_homework':-1,'tap_alarm':1,'open_fridge':1,'tap_shoes':1,'shock':-1,'overwhelmed':1}.get(action,0)
   offsets={'Eye.L':px(((f['eye_left'][0]+f['eye_left'][2])//2,(f['eye_left'][1]+f['eye_left'][3])//2))-base_c,'Eye.R':px(((f['eye_right'][0]+f['eye_right'][2])//2,(f['eye_right'][1]+f['eye_right'][3])//2))-base_c,'Mouth':px(((f['mouth'][0]+f['mouth'][2])//2,(f['mouth'][1]+f['mouth'][3])//2))-base_c}
   def wp(v): return Vector((c.x+co*v.x-si*v.y,c.y+si*v.x+co*v.y,0))
   for obj,name in [(face['eyes'][0],'Eye.L'),(face['eyes'][1],'Eye.R'),(face['mouth'],'Mouth')]:
@@ -283,7 +284,10 @@ def key_face(face,frame,spec):
   impact_eye=float((PROFILE.get('transition_profiles') or {}).get('default',{}).get('secondary',{}).get('impact_eye_open',0.06))
   reaction_boost=impact_eye*(1.0 if phase=='contact' else 0.65 if phase=='overshoot' else 0.35 if phase=='recoil' else 0.0)
   for eye,sign in zip(face['eyes'],(-1,1)):
-   eye_open=max(0.35,min(1.35,spec['eye_open']+reaction_boost))
+   # The eye on the acting-hand side leads the impact reaction; the far eye
+   # follows more softly, keeping the face from reading as a uniform blink.
+   side_weight=1.25 if contact_side and sign==contact_side else 0.75 if contact_side else 1.0
+   eye_open=max(0.35,min(1.35,spec['eye_open']+reaction_boost*side_weight))
    asym=0.07*sign if action in ('deadpan','overwhelmed') else 0.045*sign
    if action in ('shock','tap_alarm'): eye_open=min(1.35,eye_open+0.08)
    eye.scale.x=1.0+asym; eye.scale.y=eye_open
@@ -308,8 +312,9 @@ def key_face(face,frame,spec):
  def world_pos(v): return (c.x + co*v.x-si*v.y, c.y + si*v.x+co*v.y, 0)
  for name,obj in [('screen',face['screen']),('Eye.L',face['eyes'][0]),('Eye.R',face['eyes'][1]),('Pupil.L',face['pupils'][0]),('Pupil.R',face['pupils'][1]),('Mouth',face['mouth'])]:
   obj.location=world_pos(offsets[name]); obj.rotation_euler.z=a; obj.keyframe_insert('location',frame=frame); obj.keyframe_insert('rotation_euler',index=2,frame=frame)
+ contact_side={'press_button':1,'give_homework':-1,'tap_alarm':1,'open_fridge':1,'tap_shoes':1,'shock':-1,'overwhelmed':1}.get(spec.get('_action',''),0)
  for eye,pupil,side in [(face['eyes'][0],face['pupils'][0],-1),(face['eyes'][1],face['pupils'][1],1)]:
-  impact_eye=float((PROFILE.get('transition_profiles') or {}).get('default',{}).get('secondary',{}).get('impact_eye_open',0.06)); reaction_boost=impact_eye*(1.0 if phase=='contact' else 0.65 if phase=='overshoot' else 0.35 if phase=='recoil' else 0.0); eye_open=max(.35,min(1.35,spec['eye_open']+reaction_boost)); eye.scale.y=eye_open; pupil.scale.y=max(.12,eye_open); pupil.location.x=world_pos(offsets['Pupil.L' if side<0 else 'Pupil.R'])[0]+spec['gaze'][0]*.18; pupil.location.y=world_pos(offsets['Pupil.L' if side<0 else 'Pupil.R'])[1]+spec['gaze'][1]*.14; eye.keyframe_insert('scale',index=1,frame=frame); pupil.keyframe_insert('scale',index=1,frame=frame); pupil.keyframe_insert('location',frame=frame)
+  impact_eye=float((PROFILE.get('transition_profiles') or {}).get('default',{}).get('secondary',{}).get('impact_eye_open',0.06)); reaction_boost=impact_eye*(1.0 if phase=='contact' else 0.65 if phase=='overshoot' else 0.35 if phase=='recoil' else 0.0); side_weight=1.25 if contact_side and side==contact_side else 0.75 if contact_side else 1.0; eye_open=max(.35,min(1.35,spec['eye_open']+reaction_boost*side_weight)); eye.scale.y=eye_open; pupil.scale.y=max(.12,eye_open); pupil.location.x=world_pos(offsets['Pupil.L' if side<0 else 'Pupil.R'])[0]+spec['gaze'][0]*.18; pupil.location.y=world_pos(offsets['Pupil.L' if side<0 else 'Pupil.R'])[1]+spec['gaze'][1]*.14; eye.keyframe_insert('scale',index=1,frame=frame); pupil.keyframe_insert('scale',index=1,frame=frame); pupil.keyframe_insert('location',frame=frame)
  mouth=face['mouth']; mouth.scale={'smile':(1,1,1),'open':(.90,1.70,1),'frown':(.88,.60,1),'flat':(.82,.30,1)}[spec['mouth']]; mouth.keyframe_insert('scale',frame=frame)
 
 
@@ -367,6 +372,23 @@ def _action_focus(action):
     }.get(action, (0.8, -0.05))
 
 
+def _performed_action_focus(action, arm, fallback):
+    """Blend the authored action focus toward the currently posed contact hand."""
+    hand_side = {
+        'give_homework': 'L', 'press_button': 'R', 'tap_alarm': 'R',
+        'open_fridge': 'R', 'tap_shoes': 'R',
+    }.get(action)
+    if hand_side is None:
+        return fallback
+    hand = arm.pose.bones.get(f'hand.{hand_side}')
+    if hand is None:
+        return fallback
+    # The hand bone origin is at the wrist. Focus on its posed endpoint so
+    # button presses, taps, and handoffs frame the actual contact point.
+    point = arm.matrix_world @ hand.tail
+    return (float(point.x), float(point.y))
+
+
 def camera_performance_keys(arm, cam, beats, rows=None):
     """Beat-specific camera acting with smooth handoffs and readable shot-size contrast."""
     rows=rows or []
@@ -388,6 +410,12 @@ def camera_performance_keys(arm, cam, beats, rows=None):
                 cam.keyframe_insert('location',frame=frame); cam.keyframe_insert('rotation_euler',index=2,frame=frame); cam.data.keyframe_insert('ortho_scale',frame=frame)
                 continue
             focus_w={'approach':0.08,'anticipation':0.16,'contact_approach':0.38,'contact':0.62,'overshoot':0.74,'recoil':0.56,'settle':0.34}[phase]
+            contact_focus=_performed_action_focus(action,arm,(fx,fy))
+            # Let the performed contact point dominate at impact, then retain
+            # enough of it through overshoot to make the action readable.
+            focus_mix={'approach':0.0,'anticipation':0.0,'contact_approach':0.45,'contact':0.90,'overshoot':0.70,'recoil':0.25,'settle':0.0}[phase]
+            focus_x=fx+(contact_focus[0]-fx)*focus_mix
+            focus_y=fy+(contact_focus[1]-fy)*focus_mix
             punch={
                 'setup':{'approach':0.0,'anticipation':-0.008,'contact_approach':-0.015,'contact':-0.022,'overshoot':-0.018,'recoil':0.0,'settle':0.0},
                 'escalation':{'approach':0.0,'anticipation':0.0,'contact_approach':-0.014,'contact':-0.065,'overshoot':-0.085,'recoil':-0.035,'settle':-0.010},
@@ -397,8 +425,8 @@ def camera_performance_keys(arm, cam, beats, rows=None):
             lateral={'setup':0.0,'escalation':0.055,'reaction':-0.075,'punchline':0.085}.get(beat,0.0)
             curve=math.sin(math.pi*frac); shake_amp={'setup':0.0,'escalation':0.010 if phase in ('contact','overshoot') else 0.0,'reaction':0.003,'punchline':0.003 if phase in ('contact','settle') else 0.0}.get(beat,0.0)
             shake=math.sin(frame*1.21)*shake_amp
-            cam.location.x=loc.x*0.08 + fx*focus_w + lateral*curve + shake
-            cam.location.y=loc.y*0.06 + fy*focus_w + math.cos(frame*0.71)*shake_amp*0.40
+            cam.location.x=loc.x*0.08 + focus_x*focus_w + lateral*curve + shake
+            cam.location.y=loc.y*0.06 + focus_y*focus_w + math.cos(frame*0.71)*shake_amp*0.40
             cam.location.z=30.0
             cam.data.ortho_scale=max(10.0,base_scale[beat]*action_scale.get(action,1.0)*(1.0+punch))
             cam.rotation_euler.z=root.rotation_euler.z*0.05 + math.radians(shake*1.2)
