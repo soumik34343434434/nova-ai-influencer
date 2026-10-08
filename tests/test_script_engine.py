@@ -41,6 +41,20 @@ def test_script_engine_protects_long_dialogue_within_its_beat():
     assert pacing["score"] >= QUALITY_FLOOR
 
 
+def test_long_payoff_caption_marks_truncation_without_exceeding_mobile_limit():
+    story = _story()
+    story["beats"][-1]["voice"] = (
+        "Extraordinarily elaborate misunderstandings deserve an equally elaborate response today"
+    )
+
+    contract = ScriptEngine().build(story).to_dict()
+    caption = contract["beats"][-1]["caption"]
+
+    assert len(caption.split()) <= 8
+    assert len(caption) <= 42
+    assert caption.endswith("…")
+
+
 def test_script_engine_outputs_production_contract():
     contract = ScriptEngine().build(_story()).to_dict()
     assert len(contract["beats"]) == 4
