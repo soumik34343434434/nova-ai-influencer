@@ -351,7 +351,7 @@ class CartoonFactoryOrchestrator:
         return {
             "status": "passed",
             "beats": len(contract["beats"]),
-            "target_seconds": f"{contract["target_duration"]:.1f}",
+            "target_seconds": f"{contract['target_duration']:.1f}",
             "quality_score": contract["quality"]["score"],
             "min_dimension": contract["quality"]["min_dimension_score"],
             "quality_floor": contract["quality"]["quality_floor"],
