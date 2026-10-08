@@ -190,6 +190,24 @@ def _repair_dialogue(row: dict[str, Any], role: str, character: str) -> str:
 def _timing(target: float, rows: list[dict[str, Any]], lines: list[str]) -> list[dict[str, float]]:
     if not rows:
         return []
+    speech_floors = [_word_count(line) / WORDS_PER_SECOND + 0.30 for line in lines]
+    if sum(speech_floors) <= target:
+        # Protect each line's delivery time first, then spread the remaining
+        # runtime by story role. This avoids squeezing a long hook or payoff
+        # into its generic role-weight slot when the total script can fit.
+        weights = [ROLE_WEIGHTS.get(str(row["story_role"]), 1.0 / len(rows)) for row in rows]
+        remaining = target - sum(speech_floors)
+        raw = [floor + remaining * weight / sum(weights)
+               for floor, weight in zip(speech_floors, weights)]
+        starts: list[dict[str, float]] = []
+        cursor = 0.0
+        for value in raw:
+            end = cursor + value
+            starts.append({"start": round(cursor, 3), "end": round(end, 3), "duration": round(value, 3)})
+            cursor = end
+        starts[-1]["end"] = round(target, 3)
+        starts[-1]["duration"] = round(target - starts[-1]["start"], 3)
+        return starts
     # At the supported five-second floor, five beats cannot each receive the
     # normal 1.15-second minimum. Scale that readability floor to the available
     # budget instead of producing an impossible schedule that is later shrunk.
@@ -334,6 +352,33 @@ def _quality_dimensions(
         timing_evidence.append("pauses avoid synthetic over-segmentation")
     dimensions.append(ScriptDimension("timing", min(timing_score, 10.0), tuple(timing_evidence),
                                        "Rebalance beat durations and keep pauses short and intentional."))
+
+    pacing_evidence: list[str] = []
+    pacing_is_feasible = sum(
+        _word_count(str(row.get("dialogue", ""))) / WORDS_PER_SECOND + 0.30 for row in rows
+    ) <= target
+    pacing_failures = [
+        row for row in rows
+        if _word_count(str(row.get("dialogue", ""))) / WORDS_PER_SECOND + 0.30
+        > float(row.get("duration", 0.0)) + 0.001
+    ]
+    if not pacing_is_feasible:
+        # Dense scripts are assessed by dialogue_economy; per-beat pacing
+        # cannot be fairly judged until their overall speech load fits.
+        pacing_score = 10.0
+        pacing_evidence.append("overall speech load exceeds the target; per-beat pacing is not independently scored")
+    elif not pacing_failures:
+        pacing_score = 10.0
+        pacing_evidence.append("every spoken line fits its beat at the planned speaking rate")
+    else:
+        pacing_score = 5.0
+        pacing_evidence.append(
+            f"{len(pacing_failures)} spoken line(s) need more time than their beat provides"
+        )
+    dimensions.append(ScriptDimension(
+        "speech_pacing", pacing_score, tuple(pacing_evidence),
+        "Shorten dialogue or give its beat enough time at the planned speaking rate.",
+    ))
 
     visual_score = 5.0
     visual_evidence: list[str] = []
@@ -483,7 +528,10 @@ class ScriptEngine:
         lines: list[str] = []
         normalized: list[dict[str, Any]] = []
         story_hook = _clean_text(str(story.get("hook") or ""))
-        for index, row in enumerate(rows[:5]):
+        # The Story Engine currently emits at most five beats, but callers may
+        # provide an already-approved contract with additional transition
+        # beats. Preserve those beats instead of silently dropping content.
+        for index, row in enumerate(rows):
             role = str(row["story_role"])
             line = _repair_dialogue(row, role, character)
             if index == 0 and story_hook and story_hook.lower() not in line.lower():

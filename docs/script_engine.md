@@ -10,24 +10,25 @@ The contract is deterministic and provider-neutral. No Runway generation is requ
 
 ## Quality Gate
 
-The Script Engine evaluates ten dimensions and enforces an 8.5/10 floor:
+The Script Engine evaluates eleven dimensions and enforces an 8.5/10 floor:
 
 1. hook delivery
 2. story fidelity
 3. dialogue economy
 4. character voice
 5. timing
-6. visual sync
-7. reaction/payoff
-8. caption readiness
-9. sound cues
-10. performance direction
+6. speech pacing
+7. visual sync
+8. reaction/payoff
+9. caption readiness
+10. sound cues
+11. performance direction
 
 A script is accepted only when the overall score and every dimension are at least 8.5.
 
 ## Timing Policy
 
-Speech is planned against the story duration target using a conservative speaking rate. Pauses are short and intentional so the audio stage does not create artificial gaps between separately rendered lines.
+Speech is planned against the story duration target using a conservative speaking rate. When the total estimated speech fits, each beat receives its speaking time and a small buffer before remaining time is shared by story role. The quality gate checks that every line fits its beat. Pauses are short and intentional so the audio stage does not create artificial gaps between separately rendered lines.
 
 The final payoff receives protected timing and deadpan delivery direction.
 

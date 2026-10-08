@@ -24,6 +24,23 @@ def test_script_engine_reaches_quality_floor():
     assert quality["all_dimensions_above_floor"] is True
 
 
+def test_script_engine_protects_long_dialogue_within_its_beat():
+    story = _story()
+    story["beats"][1]["voice"] = (
+        "Please make one sandwich because the kitchen keeps misunderstanding instructions"
+    )
+    story["beats"][2]["voice"] = "Wow."
+    story["beats"][3]["voice"] = "Fine."
+
+    contract = ScriptEngine().build(story).to_dict()
+    long_beat = contract["beats"][1]
+
+    assert long_beat["duration"] >= long_beat["word_count"] / 2.8 + 0.299
+    pacing = next(dimension for dimension in contract["quality"]["dimensions"]
+                  if dimension["name"] == "speech_pacing")
+    assert pacing["score"] >= QUALITY_FLOOR
+
+
 def test_script_engine_outputs_production_contract():
     contract = ScriptEngine().build(_story()).to_dict()
     assert len(contract["beats"]) == 4
@@ -83,3 +100,32 @@ def test_five_beats_fit_minimum_supported_duration():
     assert all(abs(left["timing_end"] - right["timing_start"]) < 0.002
                for left, right in zip(beats, beats[1:]))
     assert beats[-1]["timing_end"] == 5.0
+
+
+def test_script_engine_preserves_all_approved_beats_beyond_five():
+    story = _story()
+    story["duration_target"] = 10.0
+    story["beats"].insert(2, {
+        "story_role": "escalation",
+        "asset_action": "glances_at_many_tabs",
+        "voice": "Now every appliance wants an update.",
+        "visual": "PIP sees every appliance light up.",
+        "story_intent": "add a distinct consequence before the reaction",
+        "sfx": "notification",
+    })
+    story["beats"].insert(3, {
+        "story_role": "escalation",
+        "asset_action": "sees_calendar",
+        "voice": "The toaster booked a meeting about it.",
+        "visual": "A calendar alert appears on the toaster.",
+        "story_intent": "raise the absurdity with a second consequence",
+        "sfx": "impact",
+    })
+
+    contract = ScriptEngine().build(story).to_dict()
+
+    assert len(contract["beats"]) == 6
+    assert "Now every appliance wants an update!" in contract["text"]
+    assert contract["beats"][2]["source_voice"] == "Now every appliance wants an update."
+    assert contract["beats"][3]["source_voice"] == "The toaster booked a meeting about it."
+    assert abs(sum(row["duration"] for row in contract["beats"]) - 10.0) <= 0.01
