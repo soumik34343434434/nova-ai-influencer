@@ -683,6 +683,20 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
     eye.scale.y=1.0 + (0.10 if action=='shock' else -0.08 if action=='overwhelmed' else 0.0)
     eye.location.x += gaze_sign*0.012*sign; eye.location.y += (-0.010 if action=='deadpan' else 0.008 if action=='shock' else 0.0)
     eye.keyframe_insert('scale',frame=f); eye.keyframe_insert('location',frame=f)
+   # Organic faces have separate brow shapes; pose them with the same action
+   # beat so surprise, worry, and deadpan read beyond eye scaling alone.
+   brows=face.get('brows',())
+   if brows:
+    brow_lift={'shock':0.045,'overwhelmed':0.018,'deadpan':-0.012}.get(action,0.0)
+    brow_tilt={'shock':0.035,'overwhelmed':-0.045,'deadpan':-0.025}.get(action,0.0)
+    for side,brow in enumerate(brows):
+     sign=-1.0 if side==0 else 1.0
+     brow.location.y += brow_lift
+     brow.rotation_euler.z += brow_tilt*sign
+     brow.keyframe_insert('location',frame=f); brow.keyframe_insert('rotation_euler',frame=f)
+     brow.location.y -= brow_lift
+     brow.rotation_euler.z -= brow_tilt*sign
+     brow.keyframe_insert('location',frame=min(end,f+3)); brow.keyframe_insert('rotation_euler',frame=min(end,f+3))
   # Multiple eye darts create readable thought/reaction beats instead of a frozen stare.
   eye_dart_fracs=(0.16,0.39,0.68)
   for dart_i,frac in enumerate(eye_dart_fracs):
