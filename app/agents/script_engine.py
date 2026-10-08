@@ -120,11 +120,11 @@ def _sentence(text: str, role: str) -> str:
     if not clean:
         return clean
     if role == "escalation":
-        return clean.rstrip("!?") + "!"
+        return clean.rstrip(".!?") + "!"
     if role == "reaction":
         return clean.rstrip(".!?") + ("?" if "?" in clean else ".")
     if role == "payoff":
-        return clean.rstrip("!?") + "."
+        return clean.rstrip(".!?") + "."
     return clean.rstrip(".!?") + "."
 
 
