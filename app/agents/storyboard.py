@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from app.agents.world_engine import WorldEngine
 from app.agents.performance import plan_performance
 from app.agents.shot_performance import build_shot_performance_spec
-from app.agents.reference_preflight import build_reference_manifest, assert_reference_preflight
+from app.agents.reference_preflight import build_reference_manifest, assert_reference_preflight, required_reference_props
 
 
 @dataclass(frozen=True)
@@ -110,7 +110,7 @@ def build_storyboard(draft: dict) -> Storyboard:
         performance["reference_manifest"] = build_reference_manifest(
             character=str(draft.get("character", "")),
             scene=str(world["scene"]),
-            props=[world["prop"]],
+            props=sorted(set([world["prop"], *required_reference_props(action)])),
         )
         assert_reference_preflight(
             action,
