@@ -171,6 +171,16 @@ def test_impact_facial_reaction_is_asymmetric_toward_action_hand():
     assert 'side_weight=1.25 if contact_side and side==contact_side else 0.75 if contact_side else 1.0' in text
 
 
+def test_organic_face_brows_pose_with_action_and_return_to_neutral():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "brows=face.get('brows',())" in text
+    assert "'shock':0.045,'overwhelmed':0.018,'deadpan':-0.012" in text
+    assert "brow.keyframe_insert('location',frame=f)" in text
+    assert "brow.keyframe_insert('location',frame=min(end,f+3))" in text
+    assert "brow.keyframe_insert('rotation_euler',frame=min(end,f+3))" in text
+
+
 def test_gaze_darts_return_to_the_evaluated_pose_without_accumulating():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
