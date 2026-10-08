@@ -156,6 +156,13 @@ def test_blender_source_declares_secondary_motion_and_profile_driven_chain():
     assert "'engine':'blender-cutout-performance-rig-v5'" in text
 
 
+def test_secondary_hand_follow_through_emphasizes_the_acting_hand():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "acting_hand={'press_button':'R','give_homework':'L'" in text
+    assert 'follow_weight=1.35 if side==acting_hand else 0.65 if acting_hand else 1.0' in text
+
+
 def test_impact_facial_reaction_is_asymmetric_toward_action_hand():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
