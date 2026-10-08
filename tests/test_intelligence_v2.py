@@ -114,6 +114,9 @@ def test_learning_scores_and_portfolio_are_diversity_aware(tmp_path, monkeypatch
     memory = build_strategy_memory()
     assert memory["observations"] == 3
     assert "dance" in memory["strategy"]["preferred_formats"]
+    assert "interactions" in memory["posteriors"]
+    assert "format_name__character" in memory["posteriors"]["interactions"]
+    assert "dance|MOMO" in memory["posteriors"]["interactions"]["format_name__character"]
     assert score_candidate({"format_name":"dance","hook_pattern":"pov","emotion":"cute","character":"MOMO","trend_score":0.8}, memory) > 0.5
     selected = select_portfolio([
         {"idea_id":"1","format_name":"dance","character":"MOMO","trend_score":0.8,"saturation_score":0.1},
