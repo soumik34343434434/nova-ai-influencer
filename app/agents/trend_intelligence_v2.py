@@ -192,6 +192,39 @@ def infer_emotions(text: str) -> tuple[str, ...]:
     return tuple(x[0] for x in sorted(scored, key=lambda x: (-x[1], x[0]))[:4])
 
 
+def recompute_opportunity_score(signal: dict[str, Any]) -> dict[str, Any]:
+    """Recalculate opportunity from the signal's current evidence, including history."""
+    formats = tuple(signal.get("formats") or ())
+    emotions = tuple(signal.get("emotions") or ())
+    freshness = float(signal.get("freshness_score", 0.0) or 0.0)
+    velocity = float(signal.get("velocity_score", 0.0) or 0.0)
+    cross_platform = float(signal.get("cross_platform_score", 0.0) or 0.0)
+    saturation = float(signal.get("saturation_score", 0.0) or 0.0)
+    novelty = float(signal.get("novelty_score", 0.0) or 0.0)
+    opportunity = (
+        0.24 * velocity
+        + 0.20 * cross_platform
+        + 0.20 * novelty
+        + 0.16 * max(0.0, 1.0 - saturation)
+        + 0.10 * min(1.0, len(formats) / 2)
+        + 0.10 * min(1.0, len(emotions) / 2)
+    )
+    content_fit = score_content_opportunity(signal)
+    opportunity = round(0.65 * opportunity + 0.35 * content_fit["content_opportunity_score"], 4)
+    return {
+        "opportunity_score": opportunity,
+        "content_opportunity_score": content_fit["content_opportunity_score"],
+        "trend_strength_score": content_fit["trend_strength_score"],
+        "production_feasibility_score": content_fit["production_feasibility_score"],
+        "hook_strength_score": content_fit["hook_strength_score"],
+        "emotion_fit_score": content_fit["emotion_fit_score"],
+        "originality_score": content_fit["originality_score"],
+        "character_fit": content_fit["character_fit"],
+        "best_character": content_fit["best_character"],
+        "best_format": content_fit["best_format"],
+    }
+
+
 def _engagement_rate(row: dict[str, Any]) -> float:
     views = max(int(row.get("views", 0) or 0), 1)
     return min(1.0, (
@@ -251,14 +284,15 @@ def enrich_signals(rows: Iterable[dict[str, Any]], now: datetime | None = None) 
         repetition = min(1.0, (mention_count - 1) / 5.0)
         saturation = min(1.0, 0.45 * repetition + 0.25 * cross_platform + 0.30 * (1.0 - fresh))
         novelty = max(0.05, 1.0 - 0.60 * saturation)
-        opportunity = (
-            0.24 * velocity
-            + 0.20 * cross_platform
-            + 0.20 * novelty
-            + 0.16 * max(0.0, 1.0 - saturation)
-            + 0.10 * min(1.0, len(formats) / 2)
-            + 0.10 * min(1.0, len(emotions) / 2)
-        )
+        opportunity = recompute_opportunity_score({
+            "formats": formats, "emotions": emotions,
+            "freshness_score": fresh, "velocity_score": velocity,
+            "cross_platform_score": cross_platform, "saturation_score": saturation,
+            "novelty_score": novelty, "title": _norm(str(head.get("title", ""))),
+            "description": str(head.get("description", "")),
+            "category": str(head.get("category", "")), "hashtags": head.get("hashtags") or [],
+            "music": str(head.get("music", "")), "hook_patterns": hooks,
+        })["opportunity_score"]
         title = _norm(str(head.get("title", "")))
         stable = hashlib.sha256(re.sub(r"[^a-z0-9]+", "-", title.lower()).encode()).hexdigest()[:12]
         trend_id = f"trend-{stable}"
@@ -283,7 +317,19 @@ def enrich_signals(rows: Iterable[dict[str, Any]], now: datetime | None = None) 
             "novelty_score": novelty,
             "saturation_score": saturation,
         })
-        opportunity = round(0.65 * opportunity + 0.35 * content_fit["content_opportunity_score"], 4)
+        recomputed = recompute_opportunity_score({
+            "title": title, "description": str(head.get("description", "")),
+            "category": str(head.get("category", "")), "hashtags": head.get("hashtags") or [],
+            "music": str(head.get("music", "")), "formats": formats,
+            "hook_patterns": hooks, "emotions": emotions,
+            "velocity_score": velocity, "freshness_score": fresh,
+            "cross_platform_score": cross_platform, "novelty_score": novelty,
+            "saturation_score": saturation,
+        })
+        content_fit.update({k: recomputed[k] for k in (
+            "content_opportunity_score", "best_character", "best_format", "character_fit"
+        )})
+        opportunity = recomputed["opportunity_score"]
         notes = []
         if not any(x.get("source_type") == "youtube" for x in group):
             notes.append("no_direct_youtube_signal")

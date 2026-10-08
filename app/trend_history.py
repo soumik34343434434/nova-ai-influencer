@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
+from app.agents.trend_intelligence_v2 import recompute_opportunity_score
+
 
 ROOT = Path(__file__).resolve().parents[1]
 HISTORY_FILE = ROOT / "artifacts" / "cartoon" / "trend_history.json"
@@ -79,6 +81,7 @@ def attach_historical_signals(signals: Iterable[dict[str, Any]], history: list[d
                 ),
                 4,
             )
+            item.update(recompute_opportunity_score(item))
         else:
             item["historical_snapshot_count"] = len(past)
             item["historical_growth_rate"] = 0.0

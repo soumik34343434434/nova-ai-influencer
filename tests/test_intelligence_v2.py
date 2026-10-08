@@ -68,6 +68,23 @@ def test_historical_snapshot_changes_only_with_matching_history():
     assert out[0]["historical_growth_rate"] > 0
 
 
+def test_historical_signals_recompute_opportunity_score():
+    row = enrich_signals([_trend()])[0].__dict__
+    history = [
+        {"trend_id": row["trend_id"], "views": 100000, "captured_at": "2026-10-06T00:00:00+00:00"},
+        {"trend_id": row["trend_id"], "views": 110000, "captured_at": "2026-10-06T12:00:00+00:00"},
+        {"trend_id": row["trend_id"], "views": 112000, "captured_at": "2026-10-07T00:00:00+00:00"},
+        {"trend_id": row["trend_id"], "views": 90000, "captured_at": "2026-10-07T12:00:00+00:00"},
+        {"trend_id": row["trend_id"], "views": 95000, "captured_at": "2026-10-08T00:00:00+00:00"},
+    ]
+    baseline = row["opportunity_score"]
+    updated = attach_historical_signals([row], history)[0]
+    assert updated["historical_snapshot_count"] == 5
+    assert updated["historical_growth_rate"] > 0
+    assert updated["opportunity_score"] != baseline
+    assert updated["content_opportunity_score"] != row["content_opportunity_score"]
+
+
 def test_format_engine_uses_learned_memory():
     signal = _trend()
     memory = build_strategy_memory([])
