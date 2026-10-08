@@ -16,6 +16,7 @@ from typing import Any, Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 METRICS_FILE = ROOT / "artifacts" / "cartoon" / "metrics.json"
+METRICS_HISTORY_FILE = ROOT / "artifacts" / "cartoon" / "metrics_history.json"
 STRATEGY_FILE = ROOT / "artifacts" / "cartoon" / "strategy_memory.json"
 
 
@@ -100,15 +101,39 @@ def normalize_metric(row: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _snapshot_key(row: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(row.get("content_id", "")),
+        str(row.get("platform", "")),
+        str(row.get("captured_at", "") or ""),
+    )
+
+
+def load_metric_history() -> list[dict[str, Any]]:
+    return _load_rows(METRICS_HISTORY_FILE)
+
+
 def ingest(rows: Iterable[dict[str, Any] | ExperimentMetric]) -> list[dict[str, Any]]:
     existing = _load_rows(METRICS_FILE)
-    by_key = {(str(x.get("content_id")), str(x.get("platform"))): x for x in existing}
+    history = load_metric_history()
+    latest_by_key = {(str(x.get("content_id")), str(x.get("platform"))): x for x in existing}
+    history_by_key = {_snapshot_key(x): x for x in history}
     for item in rows:
-        row = asdict(item) if isinstance(item, ExperimentMetric) else dict(item)
-        by_key[(str(row.get("content_id", "")), str(row.get("platform", "")))] = normalize_metric(row)
-    merged = list(by_key.values())
-    _write_json(METRICS_FILE, merged)
-    return merged
+        row = normalize_metric(asdict(item) if isinstance(item, ExperimentMetric) else dict(item))
+        content_key = (str(row.get("content_id", "")), str(row.get("platform", "")))
+        # Keep a durable snapshot history, but deduplicate an exact capture.
+        history_by_key[_snapshot_key(row)] = row
+        current = latest_by_key.get(content_key)
+        current_at = str(current.get("captured_at", "")) if current else ""
+        new_at = str(row.get("captured_at", ""))
+        if current is None or new_at >= current_at:
+            latest_by_key[content_key] = row
+    latest = list(latest_by_key.values())
+    history = list(history_by_key.values())
+    history.sort(key=lambda x: (str(x.get("captured_at", "")), str(x.get("content_id", "")), str(x.get("platform", ""))))
+    _write_json(METRICS_FILE, latest)
+    _write_json(METRICS_HISTORY_FILE, history)
+    return latest
 
 
 def _beta_posterior(values: list[float], prior_alpha: float = 2.0, prior_beta: float = 2.0) -> tuple[float, float, float]:
