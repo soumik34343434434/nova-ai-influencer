@@ -175,6 +175,25 @@ def build_strategy_memory(rows: Iterable[dict[str, Any]] | None = None) -> dict[
         key: _group(normalized, key)
         for key in ("format_name", "hook_pattern", "emotion", "character", "trend_id")
     }
+    interactions = {}
+    for left, right in (("format_name", "hook_pattern"), ("format_name", "character"), ("hook_pattern", "emotion")):
+        groups = defaultdict(list)
+        for row in normalized:
+            a = str(row.get(left, "") or "").strip()
+            b = str(row.get(right, "") or "").strip()
+            if a and b:
+                groups[f"{a}|{b}"].append(float(row.get("score", 0.0) or 0.0))
+        table = {}
+        for value, vals in groups.items():
+            alpha, beta, mean = _beta_posterior(vals)
+            table[value] = {
+                "observations": len(vals),
+                "posterior_mean": round(mean, 4),
+                "ucb": round(_ucb(mean, len(vals), len(normalized)), 4),
+                "raw_mean": round(sum(vals) / len(vals), 4),
+            }
+        interactions[f"{left}__{right}"] = table
+    posteriors["interactions"] = interactions
 
     def top_keys(key: str, n: int = 4) -> list[str]:
         table = posteriors[key]
@@ -255,6 +274,17 @@ def score_candidate(candidate: dict[str, Any], memory: dict[str, Any] | None = N
             known.append(0.55 + exploration * 0.25)
 
     exploitation = sum(known) / len(known) if known else 0.5
+    interaction_values = []
+    interaction_map = post.get("interactions", {})
+    for left, right in (("format_name", "hook_pattern"), ("format_name", "character"), ("hook_pattern", "emotion")):
+        a = str(candidate.get(left, "") or "").strip()
+        b = str(candidate.get(right, "") or "").strip()
+        if a and b:
+            row = interaction_map.get(f"{left}__{right}", {}).get(f"{a}|{b}")
+            if row:
+                interaction_values.append(float(row.get("ucb", row.get("posterior_mean", 0.5))))
+    interaction_score = sum(interaction_values) / len(interaction_values) if interaction_values else exploitation
+    exploitation = 0.82 * exploitation + 0.18 * interaction_score
     novelty = 1.0 - float(candidate.get("saturation_score", 0.0) or 0.0)
     trend = float(candidate.get("trend_score", 0.0) or 0.0)
     cost = float(candidate.get("production_cost", 0.5) or 0.5)
