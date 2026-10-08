@@ -29,14 +29,71 @@ BLOCKED_NAMES = {".env", ".env.local", ".git"}
 app = FastAPI(title="NOVA n8n Upgrade Executor", version="1.0")
 
 TARGETS = [
-    ("script", 7.5),
-    ("performance_animation", 7.0),
-    ("audio", 7.0),
-    ("editor", 7.0),
-    ("final_qa", 7.0),
-    ("publishing", 4.0),
-    ("analytics", 5.5),
+    ("performance_animation", 6.8),
+    ("audio", 8.5),
+    ("editor", 9.0),
+    ("final_qa", 9.1),
+    ("publishing", None),
+    ("analytics", None),
 ]
+
+QUALITY_PROGRESS = REPO / "docs" / "QUALITY_PROGRESS.json"
+ENGINE_ORDER = (
+    "performance_animation",
+    "audio",
+    "editor",
+    "final_qa",
+    "publishing",
+    "analytics",
+)
+
+
+def _load_quality_progress() -> dict:
+    """Load the durable engine-by-engine quality scoreboard."""
+    default = {
+        "version": 1,
+        "quality_floor": 8.5,
+        "note": "Scores are evidence-backed engineering targets; creative scores remain human-review targets.",
+        "engines": {
+            "performance_animation": {
+                "status": "active",
+                "score": 6.8,
+                "areas": {
+                    "animation_mechanics": 8.2,
+                    "anticipation_contact_overshoot": 8.3,
+                    "secondary_motion": 7.8,
+                    "facial_acting": 7.5,
+                    "camera_acting": 6.8,
+                    "background_visual_world": 7.5,
+                },
+            },
+            "audio": {"status": "complete", "score": 8.5},
+            "editor": {"status": "complete", "score": 9.0},
+            "final_qa": {"status": "complete", "score": 9.1},
+            "publishing": {"status": "pending", "score": None},
+            "analytics": {"status": "pending", "score": None},
+        },
+    }
+    if not QUALITY_PROGRESS.exists():
+        return default
+    try:
+        loaded = json.loads(QUALITY_PROGRESS.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return default
+    if not isinstance(loaded, dict) or not isinstance(loaded.get("engines"), dict):
+        return default
+    return loaded
+
+
+def _current_upgrade_target() -> tuple[str, dict]:
+    """Return the first engine that is not durably marked complete."""
+    progress = _load_quality_progress()
+    engines = progress.get("engines", {})
+    for name in ENGINE_ORDER:
+        row = engines.get(name)
+        if isinstance(row, dict) and row.get("status") != "complete":
+            return name, row
+    return ENGINE_ORDER[-1], {"status": "complete", "score": 8.5}
 
 class Action(BaseModel):
     action: str
@@ -206,35 +263,50 @@ def _codex_cycle() -> dict:
         branch = "codex/overnight-" + datetime.now().strftime("%Y%m%d-%H%M%S")
         run(["git", "switch", "-c", branch])
 
+    target_name, target_state = _current_upgrade_target()
+    progress = _load_quality_progress()
+    quality_floor = float(progress.get("quality_floor", 8.5) or 8.5)
+
     prompt = f'''You are the autonomous senior engineer for the NOVA AI influencer repository.
 
 WORKTREE: {REPO}
 BRANCH: {branch}
 OPEN PR: {json.dumps(pr) if pr else "none"}
 
-Roadmap, in strict order, with current scores:
-1 Script Engine 7.5
-2 Performance/Animation AI 7.0
-3 Audio Engine 7.0
-4 Editor AI 7.0
-5 Final QA 7.0
-6 Publishing 4.0
-7 Analytics 5.5
+QUALITY CONTROL:
+- Quality floor: {quality_floor}
+- Active engine: {target_name}
+- Active engine progress: {json.dumps(target_state, ensure_ascii=False)}
+- Durable scoreboard: docs/QUALITY_PROGRESS.json
+- config/cartoon_quality_targets.json is the authoritative definition of quality areas and minimums.
+- The scoreboard is the sequencing authority. One engine stays active until its required areas are supported at >= {quality_floor}; only then may the next engine begin.
 
-Execute exactly one subsystem upgrade cycle. Choose the highest-priority subsystem still below 8.5, unless an existing open PR above is the subsystem you must repair. Inspect current code and tests first. Implement a real integrated improvement and add regression tests. Run focused tests and then the full pytest suite when feasible.
+STRICT ENGINE ORDER:
+1 Performance/Animation AI
+2 Audio Engine
+3 Editor AI
+4 Final QA
+5 Publishing
+6 Analytics
+
+Script Engine and Story Engine are already frozen/completed and MUST NOT be selected for new work. Do not create structural or regression-only Script Engine changes while the active target is {target_name}. A change is valid only when it materially improves the active target.
+
+Execute exactly ONE upgrade cycle for the active engine: inspect -> identify the largest evidenced gap -> implement -> add regression tests -> run focused tests -> run the full pytest suite when feasible -> update docs/QUALITY_PROGRESS.json with evidence-backed area scores/status. Keep the same engine active across multiple cycles until every required area is at least {quality_floor}. Do not advance to a later engine just because one PR was successful.
+
+For Performance/Animation AI, stay inside these quality areas until all are >= {quality_floor}: animation_mechanics, anticipation_contact_overshoot, secondary_motion, facial_acting, camera_acting, background_visual_world. Prefer real character-performance improvements over cosmetic camera-only tricks, and prioritize rig integrity, gaze/facial continuity, hands/arms, anticipation/contact/overshoot/recoil/settle, and targeted motion repair.
 
 IMPORTANT BOUNDARIES:
 - Use the ChatGPT-authenticated Codex account; do not use an API key.
 - Do NOT use git, gh, or network commands. The host executor handles branch/commit/push/PR/merge.
 - Do NOT touch .env, scripts/n8n_*, workflows/n8n/*, or other infrastructure files.
-- Do not fabricate scores, metrics, CI results, or credentials.
+- Do not fabricate scores, metrics, CI results, or credentials. A score update must cite concrete code/test evidence; when evidence is insufficient, keep the engine active.
 - Do not spend Runway credits.
 - Keep the existing Story Engine freeze intact.
-- Stop after one subsystem is actually implemented and tested.
+- Stop after one meaningful improvement within the active engine.
 
-At the end, report the subsystem, concrete changes, focused tests, full-suite result, and any blocker.'''
+At the end, report: active engine, exact quality area improved, concrete changes, evidence/test results, updated scoreboard status, and any blocker.'''
     if pr:
-        prompt += "\n\nThe existing PR had failed required checks. Repair only the relevant implementation and tests. Failed-check output:\n" + _pr_checks(int(pr["number"]))[1][-8000:]
+        prompt += "\n\nThe existing PR had failed required checks. Repair only the active engine. Failed-check output:\n" + _pr_checks(int(pr["number"]))[1][-8000:]
 
     codex = _codex_exec(prompt)
     if not codex["ok"]:

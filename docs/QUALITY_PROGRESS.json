@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "quality_floor": 8.5,
+  "note": "Scores are evidence-backed engineering targets; creative scores remain human-review targets. An engine remains active until its required areas are supported at or above the floor.",
+  "engines": {
+    "performance_animation": {
+      "status": "active",
+      "score": 6.8,
+      "areas": {
+        "animation_mechanics": 8.2,
+        "anticipation_contact_overshoot": 8.3,
+        "secondary_motion": 7.8,
+        "facial_acting": 7.5,
+        "camera_acting": 6.8,
+        "background_visual_world": 7.5
+      }
+    },
+    "audio": {
+      "status": "complete",
+      "score": 8.5,
+      "evidence": "voice_synchronization target is 8.5 and protected in config/cartoon_quality_targets.json"
+    },
+    "editor": {
+      "status": "complete",
+      "score": 9,
+      "evidence": "captions target is 9.0 and protected in config/cartoon_quality_targets.json"
+    },
+    "final_qa": {
+      "status": "complete",
+      "score": 9.1,
+      "evidence": "technical_quality target is 9.1 and protected in config/cartoon_quality_targets.json"
+    },
+    "publishing": {
+      "status": "pending",
+      "score": null
+    },
+    "analytics": {
+      "status": "pending",
+      "score": null
+    }
+  }
+}
