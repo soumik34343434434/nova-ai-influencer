@@ -81,9 +81,11 @@ def current_state() -> dict:
 
 
 def _changed_paths() -> list[str]:
-    raw = run(["git", "status", "--porcelain=v1"])
+    proc = subprocess.run(["git", "status", "--porcelain=v1"], cwd=REPO, text=True, capture_output=True, timeout=30)
+    if proc.returncode:
+        raise RuntimeError((proc.stdout + proc.stderr).strip()[-4000:] or "git status failed")
     paths: list[str] = []
-    for line in raw.splitlines():
+    for line in proc.stdout.splitlines():
         if not line:
             continue
         entry = line[3:] if len(line) >= 4 else line
