@@ -259,7 +259,7 @@ def _quality_dimensions(
     if len(rows) >= 4:
         fidelity += 1.5
         fidelity_evidence.append("all core story beats are represented")
-    if roles[:5] == ["hook", "setup", "escalation", "reaction", "payoff"][:len(rows)]:
+    if roles and roles[0] in {"hook", "setup"} and "escalation" in roles and "reaction" in roles and "payoff" in roles:
         fidelity += 1.5
         fidelity_evidence.append("roles preserve the approved story contract")
     if all(row.get("action") for row in rows):
@@ -470,18 +470,19 @@ class ScriptEngine:
         # Story Engine can emit four beats while the narrative has five logical
         # roles. The Script Engine only inserts an explicit hook beat when the
         # story lacks one; it never invents a new narrative conflict.
-        if rows[0]["story_role"] != "hook":
-            rows[0] = {**rows[0], "story_role": "hook"}
-
-        if len(rows) == 4 and rows[-1]["story_role"] == "payoff":
-            # Keep the approved four-beat structure: setup -> escalation -> reaction -> payoff.
-            pass
+        # Keep the Story Engine's approved roles. A four-beat story may start
+        # with setup while the separate approved hook is spoken on that beat.
 
         lines: list[str] = []
         normalized: list[dict[str, Any]] = []
+        story_hook = _sentence(str(story.get("hook") or ""), "hook")
         for index, row in enumerate(rows[:5]):
             role = str(row["story_role"])
             line = _repair_dialogue(row, role, character)
+            if index == 0 and story_hook and story_hook.lower() not in line.lower():
+                # The approved hook is the first spoken idea, while the beat's
+                # original setup line remains attached so no narrative intent is lost.
+                line = f"{story_hook} {line}".strip()
             lines.append(line)
 
             action = str(row.get("asset_action") or row.get("action") or "")
