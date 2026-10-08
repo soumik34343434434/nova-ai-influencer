@@ -253,9 +253,13 @@ def write_pose(arm,frame,spec):
  head.keyframe_insert('rotation_euler',index=2,frame=kframe(head_lag))
  head.keyframe_insert('location',frame=kframe(head_lag))
  hand_follow=math.radians(hand_follow_deg*drive*phase_weight)
+ acting_hand={'press_button':'R','give_homework':'L','tap_alarm':'R','open_fridge':'R','tap_shoes':'R','shock':'L','overwhelmed':'R'}.get(spec.get('_action',''))
  for side in ('L','R'):
   hand=arm.pose.bones[f'hand.{side}']
-  hand.rotation_euler.z += hand_follow*(1.0 if side=='R' else -1.0)
+  # Let the performing hand lead the follow-through; the other hand keeps a
+  # smaller counter-motion so one-handed actions do not read as mirrored flaps.
+  follow_weight=1.35 if side==acting_hand else 0.65 if acting_hand else 1.0
+  hand.rotation_euler.z += hand_follow*follow_weight*(1.0 if side=='R' else -1.0)
   hand.keyframe_insert('rotation_euler',index=2,frame=kframe(hand_lag))
  beat_scale={'setup':1.0,'escalation':1.035,'reaction':0.965,'punchline':0.99}.get(spec.get('_beat','setup'),1.0)
  phase_scale={'approach':1.0,'anticipation':0.975,'contact_approach':1.015,'contact':1.055,'overshoot':0.94,'recoil':1.02,'settle':1.0}.get(phase,1.0)
