@@ -1,0 +1,429 @@
+{
+  "id": "nova-live-factory-001",
+  "name": "NOVA Live Factory",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "nova-manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "nova-schedule-trigger",
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 500]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/api/n8n/runs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-create-run",
+      "name": "Create NOVA Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [280, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/1_research",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-1",
+      "name": "1 Research",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [560, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/2_trend_intelligence",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-2",
+      "name": "2 Trend Intelligence",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [840, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/3_idea_generator",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-3",
+      "name": "3 Idea Generator",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/4_idea_evaluator",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-4",
+      "name": "4 Idea Jury",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/5_script_engine",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-5",
+      "name": "5 Script Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1680, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/6_storyboard_engine",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-6",
+      "name": "6 Storyboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1960, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/7_asset_engine",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-7",
+      "name": "7 Asset Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2240, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/8_animation_engine",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-8",
+      "name": "8 Animation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2520, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/9_audio_engine",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-9",
+      "name": "9 Audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2800, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/10_caption_engine",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-10",
+      "name": "10 Captions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3080, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/11_video_qa",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-11",
+      "name": "11 Video QA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3360, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/12_publish",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-12",
+      "name": "12 Publish",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3640, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/13_analytics",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-13",
+      "name": "13 Analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3920, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/14_learning",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-14",
+      "name": "14 Learning",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4200, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-status",
+      "name": "Final Run Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4480, 400]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{"node": "Create NOVA Run", "type": "main", "index": 0}]]
+    },
+    "Daily Trigger": {
+      "main": [[{"node": "Create NOVA Run", "type": "main", "index": 0}]]
+    },
+    "Create NOVA Run": {
+      "main": [[{"node": "1 Research", "type": "main", "index": 0}]]
+    },
+    "1 Research": {
+      "main": [[{"node": "2 Trend Intelligence", "type": "main", "index": 0}]]
+    },
+    "2 Trend Intelligence": {
+      "main": [[{"node": "3 Idea Generator", "type": "main", "index": 0}]]
+    },
+    "3 Idea Generator": {
+      "main": [[{"node": "4 Idea Jury", "type": "main", "index": 0}]]
+    },
+    "4 Idea Jury": {
+      "main": [[{"node": "5 Script Engine", "type": "main", "index": 0}]]
+    },
+    "5 Script Engine": {
+      "main": [[{"node": "6 Storyboard", "type": "main", "index": 0}]]
+    },
+    "6 Storyboard": {
+      "main": [[{"node": "7 Asset Engine", "type": "main", "index": 0}]]
+    },
+    "7 Asset Engine": {
+      "main": [[{"node": "8 Animation", "type": "main", "index": 0}]]
+    },
+    "8 Animation": {
+      "main": [[{"node": "9 Audio", "type": "main", "index": 0}]]
+    },
+    "9 Audio": {
+      "main": [[{"node": "10 Captions", "type": "main", "index": 0}]]
+    },
+    "10 Captions": {
+      "main": [[{"node": "11 Video QA", "type": "main", "index": 0}]]
+    },
+    "11 Video QA": {
+      "main": [[{"node": "12 Publish", "type": "main", "index": 0}]]
+    },
+    "12 Publish": {
+      "main": [[{"node": "13 Analytics", "type": "main", "index": 0}]]
+    },
+    "13 Analytics": {
+      "main": [[{"node": "14 Learning", "type": "main", "index": 0}]]
+    },
+    "14 Learning": {
+      "main": [[{"node": "Final Run Status", "type": "main", "index": 0}]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d5fefb8c-7b8e-4b2b-b642-fb2ad4d4df1a",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
