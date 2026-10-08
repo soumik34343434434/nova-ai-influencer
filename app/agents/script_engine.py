@@ -483,7 +483,10 @@ class ScriptEngine:
         lines: list[str] = []
         normalized: list[dict[str, Any]] = []
         story_hook = _clean_text(str(story.get("hook") or ""))
-        for index, row in enumerate(rows[:5]):
+        # The Story Engine currently emits at most five beats, but callers may
+        # provide an already-approved contract with additional transition
+        # beats. Preserve those beats instead of silently dropping content.
+        for index, row in enumerate(rows):
             role = str(row["story_role"])
             line = _repair_dialogue(row, role, character)
             if index == 0 and story_hook and story_hook.lower() not in line.lower():

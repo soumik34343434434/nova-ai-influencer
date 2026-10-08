@@ -83,3 +83,32 @@ def test_five_beats_fit_minimum_supported_duration():
     assert all(abs(left["timing_end"] - right["timing_start"]) < 0.002
                for left, right in zip(beats, beats[1:]))
     assert beats[-1]["timing_end"] == 5.0
+
+
+def test_script_engine_preserves_all_approved_beats_beyond_five():
+    story = _story()
+    story["duration_target"] = 10.0
+    story["beats"].insert(2, {
+        "story_role": "escalation",
+        "asset_action": "glances_at_many_tabs",
+        "voice": "Now every appliance wants an update.",
+        "visual": "PIP sees every appliance light up.",
+        "story_intent": "add a distinct consequence before the reaction",
+        "sfx": "notification",
+    })
+    story["beats"].insert(3, {
+        "story_role": "escalation",
+        "asset_action": "sees_calendar",
+        "voice": "The toaster booked a meeting about it.",
+        "visual": "A calendar alert appears on the toaster.",
+        "story_intent": "raise the absurdity with a second consequence",
+        "sfx": "impact",
+    })
+
+    contract = ScriptEngine().build(story).to_dict()
+
+    assert len(contract["beats"]) == 6
+    assert "Now every appliance wants an update!" in contract["text"]
+    assert contract["beats"][2]["source_voice"] == "Now every appliance wants an update."
+    assert contract["beats"][3]["source_voice"] == "The toaster booked a meeting about it."
+    assert abs(sum(row["duration"] for row in contract["beats"]) - 10.0) <= 0.01
