@@ -14,7 +14,7 @@
         "camera_acting": 6.8,
         "background_visual_world": 7.5
       },
-      "evidence": "Camera acting implementation improved in tools/blender/pip_cutout_rig_v2.py: impact shake is now phase-locked, guaranteed nonzero at escalation contact, and decays through overshoot and recoil instead of being determined by an unrelated frame-frequency sine that could cancel at impact. Regression contract added in tests/test_blender_animation.py. Python 3.14 compilation passed. Focused pytest and full pytest could not run because pytest is not installed (python3 -m pytest reports No module named pytest); no Blender render was available for creative review. The camera_acting score remains 6.8 pending visual review and scoreboard evidence; other area scores are unchanged. performance_animation remains active."
+      "evidence": "Facial acting improvement in tools/blender/pip_cutout_rig_v2.py: eye darts now start from the evaluated eye pose for each dart and key a return to that pose two frames later, preventing cumulative offsets and persistent gaze drift. Regression contract added in tests/test_blender_animation.py. Python 3.14 compilation, direct gaze-dart contract check, and scoreboard JSON validation passed. Focused pytest and full pytest could not run because pytest is not installed (python3 -m pytest reports No module named pytest). No render review was performed, so facial_acting remains at 7.7 pending visual evidence; other area scores are unchanged and performance_animation remains active."
     },
     "audio": {
       "status": "complete",
