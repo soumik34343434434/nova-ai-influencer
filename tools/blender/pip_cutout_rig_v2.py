@@ -423,10 +423,20 @@ def camera_performance_keys(arm, cam, beats, rows=None):
                 'punchline':{'approach':0.0,'anticipation':-0.008,'contact_approach':-0.018,'contact':-0.040,'overshoot':-0.052,'recoil':-0.020,'settle':-0.060},
             }[beat][phase]
             lateral={'setup':0.0,'escalation':0.055,'reaction':-0.075,'punchline':0.085}.get(beat,0.0)
-            curve=math.sin(math.pi*frac); shake_amp={'setup':0.0,'escalation':0.010 if phase in ('contact','overshoot') else 0.0,'reaction':0.003,'punchline':0.003 if phase in ('contact','settle') else 0.0}.get(beat,0.0)
-            shake=math.sin(frame*1.21)*shake_amp
+            curve=math.sin(math.pi*frac)
+            # Lock the camera kick to the performed impact instead of an
+            # unrelated frame-frequency oscillation. The authored phase
+            # envelope gives a clear hit, then a smaller follow-through and
+            # recoil response; it cannot accidentally cancel at contact.
+            shake_profile={
+                'setup':{'approach':0.0,'anticipation':0.0,'contact_approach':0.0,'contact':0.0,'overshoot':0.0,'recoil':0.0,'settle':0.0},
+                'escalation':{'approach':0.0,'anticipation':0.0,'contact_approach':0.0,'contact':0.010,'overshoot':0.0065,'recoil':0.0025,'settle':0.0},
+                'reaction':{'approach':0.0,'anticipation':0.0,'contact_approach':0.001,'contact':0.003,'overshoot':0.002,'recoil':0.001,'settle':0.0},
+                'punchline':{'approach':0.0,'anticipation':0.0,'contact_approach':0.0,'contact':0.003,'overshoot':0.002,'recoil':0.001,'settle':0.0},
+            }
+            shake=shake_profile[beat][phase]
             cam.location.x=loc.x*0.08 + focus_x*focus_w + lateral*curve + shake
-            cam.location.y=loc.y*0.06 + focus_y*focus_w + math.cos(frame*0.71)*shake_amp*0.40
+            cam.location.y=loc.y*0.06 + focus_y*focus_w + shake*0.40
             cam.location.z=30.0
             cam.data.ortho_scale=max(10.0,base_scale[beat]*action_scale.get(action,1.0)*(1.0+punch))
             cam.rotation_euler.z=root.rotation_euler.z*0.05 + math.radians(shake*1.2)

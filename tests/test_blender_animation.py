@@ -45,6 +45,14 @@ def test_camera_contact_focus_peaks_at_impact_and_releases_on_settle():
     assert 'focus_y=fy+(contact_focus[1]-fy)*focus_mix' in text
 
 
+def test_camera_impact_shake_is_phase_locked_and_decays_after_contact():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "'escalation':{'approach':0.0,'anticipation':0.0,'contact_approach':0.0,'contact':0.010,'overshoot':0.0065,'recoil':0.0025,'settle':0.0}" in text
+    assert 'shake=shake_profile[beat][phase]' in text
+    assert 'math.sin(frame*1.21)*shake_amp' not in text
+
+
 def test_blender_episode_metadata_contract_in_source():
     root=Path(__file__).resolve().parents[1]
     text=(root/'app'/'providers'/'blender_animation.py').read_text(encoding='utf-8')
