@@ -37,6 +37,15 @@ def test_camera_action_focus_tracks_performed_contact_hand():
     assert 'point = arm.matrix_world @ hand.matrix.translation' not in text
 
 
+def test_camera_reaction_focus_tracks_the_performed_head_pose():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "if action in {'shock', 'overwhelmed', 'deadpan'}:" in text
+    assert "head = arm.pose.bones.get('head')" in text
+    assert 'point = arm.matrix_world @ head.tail' in text
+    assert 'focus_x=fx+(contact_focus[0]-fx)*focus_mix' in text
+
+
 def test_camera_contact_focus_peaks_at_impact_and_releases_on_settle():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')

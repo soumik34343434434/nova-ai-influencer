@@ -14,7 +14,7 @@
         "camera_acting": 6.8,
         "background_visual_world": 7.5
       },
-      "evidence": "Facial acting improvement in tools/blender/pip_cutout_rig_v2.py: eye darts now start from the evaluated eye pose for each dart and key a return to that pose two frames later, preventing cumulative offsets and persistent gaze drift. Regression contract added in tests/test_blender_animation.py. Python 3.14 compilation, direct gaze-dart contract check, and scoreboard JSON validation passed. Focused pytest and full pytest could not run because pytest is not installed (python3 -m pytest reports No module named pytest). No render review was performed, so facial_acting remains at 7.7 pending visual evidence; other area scores are unchanged and performance_animation remains active."
+      "evidence": "Camera acting improvement in tools/blender/pip_cutout_rig_v2.py: _performed_action_focus now follows the evaluated head-bone endpoint for shock, overwhelmed, and deadpan reaction shots, alongside its existing posed-hand focus for contact actions. Regression contract added in tests/test_blender_animation.py. Python 3.14 compilation of the Blender script and test module passed, and scoreboard JSON validation passed. Focused pytest could not run because pytest is not installed (python3 -m pytest reports No module named pytest); full pytest was therefore not run. No Blender render review was performed, so camera_acting remains 6.8 pending visual evidence; other area scores are unchanged and performance_animation remains active."
     },
     "audio": {
       "status": "complete",
