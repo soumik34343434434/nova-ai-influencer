@@ -178,6 +178,15 @@ def test_impact_facial_reaction_is_asymmetric_toward_action_hand():
     assert 'side_weight=1.25 if contact_side and side==contact_side else 0.75 if contact_side else 1.0' in text
 
 
+def test_shock_brow_reaction_leads_at_contact_and_releases_through_recoil():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "brow_reaction={'contact':0.055,'overshoot':0.040,'recoil':0.018,'settle':0.0}.get(phase,0.0) if action=='shock' else 0.0" in text
+    assert 'left_brow_lift=lift + brow_reaction*(1.0 if contact_side < 0 else 0.35)' in text
+    assert 'right_brow_lift=lift + brow_reaction*(1.0 if contact_side > 0 else 0.35)' in text
+    assert 'brow_l.location.y += left_brow_lift; brow_r.location.y += right_brow_lift' in text
+
+
 def test_organic_face_brows_pose_with_action_and_return_to_neutral():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')

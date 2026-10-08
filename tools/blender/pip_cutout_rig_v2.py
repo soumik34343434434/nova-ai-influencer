@@ -302,8 +302,13 @@ def key_face(face,frame,spec):
    brow_l.rotation_euler.z=a+math.radians(0.08*spec['head_rot'] + (8.0 if action=='overwhelmed' else 3.0 if action=='deadpan' else 0.0))
    brow_r.rotation_euler.z=a+math.radians(0.08*spec['head_rot'] + (-8.0 if action=='overwhelmed' else -3.0 if action=='deadpan' else 0.0))
    lift=0.14 if action=='shock' or phase in ('contact','overshoot') else -0.06 if action in ('deadpan','overwhelmed') else 0.0
+   # Shock reads as a caught, uneven reaction: the brow over the acting side
+   # leads at contact, then relaxes through recoil instead of holding a mask.
+   brow_reaction={'contact':0.055,'overshoot':0.040,'recoil':0.018,'settle':0.0}.get(phase,0.0) if action=='shock' else 0.0
+   left_brow_lift=lift + brow_reaction*(1.0 if contact_side < 0 else 0.35)
+   right_brow_lift=lift + brow_reaction*(1.0 if contact_side > 0 else 0.35)
    brow_l.location=wp(offsets['Eye.L']); brow_r.location=wp(offsets['Eye.R'])
-   brow_l.location.y += lift; brow_r.location.y += lift
+   brow_l.location.y += left_brow_lift; brow_r.location.y += right_brow_lift
    brow_l.keyframe_insert('location',frame=frame+1); brow_r.keyframe_insert('location',frame=frame+1)
    brow_l.keyframe_insert('rotation_euler',index=2,frame=frame+1); brow_r.keyframe_insert('rotation_euler',index=2,frame=frame+1)
   mouth=face['mouth']
