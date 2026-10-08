@@ -211,7 +211,7 @@ At the end, report the subsystem, concrete changes, focused tests, full-suite re
     pr = _open_pr_for_branch(branch)
     if not pr:
         body = "Autonomous Codex upgrade cycle.\n\n" + codex["output"][-7000:] + "\n\nFull pytest:\n" + tests[-5000:]
-        run(["gh", "pr", "create", "--base", "main", "--head", "HEAD", "--title", "NOVA autonomous subsystem upgrade", "--body", body])
+        run(["gh", "pr", "create", "--base", "main", "--head", branch, "--title", "NOVA autonomous subsystem upgrade", "--body", body])
         pr = _open_pr_for_branch(branch)
     return {"ok": True, "status": "pr_created_or_updated", "branch": branch, "changed": changed, "tests": tests, "commit": commit, "push": push, "pr": pr, "codex": codex}
 
