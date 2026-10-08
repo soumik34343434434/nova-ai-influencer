@@ -62,6 +62,13 @@ def test_camera_impact_shake_is_phase_locked_and_decays_after_contact():
     assert 'math.sin(frame*1.21)*shake_amp' not in text
 
 
+def test_camera_escalation_push_peaks_after_contact_and_releases_on_recoil():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "'contact_approach':-0.020,'contact':-0.105,'overshoot':-0.125,'recoil':-0.045,'settle':-0.010" in text
+    assert "cam.data.ortho_scale=max(10.0,base_scale[beat]*action_scale.get(action,1.0)*(1.0+punch))" in text
+
+
 def test_blender_episode_metadata_contract_in_source():
     root=Path(__file__).resolve().parents[1]
     text=(root/'app'/'providers'/'blender_animation.py').read_text(encoding='utf-8')
