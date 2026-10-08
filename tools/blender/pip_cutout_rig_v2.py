@@ -561,7 +561,20 @@ def build_story_world(rows,beats):
             if action=='shock':
                 for n,(ox,oy,dx,dy,rz) in enumerate(((-0.72,0.15,-0.18,0.82,-18),(0.18,0.22,0.24,0.96,12),(0.86,0.04,0.36,0.72,24))):
                     burst=prop_box(f'PropFlyingPaper.{idx}.{n}',(x+ox,y+oy),(0.54,0.72,0.03),mats['paper'],z=0.29+0.01*n); burst.rotation_euler.z=math.radians(rz); objs.append(burst)
-                    burst.keyframe_insert('location',frame=round(start+(end-start)*0.20)); burst.location.x += dx; burst.location.y += dy; burst.keyframe_insert('location',frame=round(start+(end-start)*0.72)); burst.location.x += dx*0.35; burst.location.y += dy*0.25; burst.keyframe_insert('location',frame=end)
+                    # The burst leaves the printer at contact, reaches its arc at
+                    # overshoot, then visibly recoils and settles with the actor.
+                    base_location=burst.location.copy(); base_rotation=burst.rotation_euler.z
+                    frame_at=lambda phase: round(start+(end-start)*phase)
+                    burst.keyframe_insert('location',frame=frame_at(0.58)); burst.keyframe_insert('rotation_euler',index=2,frame=frame_at(0.58))
+                    burst.location.x=base_location.x+dx; burst.location.y=base_location.y+dy
+                    burst.rotation_euler.z=base_rotation+math.radians(rz*0.55)
+                    burst.keyframe_insert('location',frame=frame_at(0.72)); burst.keyframe_insert('rotation_euler',index=2,frame=frame_at(0.72))
+                    burst.location.x=base_location.x+dx*0.58; burst.location.y=base_location.y+dy*0.58
+                    burst.rotation_euler.z=base_rotation+math.radians(rz*0.28)
+                    burst.keyframe_insert('location',frame=frame_at(0.84)); burst.keyframe_insert('rotation_euler',index=2,frame=frame_at(0.84))
+                    burst.location.x=base_location.x+dx*0.52; burst.location.y=base_location.y+dy*0.52
+                    burst.rotation_euler.z=base_rotation+math.radians(rz*0.22)
+                    burst.keyframe_insert('location',frame=frame_at(1.0)); burst.keyframe_insert('rotation_euler',index=2,frame=frame_at(1.0))
         elif kind=='phone':
             body=prop_box(f'PropPhone.{idx}',(x,y),(1.35,0.68,0.10),mats['dark'],z=0.31); objs.append(body)
             screen=prop_box(f'PropPhoneScreen.{idx}',(x,y+0.01),(1.08,0.52,0.035),mats['accent'],z=0.38); objs.append(screen)
