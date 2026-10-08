@@ -69,6 +69,29 @@ def test_orchestrator_applies_learning_policy_to_ideas(monkeypatch, tmp_path):
     assert ranked[0]["learning_adjustment"] > ranked[1]["learning_adjustment"]
 
 
+def test_ingest_preserves_metric_history_without_double_counting_strategy_observations(tmp_path, monkeypatch):
+    monkeypatch.setattr(learning, "METRICS_FILE", tmp_path / "metrics.json")
+    monkeypatch.setattr(learning, "METRICS_HISTORY_FILE", tmp_path / "metrics_history.json")
+    monkeypatch.setattr(learning, "STRATEGY_FILE", tmp_path / "strategy.json")
+
+    first = _metric("story-1", "story_comedy", 0.70)
+    first["captured_at"] = "2026-10-08T10:00:00+00:00"
+    second = dict(first)
+    second.update({"views": 2400, "likes": 300, "shares": 160, "retention_pct": 88, "score": 0.92, "captured_at": "2026-10-08T16:00:00+00:00"})
+
+    learning.ingest([first])
+    learning.ingest([second])
+
+    latest = learning._load_rows(learning.METRICS_FILE)
+    history = learning.load_metric_history()
+    memory = learning.build_strategy_memory()
+    assert len(latest) == 1
+    assert latest[0]["views"] == 2400
+    assert len(history) == 2
+    assert [x["captured_at"] for x in history] == [first["captured_at"], second["captured_at"]]
+    assert memory["observations"] == 1
+
+
 def test_metrics_change_future_policy(tmp_path, monkeypatch):
     monkeypatch.setattr(learning, "METRICS_FILE", tmp_path / "metrics.json")
     monkeypatch.setattr(learning, "STRATEGY_FILE", tmp_path / "strategy.json")
