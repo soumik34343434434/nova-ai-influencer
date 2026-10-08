@@ -227,6 +227,36 @@ class CartoonControlPlane:
         self.store.mark_complete(run)
         return run
 
+    def run_stage(self, run: CartoonRun | None, stage: CartoonStage) -> CartoonRun:
+        """Execute exactly one stage, preserving the durable checkpoint contract."""
+        run = run or self.store.create()
+        index = list(STAGES).index(stage)
+        if any(
+            run.stages.get(previous.value) is None
+            or run.stages[previous.value].status != "passed"
+            for previous in STAGES[:index]
+        ):
+            raise ValueError(f"Cannot run {stage.value} before earlier stages pass")
+        existing = run.stages.get(stage.value)
+        if existing and existing.status == "passed":
+            return run
+        handler = self.handlers.get(stage)
+        if handler is None:
+            raise ValueError(f"No handler registered for {stage.value}")
+        for attempt in range(self.max_retries + 1):
+            self.store.begin_stage(run, stage)
+            try:
+                artifact = handler(run) or {}
+                self.store.finish_stage(run, stage, artifact)
+                if stage is STAGES[-1]:
+                    self.store.mark_complete(run)
+                return run
+            except Exception as exc:
+                self.store.fail_stage(run, stage, f"{type(exc).__name__}: {exc}")
+                if attempt == self.max_retries:
+                    return run
+        return run
+
     def resume(self, run_id: str) -> CartoonRun:
         run = CartoonRunStore(run_id)
         return self.run(run.load())
