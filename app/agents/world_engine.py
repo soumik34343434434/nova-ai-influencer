@@ -17,11 +17,20 @@ class WorldEngine:
     def choose_scene(self, text: str, shot_index: int = 0) -> str:
         lower = text.lower()
         scenes = self.data["scenes"]
+        # Explicit location/context signals outrank generic objects such as
+        # "notification", which can occur in several scenes.
+        if any(term in lower for term in ("metro", "commute", "train carriage")):
+            return "metro"
+        if any(term in lower for term in ("cafe", "coffee shop", "caffeine")):
+            return "cafe"
+        if any(term in lower for term in ("bedroom", "home desk", "late night", "doomscrolling")):
+            return "home"
+
         direct = {
             "office": ("meeting", "manager", "calendar", "presentation", "deadline", "office", "backlog", "task", "tasks", "work", "phone", "notification", "message"),
-            "home": ("tabs", "browser", "late night", "doomscrolling", "bedroom", "home desk"),
+            "home": ("tabs", "browser", "bedroom", "home desk"),
             "cafe": ("coffee", "cafe", "caffeine", "weekend"),
-            "metro": ("metro", "commute", "notification", "earbuds", "train carriage"),
+            "metro": ("earbuds",),
         }
         hits = [(sum(term in lower for term in terms), name) for name, terms in direct.items()]
         hits.sort(reverse=True)

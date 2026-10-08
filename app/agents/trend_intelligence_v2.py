@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+
+from app.agents.trend_opportunity import score_content_opportunity
 import hashlib
 import json
 import math
@@ -102,6 +104,10 @@ class TrendSignalV2:
     confidence: float = 0.0
     evidence: tuple[str, ...] = ()
     capability_notes: tuple[str, ...] = ()
+    content_opportunity_score: float = 0.0
+    best_character: str = ""
+    best_format: str = ""
+    character_fit: dict[str, float] | None = None
 
 
 def _norm(text: str) -> str:
@@ -262,6 +268,22 @@ def enrich_signals(rows: Iterable[dict[str, Any]], now: datetime | None = None) 
             f"freshness_proxy={fresh:.3f}",
             f"saturation_proxy={saturation:.3f}",
         ]
+        content_fit = score_content_opportunity({
+            "title": title,
+            "description": str(head.get("description", "")),
+            "category": str(head.get("category", "")),
+            "hashtags": head.get("hashtags") or [],
+            "music": str(head.get("music", "")),
+            "formats": formats,
+            "hook_patterns": hooks,
+            "emotions": emotions,
+            "velocity_score": velocity,
+            "freshness_score": fresh,
+            "cross_platform_score": cross_platform,
+            "novelty_score": novelty,
+            "saturation_score": saturation,
+        })
+        opportunity = round(0.65 * opportunity + 0.35 * content_fit["content_opportunity_score"], 4)
         notes = []
         if not any(x.get("source_type") == "youtube" for x in group):
             notes.append("no_direct_youtube_signal")
@@ -299,10 +321,14 @@ def enrich_signals(rows: Iterable[dict[str, Any]], now: datetime | None = None) 
             cross_platform_score=round(cross_platform, 4),
             saturation_score=round(saturation, 4),
             novelty_score=round(novelty, 4),
-            opportunity_score=round(opportunity, 4),
+            opportunity_score=opportunity,
             confidence=round(min(1.0, 0.45 + 0.12 * min(source_count, 3) + 0.08 * bool(hooks)), 4),
             evidence=tuple(evidence),
             capability_notes=tuple(notes),
+            content_opportunity_score=content_fit["content_opportunity_score"],
+            best_character=content_fit["best_character"],
+            best_format=content_fit["best_format"],
+            character_fit=content_fit["character_fit"],
         ))
     return sorted(output, key=lambda x: (x.opportunity_score, x.velocity_score), reverse=True)
 
