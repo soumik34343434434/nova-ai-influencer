@@ -677,10 +677,18 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
   eye_dart_fracs=(0.16,0.39,0.68)
   for dart_i,frac in enumerate(eye_dart_fracs):
    df=start+round((end-start)*frac)
+   if not start < df < end-2:
+    continue
+   bpy.context.scene.frame_set(df)
    for eye,sign in zip(face['eyes'],(-1,1)):
     dart_mag={'shock':0.032,'overwhelmed':0.040,'deadpan':0.020}.get(action,0.024)
-    eye.location.x += dart_mag*(1.0 if dart_i%2==0 else -0.7)*sign
+    # Evaluate the authored eye position at this dart, then return to that
+    # pose after two frames. Never add the next dart on top of a prior offset.
+    origin=eye.location.copy()
+    eye.location.x=origin.x + dart_mag*(1.0 if dart_i%2==0 else -0.7)*sign
     eye.keyframe_insert('location',frame=df)
+    eye.location=origin
+    eye.keyframe_insert('location',frame=df+2)
   # Tiny speech-driven head bob without breaking the action pose.
   activity=(rows[idx].get('activity') if idx < len(rows) else []) if rows else []
   if activity:
