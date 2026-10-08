@@ -480,9 +480,11 @@ class ScriptEngine:
             role = str(row["story_role"])
             line = _repair_dialogue(row, role, character)
             if index == 0 and story_hook and story_hook.lower() not in line.lower():
-                # The approved hook is the first spoken idea, while the beat's
-                # original setup line remains attached so no narrative intent is lost.
-                line = f"{story_hook} {line}".strip()
+                # The approved hook owns the first spoken beat. The setup action
+                # and story intent remain attached to this beat, but dialogue is
+                # not concatenated with setup prose; this preserves clean hook
+                # delivery and gives downstream timing a single spoken intent.
+                line = story_hook
             lines.append(line)
 
             action = str(row.get("asset_action") or row.get("action") or "")
