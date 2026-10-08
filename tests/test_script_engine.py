@@ -82,6 +82,18 @@ def test_script_engine_keeps_four_beat_story_roles():
     assert [row["story_role"] for row in contract["beats"]] == ["setup", "escalation", "reaction", "payoff"]
 
 
+def test_approved_hook_is_the_exact_first_spoken_line():
+    story = _story()
+    story["beats"][0]["voice"] = (
+        "PIP asked for one sandwich. Big mistake! Also, extra setup dialogue."
+    )
+
+    contract = ScriptEngine().build(story).to_dict()
+
+    assert contract["beats"][0]["dialogue"] == story["hook"]
+    assert contract["text"].splitlines()[0] == story["hook"]
+
+
 def test_script_engine_rejects_too_few_story_beats():
     story = _story()
     story["beats"] = story["beats"][:3]

@@ -536,11 +536,13 @@ class ScriptEngine:
         for index, row in enumerate(rows):
             role = str(row["story_role"])
             line = _repair_dialogue(row, role, character)
-            if index == 0 and story_hook and story_hook.lower() not in line.lower():
+            if index == 0 and story_hook:
                 # The approved hook owns the first spoken beat. The setup action
                 # and story intent remain attached to this beat, but dialogue is
                 # not concatenated with setup prose; this preserves clean hook
                 # delivery and gives downstream timing a single spoken intent.
+                # Require an exact match: allowing the hook as a substring can
+                # silently append setup dialogue and dilute the approved opener.
                 line = story_hook
             lines.append(line)
 
