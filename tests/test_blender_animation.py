@@ -193,9 +193,12 @@ def test_gaze_darts_return_to_the_evaluated_pose_without_accumulating():
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
     assert 'bpy.context.scene.frame_set(df)' in text
     assert 'origin=eye.location.copy()' in text
-    assert 'eye.location.x=origin.x + dart_mag' in text
+    assert 'dart_delta=dart_mag*(1.0 if dart_i%2==0 else -0.7)' in text
+    assert 'eye.location.x=origin.x + dart_delta' in text
     assert 'eye.location=origin' in text
     assert 'eye.keyframe_insert(\'location\',frame=df+2)' in text
+    assert 'pupil.location.x=pupil_origin.x + dart_delta' in text
+    assert 'pupil.keyframe_insert(\'location\',frame=df+2)' in text
 
 
 def test_blender_episode_audio_helper_creates_missing_work_directory(tmp_path):

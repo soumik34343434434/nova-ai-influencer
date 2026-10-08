@@ -706,15 +706,23 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
    if not start < df < end-2:
     continue
    bpy.context.scene.frame_set(df)
-   for eye,sign in zip(face['eyes'],(-1,1)):
+   for eye,pupil in zip(face['eyes'],face['pupils']):
     dart_mag={'shock':0.032,'overwhelmed':0.040,'deadpan':0.020}.get(action,0.024)
-    # Evaluate the authored eye position at this dart, then return to that
-    # pose after two frames. Never add the next dart on top of a prior offset.
+    # Both eyes and pupils move together in screen space to form a shared
+    # glance. Evaluate each authored position before applying the dart so
+    # successive darts do not accumulate offsets.
+    dart_delta=dart_mag*(1.0 if dart_i%2==0 else -0.7)
     origin=eye.location.copy()
-    eye.location.x=origin.x + dart_mag*(1.0 if dart_i%2==0 else -0.7)*sign
+    eye.location.x=origin.x + dart_delta
     eye.keyframe_insert('location',frame=df)
     eye.location=origin
     eye.keyframe_insert('location',frame=df+2)
+    if pupil is not None:
+     pupil_origin=pupil.location.copy()
+     pupil.location.x=pupil_origin.x + dart_delta
+     pupil.keyframe_insert('location',frame=df)
+     pupil.location=pupil_origin
+     pupil.keyframe_insert('location',frame=df+2)
   # Tiny speech-driven head bob without breaking the action pose.
   activity=(rows[idx].get('activity') if idx < len(rows) else []) if rows else []
   if activity:
