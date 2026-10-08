@@ -373,7 +373,13 @@ def _action_focus(action):
 
 
 def _performed_action_focus(action, arm, fallback):
-    """Blend the authored action focus toward the currently posed contact hand."""
+    """Blend the authored action focus toward the currently posed action target."""
+    if action in {'shock', 'overwhelmed', 'deadpan'}:
+        head = arm.pose.bones.get('head')
+        if head is None:
+            return fallback
+        point = arm.matrix_world @ head.tail
+        return (float(point.x), float(point.y))
     hand_side = {
         'give_homework': 'L', 'press_button': 'R', 'tap_alarm': 'R',
         'open_fridge': 'R', 'tap_shoes': 'R',
