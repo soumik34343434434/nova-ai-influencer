@@ -14,7 +14,7 @@
         "camera_acting": 6.8,
         "background_visual_world": 7.5
       },
-      "evidence": "Facial acting improved by eye-leading gaze interpolation in app/providers/cartoon_pose_library.py: gaze eases out ahead of smoothstep body travel while preserving anticipation/overshoot extrapolation. Regression coverage added in tests/test_blender_animation.py; pytest is unavailable in the current environment, so execution evidence is limited to successful Python compilation. Other area scores and the engine score remain unchanged; performance_animation stays active."
+      "evidence": "Facial acting gained a directional impact response in tools/blender/pip_cutout_rig_v2.py: the eye on the action-hand side receives 1.25x impact eye-open response and the far eye 0.75x during contact/overshoot (also applies proportionally to recoil); action-to-side mapping is used in both organic and standard face rigs. Regression contract added in tests/test_blender_animation.py. Python 3.14 compilation passed. Focused and full pytest runs could not run because pytest is not installed; no Blender render was available for creative review. Facial acting remains 7.7 and engine score remains 6.8 pending visual review; performance_animation stays active."
     },
     "audio": {
       "status": "complete",
