@@ -20,6 +20,10 @@ n8n acts as the visible workflow/control layer while NOVA keeps durable stage ch
 
 ## Workflow
 
-`workflows/n8n/nova_live_factory.json` contains the inactive full factory workflow. It has manual and daily triggers followed by one HTTP node per durable NOVA stage, ending with a final run-status read.
+`workflows/n8n/nova_live_factory.json` contains the inactive full factory workflow. It has manual and daily triggers followed by one HTTP node per durable NOVA stage, ending with a final run-status read. The current workflow has 15 durable stages; `5 Story Engine` is the hard narrative-quality gate between Idea Jury and Script Engine.
 
 The workflow is intentionally imported inactive. Production activation remains a deliberate operator action until the end-to-end quality gates are ready.
+
+## Durable stage order
+
+`Research → Trend Intelligence → Idea Generator → Idea Jury → Story Engine → Script Engine → Storyboard → Asset Engine → Animation → Audio → Captions → Video QA → Publish → Analytics → Learning`

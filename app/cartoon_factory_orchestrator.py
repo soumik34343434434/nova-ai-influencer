@@ -36,6 +36,7 @@ from app.agents.cartoon_motion_qa import CartoonMotionQA
 from app.agents.cartoon_quality import CartoonQuality
 from app.agents.cartoon_research import discover, rank, ResearchSignal
 from app.agents.storyboard import build_storyboard
+from app.agents.story_engine import StoryEngine
 from app.cartoon_control import CartoonControlPlane, CartoonRun, CartoonRunStore, CartoonStage
 from app.providers.cartoon_animation import render_cartoon_motion, rerender_cartoon_shots
 from app.providers.blender_animation import BlenderAnimationProvider
@@ -64,6 +65,7 @@ class CartoonFactoryOrchestrator:
         self.quality = quality or CartoonQuality()
         self.jury = jury or CartoonIdeaJury()
         self.animatic_judge = animatic_judge or AnimaticJudge()
+        self.story_engine = StoryEngine()
         self.plane = CartoonControlPlane(max_retries=1)
         self._register()
 
@@ -72,6 +74,7 @@ class CartoonFactoryOrchestrator:
         self.plane.register(CartoonStage.TREND_INTELLIGENCE, self._trend_intelligence)
         self.plane.register(CartoonStage.IDEA_GENERATOR, self._idea_generator)
         self.plane.register(CartoonStage.IDEA_EVALUATOR, self._idea_evaluator)
+        self.plane.register(CartoonStage.STORY_ENGINE, self._story_engine)
         self.plane.register(CartoonStage.SCRIPT_ENGINE, self._script_engine)
         self.plane.register(CartoonStage.STORYBOARD_ENGINE, self._storyboard_engine)
         self.plane.register(CartoonStage.ASSET_ENGINE, self._asset_engine)
@@ -257,10 +260,12 @@ class CartoonFactoryOrchestrator:
                 continue
             deterministic = self.quality.evaluate(candidate, recent)
             jury = self.jury.judge(candidate)
-            if deterministic.passed and jury.passed:
+            story_quality = self.story_engine.evaluate(candidate)
+            if deterministic.passed and jury.passed and story_quality.passed:
                 score = round(
-                    deterministic.score * 0.45
-                    + jury.score * 0.35
+                    deterministic.score * 0.35
+                    + jury.score * 0.30
+                    + story_quality.score / 10.0 * 0.15
                     + float(candidate["research"].get("score", 0.0)) * 0.20,
                     3,
                 )
@@ -269,6 +274,7 @@ class CartoonFactoryOrchestrator:
                     "candidate": candidate,
                     "evaluation": asdict(deterministic),
                     "jury": jury_to_dict(jury),
+                    "story_quality": story_quality.to_dict(),
                 })
         preselected.sort(key=lambda item: item["score"], reverse=True)
         attempts = []
@@ -288,7 +294,7 @@ class CartoonFactoryOrchestrator:
                 winner = item
                 break
         if winner is None:
-            raise RuntimeError("No candidate passed the idea jury and cheap animatic gate")
+            raise RuntimeError("No candidate passed the idea jury, story quality gate, and cheap animatic gate")
         self.plane.store.set_payload(
             run,
             winner=winner,
@@ -317,12 +323,31 @@ class CartoonFactoryOrchestrator:
             "animatic_attempts": len(attempts),
         }
 
+    def _story_engine(self, run: CartoonRun) -> dict[str, Any]:
+        candidate = run.payload["winner"]["candidate"]
+        story = self.story_engine.build(candidate).to_dict()
+        self.plane.store.set_payload(run, story=story, story_quality=story["quality"])
+        return {
+            "status": "passed",
+            "score": story["quality"]["score"],
+            "min_dimension": story["quality"]["min_dimension_score"],
+            "dimensions": story["quality"]["dimension_count"],
+            "quality_floor": story["quality"]["quality_floor"],
+        }
+
     def _script_engine(self, run: CartoonRun) -> dict[str, Any]:
         candidate = run.payload["winner"]["candidate"]
-        script_lines = [beat["voice"] for beat in candidate["beats"]]
+        story = run.payload.get("story", {})
+        beats = story.get("beats") or candidate["beats"]
+        script_lines = [str(beat.get("voice", "")).strip() for beat in beats if str(beat.get("voice", "")).strip()]
         script = "\n\n".join(script_lines)
-        self.plane.store.set_payload(run, script=script, hook=candidate["hook"], title=candidate["title"])
-        return {"beats": len(script_lines), "target_seconds": "8-15"}
+        self.plane.store.set_payload(
+            run,
+            script=script,
+            hook=story.get("hook", candidate["hook"]),
+            title=story.get("premise", candidate["title"]),
+        )
+        return {"beats": len(script_lines), "target_seconds": f"{story.get('duration_target', candidate.get('duration_target', 8.0)):.1f}", "story_locked": True}
 
     def _storyboard_engine(self, run: CartoonRun) -> dict[str, Any]:
         candidate = run.payload["winner"]["candidate"]

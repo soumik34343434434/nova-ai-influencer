@@ -27,19 +27,33 @@ class CartoonStage(str, Enum):
     TREND_INTELLIGENCE = "2_trend_intelligence"
     IDEA_GENERATOR = "3_idea_generator"
     IDEA_EVALUATOR = "4_idea_evaluator"
-    SCRIPT_ENGINE = "5_script_engine"
-    STORYBOARD_ENGINE = "6_storyboard_engine"
-    ASSET_ENGINE = "7_asset_engine"
-    ANIMATION_ENGINE = "8_animation_engine"
-    AUDIO_ENGINE = "9_audio_engine"
-    CAPTION_ENGINE = "10_caption_engine"
-    VIDEO_QA = "11_video_qa"
-    PUBLISH = "12_publish"
-    ANALYTICS = "13_analytics"
-    LEARNING = "14_learning"
+    STORY_ENGINE = "5_story_engine"
+    SCRIPT_ENGINE = "6_script_engine"
+    STORYBOARD_ENGINE = "7_storyboard_engine"
+    ASSET_ENGINE = "8_asset_engine"
+    ANIMATION_ENGINE = "9_animation_engine"
+    AUDIO_ENGINE = "10_audio_engine"
+    CAPTION_ENGINE = "11_caption_engine"
+    VIDEO_QA = "12_video_qa"
+    PUBLISH = "13_publish"
+    ANALYTICS = "14_analytics"
+    LEARNING = "15_learning"
 
 
 STAGES = tuple(CartoonStage)
+
+LEGACY_STAGE_MAP = {
+    "5_script_engine": "6_script_engine",
+    "6_storyboard_engine": "7_storyboard_engine",
+    "7_asset_engine": "8_asset_engine",
+    "8_animation_engine": "9_animation_engine",
+    "9_audio_engine": "10_audio_engine",
+    "10_caption_engine": "11_caption_engine",
+    "11_video_qa": "12_video_qa",
+    "12_publish": "13_publish",
+    "13_analytics": "14_analytics",
+    "14_learning": "15_learning",
+}
 
 
 @dataclass
@@ -92,6 +106,20 @@ class CartoonRunStore:
         if not self.path.exists():
             raise FileNotFoundError(f"Unknown cartoon run: {self.run_id}")
         raw = json.loads(self.path.read_text())
+        raw_stages = raw.get("stages", {})
+        # Runs created before the Story Engine was inserted used stages 5-14.
+        # Migrate those durable checkpoints in-memory so resume/repair remains
+        # safe after the stage insertion. New runs never take this path.
+        is_legacy = "5_script_engine" in raw_stages and "5_story_engine" not in raw_stages
+        if is_legacy:
+            migrated = {}
+            for key, value in raw_stages.items():
+                new_key = LEGACY_STAGE_MAP.get(key, key)
+                row = dict(value)
+                row["stage"] = new_key
+                migrated[new_key] = row
+            raw_stages = migrated
+            raw["current_stage"] = LEGACY_STAGE_MAP.get(raw["current_stage"], raw["current_stage"])
         return CartoonRun(
             run_id=raw["run_id"],
             created_at=raw["created_at"],
@@ -100,7 +128,7 @@ class CartoonRunStore:
             payload=raw.get("payload", {}),
             stages={
                 key: StageRecord(**value)
-                for key, value in raw.get("stages", {}).items()
+                for key, value in raw_stages.items()
             },
         )
 
@@ -163,7 +191,7 @@ class CartoonRunStore:
 
     def mark_complete(self, run: CartoonRun) -> None:
         run.status = "completed"
-        run.current_stage = CartoonStage.LEARNING.value
+        run.current_stage = STAGES[-1].value
         self._write(run)
 
     def repair_from(self, run: CartoonRun, stage: CartoonStage) -> None:
