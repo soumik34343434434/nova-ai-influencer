@@ -475,7 +475,7 @@ class ScriptEngine:
 
         lines: list[str] = []
         normalized: list[dict[str, Any]] = []
-        story_hook = _sentence(str(story.get("hook") or ""), "hook")
+        story_hook = _clean_text(str(story.get("hook") or ""))
         for index, row in enumerate(rows[:5]):
             role = str(row["story_role"])
             line = _repair_dialogue(row, role, character)
