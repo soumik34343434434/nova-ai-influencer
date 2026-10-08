@@ -37,6 +37,7 @@ from app.agents.cartoon_quality import CartoonQuality
 from app.agents.cartoon_research import discover, rank, ResearchSignal
 from app.agents.storyboard import build_storyboard
 from app.agents.story_engine import StoryEngine
+from app.agents.script_engine import ScriptEngine
 from app.cartoon_control import CartoonControlPlane, CartoonRun, CartoonRunStore, CartoonStage
 from app.providers.cartoon_animation import render_cartoon_motion, rerender_cartoon_shots
 from app.providers.blender_animation import BlenderAnimationProvider
@@ -66,6 +67,7 @@ class CartoonFactoryOrchestrator:
         self.jury = jury or CartoonIdeaJury()
         self.animatic_judge = animatic_judge or AnimaticJudge()
         self.story_engine = StoryEngine()
+        self.script_engine = ScriptEngine()
         self.plane = CartoonControlPlane(max_retries=1)
         self._register()
 
@@ -337,17 +339,25 @@ class CartoonFactoryOrchestrator:
 
     def _script_engine(self, run: CartoonRun) -> dict[str, Any]:
         candidate = run.payload["winner"]["candidate"]
-        story = run.payload.get("story", {})
-        beats = story.get("beats") or candidate["beats"]
-        script_lines = [str(beat.get("voice", "")).strip() for beat in beats if str(beat.get("voice", "")).strip()]
-        script = "\n\n".join(script_lines)
+        story = run.payload.get("story") or candidate
+        contract = self.script_engine.build(story).to_dict()
         self.plane.store.set_payload(
             run,
-            script=script,
-            hook=story.get("hook", candidate["hook"]),
-            title=story.get("premise", candidate["title"]),
+            script_contract=contract,
+            script=contract["text"],
+            hook=contract["hook"],
+            title=contract["title"],
         )
-        return {"beats": len(script_lines), "target_seconds": f"{story.get('duration_target', candidate.get('duration_target', 8.0)):.1f}", "story_locked": True}
+        return {
+            "status": "passed",
+            "beats": len(contract["beats"]),
+            "target_seconds": f"{contract["target_duration"]:.1f}",
+            "quality_score": contract["quality"]["score"],
+            "min_dimension": contract["quality"]["min_dimension_score"],
+            "quality_floor": contract["quality"]["quality_floor"],
+            "dimensions": contract["quality"]["dimension_count"],
+            "story_locked": True,
+        }
 
     def _storyboard_engine(self, run: CartoonRun) -> dict[str, Any]:
         candidate = run.payload["winner"]["candidate"]
