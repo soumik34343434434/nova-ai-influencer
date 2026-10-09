@@ -250,6 +250,17 @@ def _camera_geometry(progress: float, beat: str, voice_performance: dict | None 
     return x, y, crop_w, crop_h, angle, sx, sy
 
 
+def _impact_shake_envelope(progress: float, event_fraction: float, beat: str) -> float:
+    """Return a brief shake envelope centered on the choreographed impact."""
+    if beat not in {"escalation", "reaction"}:
+        return 0.0
+    start = max(0.0, event_fraction - 0.10)
+    end = min(1.0, event_fraction + 0.10)
+    if end <= start or progress <= start or progress >= end:
+        return 0.0
+    return math.sin(math.pi * (progress - start) / (end - start))
+
+
 def _transform_part(
     layer: Image.Image,
     dx: float,
@@ -858,9 +869,7 @@ def motion_frame(
 
     # Deterministic impact shake around escalation/reaction peaks. The window
     # is deliberately short: the eye should read an event, not camera jitter.
-    peak_start = 0.34 if beat == "escalation" else 0.36 if beat == "reaction" else 1.0
-    peak_end = 0.52 if beat == "escalation" else 0.50 if beat == "reaction" else 1.0
-    shake_window = math.sin(math.pi * max(0.0, min(1.0, (p - peak_start) / max(0.01, peak_end - peak_start))))
+    shake_window = _impact_shake_envelope(p, camera_state["event_fraction"], beat)
     shake = profile.shake * shake_window * shake_gain
     if shake:
         dx = int(math.sin(shot_index * 8 + p * 70) * shake)

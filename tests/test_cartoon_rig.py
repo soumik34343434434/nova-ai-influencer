@@ -118,6 +118,17 @@ def test_camera_push_anticipates_action_and_releases_after_impact():
     assert unrelated == 0.0
 
 
+def test_impact_camera_shake_follows_custom_event_timing():
+    from app.providers.cartoon_animation import _impact_shake_envelope
+
+    event = 0.73
+    assert _impact_shake_envelope(event, event, "escalation") == 1.0
+    assert _impact_shake_envelope(event - 0.10, event, "escalation") == 0.0
+    assert _impact_shake_envelope(event + 0.10, event, "escalation") == 0.0
+    assert _impact_shake_envelope(0.43, event, "escalation") == 0.0
+    assert _impact_shake_envelope(event, event, "setup") == 0.0
+
+
 def test_kinematic_state_shares_root_motion_across_character_parts():
     from app.providers.cartoon_performance import kinematic_state, arm_motion, head_motion
     state = kinematic_state(0.5, "reaction")
