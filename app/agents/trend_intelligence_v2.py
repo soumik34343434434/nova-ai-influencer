@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 
-from app.agents.trend_opportunity import score_content_opportunity
+from app.agents.trend_opportunity import analyze_trend_transfer, score_content_opportunity
 import hashlib
 import json
 import math
@@ -108,6 +108,7 @@ class TrendSignalV2:
     best_character: str = ""
     best_format: str = ""
     character_fit: dict[str, float] | None = None
+    trend_transfer_analysis: dict[str, Any] | None = None
 
 
 def _norm(text: str) -> str:
@@ -246,6 +247,7 @@ def recompute_opportunity_score(signal: dict[str, Any]) -> dict[str, Any]:
         "character_fit": content_fit["character_fit"],
         "best_character": content_fit["best_character"],
         "best_format": content_fit["best_format"],
+        "trend_transfer_analysis": analyze_trend_transfer(signal),
     }
 
 
@@ -398,6 +400,18 @@ def enrich_signals(rows: Iterable[dict[str, Any]], now: datetime | None = None) 
             best_character=content_fit["best_character"],
             best_format=content_fit["best_format"],
             character_fit=content_fit["character_fit"],
+            trend_transfer_analysis=analyze_trend_transfer({
+                "title": title, "description": str(head.get("description", "")),
+                "category": str(head.get("category", "")), "hashtags": head.get("hashtags") or [],
+                "music": str(head.get("music", "")), "duration_seconds": head.get("duration_seconds", 0),
+                "views": max(int(x.get("views", 0) or 0) for x in group),
+                "likes": max(int(x.get("likes", 0) or 0) for x in group),
+                "comments": max(int(x.get("comments", 0) or 0) for x in group),
+                "shares": max(int(x.get("shares", 0) or 0) for x in group),
+                "source_count": source_count, "mention_count": mention_count,
+                "formats": formats, "emotions": emotions, "hook_patterns": hooks,
+                "saturation_score": saturation,
+            }),
         ))
     return sorted(output, key=lambda x: (x.opportunity_score, x.velocity_score), reverse=True)
 
