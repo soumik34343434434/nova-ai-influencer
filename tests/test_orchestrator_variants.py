@@ -17,7 +17,7 @@ def test_process_drafts_selects_one_of_three_variants(tmp_path, monkeypatch):
     fake_video = tmp_path / "nova.mp4"
     monkeypatch.setattr(
         "app.orchestrator.build_video_from_draft",
-        lambda *args, **kwargs: fake_video.write_bytes(b"video") or fake_video,
+        lambda *args, **kwargs: (fake_video.write_bytes(b"video") and fake_video),
     )
     monkeypatch.setattr("app.orchestrator.Compatibility.check_video", lambda path: None)
 
