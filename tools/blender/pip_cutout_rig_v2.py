@@ -709,9 +709,15 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
     for side,(eye,pupil) in enumerate(zip(face['eyes'],face['pupils'])):
      eye_frame=f+(blink_lag if side==1 else 0)
      reopen_frame=eye_frame+(3 if action in ('shock','overwhelmed') and side==1 else 2)
-     eye.scale.y=.12; eye.keyframe_insert('scale',index=1,frame=eye_frame); eye.scale.y=1.0; eye.keyframe_insert('scale',index=1,frame=min(end,reopen_frame))
+     # Preserve the authored expression when the blink releases. A hard-coded
+     # 1.0 reopen erases squint/widening from the action pose and makes the face
+     # pop to neutral immediately after each blink.
+     bpy.context.scene.frame_set(eye_frame)
+     eye_open=eye.scale.y
+     pupil_open=pupil.scale.y if pupil is not None else None
+     eye.scale.y=min(eye_open,0.12); eye.keyframe_insert('scale',index=1,frame=eye_frame); eye.scale.y=eye_open; eye.keyframe_insert('scale',index=1,frame=min(end,reopen_frame))
      if pupil is not None:
-      pupil.scale.y=.07; pupil.keyframe_insert('scale',index=1,frame=eye_frame); pupil.scale.y=1.0; pupil.keyframe_insert('scale',index=1,frame=min(end,reopen_frame))
+      pupil.scale.y=min(pupil_open,0.07); pupil.keyframe_insert('scale',index=1,frame=eye_frame); pupil.scale.y=pupil_open; pupil.keyframe_insert('scale',index=1,frame=min(end,reopen_frame))
   # Action-specific eye asymmetry and a small gaze dart.
   gaze_sign={'give_homework':1,'press_button':1,'shock':-1,'overwhelmed':1,'deadpan':0,'tap_alarm':-1,'open_fridge':1,'tap_shoes':1}.get(action,0)
   f=start+round((end-start)*0.42)

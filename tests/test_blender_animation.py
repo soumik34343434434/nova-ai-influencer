@@ -272,6 +272,16 @@ def test_reaction_blinks_stagger_and_hold_the_second_eye_longer():
     assert "frame=min(end,reopen_frame)" in text
 
 
+def test_blinks_restore_the_authored_expression_instead_of_neutralizing():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert 'eye_open=eye.scale.y' in text
+    assert 'eye.scale.y=min(eye_open,0.12)' in text
+    assert 'eye.scale.y=eye_open; eye.keyframe_insert' in text
+    assert 'pupil_open=pupil.scale.y if pupil is not None else None' in text
+    assert 'pupil.scale.y=pupil_open; pupil.keyframe_insert' in text
+
+
 def test_speech_head_bob_is_added_to_cached_authored_pose_without_accumulation():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
