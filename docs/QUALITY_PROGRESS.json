@@ -10,11 +10,11 @@
         "animation_mechanics": 8.3,
         "anticipation_contact_overshoot": 8.3,
         "secondary_motion": 8.4,
-        "facial_acting": 8.2,
+        "facial_acting": 8.3,
         "camera_acting": 7.4,
         "background_visual_world": 7.5
       },
-      "evidence": "This cycle improves camera acting by extending the eased look-space attention hold through recoil recovery and increasing its contribution in app/providers/cartoon_performance.py: _camera_attention_envelope. The regression test checks contact focus, sustained focus at event +0.08 and +0.24, and release by event +0.48 (tests/test_cartoon_rig.py: test_camera_holds_action_focus_through_early_recovery); existing tests also verify focus aligns with horizontal and vertical attention targets. Focused rig tests passed (27 passed); full pytest suite passed (209 passed, 3 deprecation warnings, 79.09s). Camera acting advances conservatively from 7.3 to 7.4 based on this tested timing signal; no creative render review or calibrated scoring was performed. Prior evidence remains for animation_mechanics 8.3, anticipation_contact_overshoot 8.3, secondary_motion 8.4, facial_acting 8.2, and background_visual_world 7.5. Overall performance_animation remains 7.0 and active because required areas remain below 8.5."
+      "evidence": "This cycle improves facial acting by extending the event-timed counter-glance through late head recovery in app/providers/cartoon_animation.py: _gaze_dart. The regression test checks anticipatory gaze, counter-glance at event +0.105, a diminishing but present counter-glance at +0.205, and return to neutral by +0.48 (tests/test_cartoon_rig.py: test_gaze_counter_glance_carries_through_late_head_recovery). Focused rig tests passed (28 passed); full pytest suite passed (210 passed, 3 deprecation warnings, 78.91s). Facial acting advances conservatively from 8.2 to 8.3 based on this tested continuity signal; no creative render review or calibrated scoring was performed. Prior evidence remains for animation_mechanics 8.3, anticipation_contact_overshoot 8.3, secondary_motion 8.4, camera_acting 7.4, and background_visual_world 7.5. Overall performance_animation remains 7.0 and active because required areas remain below 8.5."
     },
     "audio": {
       "status": "complete",

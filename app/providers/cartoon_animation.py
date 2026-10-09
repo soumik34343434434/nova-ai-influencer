@@ -637,6 +637,9 @@ def _gaze_dart(progress: float, event_fraction: float, energy: float, direction:
     return direction * 3.2 * energy * (
         envelope(event_fraction - 0.055, 0.045)
         - 0.55 * envelope(event_fraction + 0.105, 0.070)
+        # Let the eyes finish their recoil with a smaller late counter-glance.
+        # The wider tail avoids an abrupt return to neutral as the head settles.
+        - 0.18 * envelope(event_fraction + 0.205, 0.085)
     )
 
 

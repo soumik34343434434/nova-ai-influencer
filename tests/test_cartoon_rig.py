@@ -106,6 +106,22 @@ def test_gaze_dart_leads_event_and_releases_afterward():
     assert settled < 0.01
 
 
+def test_gaze_counter_glance_carries_through_late_head_recovery():
+    from app.providers.cartoon_animation import _gaze_dart
+
+    event = 0.40
+    anticipation = _gaze_dart(event - 0.055, event, 1.0)
+    early_recovery = _gaze_dart(event + 0.105, event, 1.0)
+    late_recovery = _gaze_dart(event + 0.205, event, 1.0)
+    settled = _gaze_dart(event + 0.48, event, 1.0)
+
+    assert anticipation > 2.5
+    assert early_recovery < 0.0
+    assert early_recovery < late_recovery < 0.0
+    assert abs(late_recovery) < abs(early_recovery)
+    assert abs(settled) < 0.02
+
+
 def test_setup_gaze_leads_and_releases_toward_left_attention_target():
     from app.providers.cartoon_animation import _face_motion, _gaze_dart
     from app.providers.cartoon_performance import kinematic_state
