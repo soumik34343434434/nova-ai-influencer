@@ -219,6 +219,8 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
     attention_x, attention_y = attention
     face_target_dx = 8.0 * attention_x * (0.35 + 0.65 * impact)
     face_target_dy = 5.0 * attention_y * (0.30 + 0.70 * impact)
+    from app.agents.camera_director import plan_camera
+    camera = plan_camera(beat, p, impact, settle)
     return {
         "event_fraction": peak,
         "root_dx": root_dx,
@@ -244,10 +246,13 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
         "speech_pulse": speech,
         # Camera tracks the root with a tiny delay, so the camera feels attached
         # to the scene and not like an independent Ken-Burns animation.
-        "camera_dx": root_dx * 0.62,
-        "camera_dy": root_dy * 0.48,
-        "camera_rot": root_rot * 0.24,
-        "camera_zoom": 0.030 * impact if beat in {"escalation", "reaction"} else 0.012 * impact,
+        "camera_dx": root_dx * (0.46 + 0.16 * camera.focus_weight),
+        "camera_dy": root_dy * (0.36 + 0.12 * camera.focus_weight),
+        "camera_rot": root_rot * 0.18 + camera.lateral_bias * 0.35,
+        "camera_zoom": camera.zoom_delta,
+        "camera_focus_weight": camera.focus_weight,
+        "camera_hold_strength": camera.hold_strength,
+        "camera_lead_seconds": camera.lead_seconds,
     }
 
 
@@ -262,3 +267,10 @@ def arm_motion(progress: float, beat: str, side: str, voice_performance: dict | 
 def head_motion(progress: float, beat: str, voice_performance: dict | None = None) -> tuple[float, float, float, float]:
     state = kinematic_state(progress, beat, voice_performance)
     return state["head_dx"], state["head_dy"], state["head_scale"], state["head_rot"]
+
+
+# Camera intent is kept in a dedicated director so the same shot grammar can be
+# consumed by Blender, the local renderer, or a future hosted performance worker.
+def camera_directive(beat: str, progress: float, impact: float, settle: float):
+    from app.agents.camera_director import plan_camera
+    return plan_camera(beat, progress, impact, settle)
