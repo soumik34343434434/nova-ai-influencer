@@ -243,6 +243,11 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
             speech = 0.0
 
     head_dx, head_dy, head_scale, head_rot = head
+    # Let vocal energy articulate the head locally instead of driving only a
+    # whole-character scale pulse. Keep this subtle so speech never replaces
+    # the beat's larger anticipation/contact performance.
+    head_dy += 1.6 * speech
+    head_rot += 0.45 * speech
     # The head trails the torso impulse before catching up. Keep this response
     # separate from the hand lag so the upper body has its own readable mass.
     head_lag = _settle_oscillation(p, peak + 0.025, frequency=4.2)

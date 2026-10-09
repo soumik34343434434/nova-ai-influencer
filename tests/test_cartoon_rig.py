@@ -266,6 +266,18 @@ def test_head_lags_torso_impact_then_damped_follow_through():
     assert abs(settle_offset) < abs(follow_offset)
 
 
+def test_speech_activity_adds_subtle_local_head_bob():
+    from app.providers.cartoon_performance import kinematic_state
+
+    silent = kinematic_state(0.5, "setup")
+    voiced = kinematic_state(0.5, "setup", {"activity": [0.0, 0.9, 0.9]})
+
+    assert voiced["root_dy"] == silent["root_dy"]
+    assert voiced["head_dy"] - silent["head_dy"] == 1.6
+    assert voiced["head_rot"] - silent["head_rot"] == 0.45
+    assert voiced["speech_pulse"] == 1.0
+
+
 def test_camera_reserves_look_space_in_face_attention_direction():
     from app.providers.cartoon_performance import kinematic_state
 
