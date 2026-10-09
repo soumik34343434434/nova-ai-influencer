@@ -207,6 +207,7 @@ def write_pose(arm,frame,spec):
  secondary=dict(default_transition.get('secondary',{}))
  secondary.update(action_transition.get('secondary',{}))
  joint_lag=max(0,int(secondary.get('joint_lag_frames',1)))
+ forearm_lag=max(0,int(secondary.get('forearm_lag_frames',joint_lag+1)))
  head_lag=max(0,int(secondary.get('head_lag_frames',2)))
  hand_lag=max(0,int(secondary.get('hand_lag_frames',3)))
  accessory_lag=max(0,int(secondary.get('accessory_lag_frames',4)))
@@ -239,9 +240,8 @@ def write_pose(arm,frame,spec):
   p2.rotation_euler.z=(tb-ta)-(base_b-base_a)
   p3=arm.pose.bones[f'hand.{side}']
   p3.rotation_euler.z=(tb-ta)*0.12
-  arm_frame=kframe(joint_lag)
-  p1.keyframe_insert('rotation_euler',index=2,frame=arm_frame)
-  p2.keyframe_insert('rotation_euler',index=2,frame=arm_frame)
+  p1.keyframe_insert('rotation_euler',index=2,frame=kframe(joint_lag))
+  p2.keyframe_insert('rotation_euler',index=2,frame=kframe(forearm_lag))
   p3.keyframe_insert('rotation_euler',index=2,frame=kframe(hand_lag))
  head_lag_deg=float(secondary.get('head_lag_deg',0.0))
  hand_follow_deg=float(secondary.get('hand_follow_deg',0.0))
@@ -253,7 +253,11 @@ def write_pose(arm,frame,spec):
  head.location.y=-uy*head_lag_distance
  head.keyframe_insert('rotation_euler',index=2,frame=kframe(head_lag))
  head.keyframe_insert('location',frame=kframe(head_lag))
- hand_follow=math.radians(hand_follow_deg*drive*phase_weight)
+ # Wrist follow-through changes direction as the arm recoils. Keeping the
+ # wrist accent on the approach/contact impulse and reversing it on recoil
+ # makes the hand trail the forearm instead of holding the impact pose.
+ hand_phase_weight={'approach':0.0,'anticipation':-0.18,'contact_approach':0.55,'contact':1.0,'overshoot':1.35,'recoil':-0.72,'settle':0.08}.get(phase,0.0)
+ hand_follow=math.radians(hand_follow_deg*drive*hand_phase_weight)
  acting_hand={'press_button':'R','give_homework':'L','tap_alarm':'R','open_fridge':'R','tap_shoes':'R','shock':'L','overwhelmed':'R'}.get(spec.get('_action',''))
  for side in ('L','R'):
   hand=arm.pose.bones[f'hand.{side}']
@@ -430,7 +434,13 @@ def camera_performance_keys(arm, cam, beats, rows=None):
             contact_focus=_performed_action_focus(action,arm,(fx,fy))
             # Let the performed contact point dominate at impact, then retain
             # enough of it through overshoot to make the action readable.
-            focus_mix={'approach':0.0,'anticipation':0.0,'contact_approach':0.45,'contact':0.90,'overshoot':0.70,'recoil':0.25,'settle':0.0}[phase]
+            # Put the actual target at the center of the impact frame, then
+            # ease attention back toward the authored composition through
+            # overshoot, recoil, and settle.
+            # Give the audience an early cue toward the performed target while
+            # the character is still anticipating the action, then complete
+            # the handoff at contact and release it through the recovery.
+            focus_mix={'approach':0.0,'anticipation':0.18,'contact_approach':0.55,'contact':1.0,'overshoot':0.78,'recoil':0.32,'settle':0.0}[phase]
             focus_x=fx+(contact_focus[0]-fx)*focus_mix
             focus_y=fy+(contact_focus[1]-fy)*focus_mix
             punch={
@@ -454,10 +464,13 @@ def camera_performance_keys(arm, cam, beats, rows=None):
                 'punchline':{'approach':0.0,'anticipation':0.0,'contact_approach':0.0,'contact':0.003,'overshoot':0.002,'recoil':0.001,'settle':0.0},
             }
             shake=shake_profile[beat][phase]
+            # Start the opening on a slightly wider view, then reveal the
+            # character into the established setup framing by anticipation.
+            hook_reveal=0.10*max(0.0,1.0-frac/0.18) if beat=='setup' else 0.0
             cam.location.x=loc.x*0.08 + focus_x*focus_w + lateral*curve + shake
             cam.location.y=loc.y*0.06 + focus_y*focus_w + shake*0.40
             cam.location.z=30.0
-            cam.data.ortho_scale=max(10.0,base_scale[beat]*action_scale.get(action,1.0)*(1.0+punch))
+            cam.data.ortho_scale=max(10.0,base_scale[beat]*action_scale.get(action,1.0)*(1.0+punch+hook_reveal))
             cam.rotation_euler.z=root.rotation_euler.z*0.05 + math.radians(shake*1.2)
             cam.keyframe_insert('location',frame=frame); cam.keyframe_insert('rotation_euler',index=2,frame=frame); cam.data.keyframe_insert('ortho_scale',frame=frame)
         previous_state=(tuple(cam.location),cam.rotation_euler.z,cam.data.ortho_scale)
@@ -725,24 +738,26 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
    df=start+round((end-start)*frac)
    if not start < df < end-2:
     continue
-   bpy.context.scene.frame_set(df)
-   for eye,pupil in zip(face['eyes'],face['pupils']):
-    dart_mag={'shock':0.032,'overwhelmed':0.040,'deadpan':0.020}.get(action,0.024)
-    # Both eyes and pupils move together in screen space to form a shared
-    # glance. Evaluate each authored position before applying the dart so
-    # successive darts do not accumulate offsets.
-    dart_delta=dart_mag*(1.0 if dart_i%2==0 else -0.7)
-    origin=eye.location.copy()
-    eye.location.x=origin.x + dart_delta
-    eye.keyframe_insert('location',frame=df)
-    eye.location=origin
-    eye.keyframe_insert('location',frame=df+2)
-    if pupil is not None:
-     pupil_origin=pupil.location.copy()
-     pupil.location.x=pupil_origin.x + dart_delta
-     pupil.keyframe_insert('location',frame=df)
-     pupil.location=pupil_origin
-     pupil.keyframe_insert('location',frame=df+2)
+   dart_mag={'shock':0.032,'overwhelmed':0.040,'deadpan':0.020}.get(action,0.024)
+   # Ease into and out of the glance over four frames. Re-evaluate the
+   # authored eye and pupil pose at each key so this stays an additive
+   # accent and never compounds with the previous dart.
+   dart_delta=dart_mag*(1.0 if dart_i%2==0 else -0.7)
+   dart_envelope=((df-2,0.0),(df-1,0.38),(df,1.0),(df+1,0.58),(df+2,0.0))
+   for key_frame,weight in dart_envelope:
+    bpy.context.scene.frame_set(key_frame)
+    for eye,pupil in zip(face['eyes'],face['pupils']):
+     eye_origin=eye.location.copy()
+     # Keep a separate-pupil eye socket steady so the pupil visibly changes
+     # direction inside the eye. Organic face patches have no pupil control,
+     # so give those eyes a restrained whole-eye glance instead.
+     eye_weight=0.18 if pupil is not None else 0.42
+     eye.location.x=eye_origin.x + dart_delta*weight*eye_weight
+     eye.keyframe_insert('location',frame=key_frame)
+     if pupil is not None:
+      pupil_origin=pupil.location.copy()
+      pupil.location.x=pupil_origin.x + dart_delta*weight
+      pupil.keyframe_insert('location',frame=key_frame)
   # Tiny speech-driven head bob without breaking the action pose.
   activity=(rows[idx].get('activity') if idx < len(rows) else []) if rows else []
   if activity:
