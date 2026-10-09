@@ -146,6 +146,21 @@ def test_impact_camera_shake_follows_custom_event_timing():
     assert _impact_shake_envelope(event, event, "setup") == 0.0
 
 
+def test_escalation_flash_follows_director_impact_timing():
+    from app.providers.cartoon_animation import _impact_flash_envelope
+    from app.providers.cartoon_performance import kinematic_state
+
+    performance = {"shot_spec": {"phases": [
+        {"name": "anticipate", "start": 0.0, "end": 0.60},
+        {"name": "impact", "start": 0.70, "end": 0.74},
+    ]}}
+    event = kinematic_state(0.0, "escalation", performance)["event_fraction"]
+    assert event == 0.72
+    assert _impact_flash_envelope(event - 0.04, event, "escalation") > 0.99
+    assert _impact_flash_envelope(0.16, event, "escalation") == 0.0
+    assert _impact_flash_envelope(event, event, "reaction") == 0.0
+
+
 def test_kinematic_state_shares_root_motion_across_character_parts():
     from app.providers.cartoon_performance import kinematic_state, arm_motion, head_motion
     state = kinematic_state(0.5, "reaction")

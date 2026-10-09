@@ -261,6 +261,14 @@ def _impact_shake_envelope(progress: float, event_fraction: float, beat: str) ->
     return math.sin(math.pi * (progress - start) / (end - start))
 
 
+def _impact_flash_envelope(progress: float, event_fraction: float, beat: str) -> float:
+    """Return the brief escalation flash at the same choreographed event as the camera."""
+    if beat != "escalation":
+        return 0.0
+    start = max(0.0, event_fraction - 0.10)
+    return max(0.0, math.sin(math.pi * max(0.0, min(1.0, (progress - start) / 0.12))))
+
+
 def _transform_part(
     layer: Image.Image,
     dx: float,
@@ -895,11 +903,7 @@ def motion_frame(
     rgba = frame.convert("RGBA")
 
     # White impact flash makes the escalation read as an event, not just a zoom.
-    flash = 0.0
-    if beat == "escalation":
-        peak = float((voice_performance or {}).get("peak_fraction", 0.46))
-        start = max(0.18, peak - 0.10)
-        flash = max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - start) / 0.12))))
+    flash = _impact_flash_envelope(p, camera_state["event_fraction"], beat)
     if flash > 0.0:
         veil = Image.new("RGBA", (W, H), (255, 255, 255, int(45 * flash)))
         rgba.alpha_composite(veil)
