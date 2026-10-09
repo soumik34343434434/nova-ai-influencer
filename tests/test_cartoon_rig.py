@@ -129,6 +129,15 @@ def test_hands_lag_impact_then_damped_follow_through():
     assert abs(late_settle["right_dx"]) < abs(follow_through["right_dx"])
 
 
+def test_camera_reserves_look_space_in_face_attention_direction():
+    from app.providers.cartoon_performance import kinematic_state
+
+    event = kinematic_state(0.40, "reaction")
+    settled = kinematic_state(0.90, "reaction")
+    assert event["camera_focus_x"] * event["attention_x"] > 0
+    assert abs(event["camera_focus_x"]) > abs(settled["camera_focus_x"])
+
+
 def test_punchline_shared_state_becomes_stable_after_hold():
     from app.providers.cartoon_performance import kinematic_state
     a = kinematic_state(0.72, "punchline")

@@ -260,6 +260,11 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
         "face_target_dy": face_target_dy,
         "attention_x": attention_x,
         "attention_y": attention_y,
+        # Reserve a little look space in the direction of the character's
+        # attention. The camera consumes this as a framing offset, not as
+        # additional character motion.
+        "camera_focus_x": attention_x * impact,
+        "camera_focus_y": attention_y * impact,
         "speech_pulse": speech,
         # Camera tracks the root with a tiny delay, so the camera feels attached
         # to the scene and not like an independent Ken-Burns animation.

@@ -237,8 +237,10 @@ def _camera_geometry(progress: float, beat: str, voice_performance: dict | None 
     # getting seasick.
     follow_x = camera_state["camera_dx"]
     follow_y = camera_state["camera_dy"]
-    x = max(0, min(int(max_x * 0.5 + drift_x - follow_x * 2.2), max_x))
-    y = max(0, min(int(max_y * 0.5 + drift_y - follow_y * 2.2), max_y))
+    focus_x = camera_state["camera_focus_x"] * max_x * 0.10
+    focus_y = camera_state["camera_focus_y"] * max_y * 0.10
+    x = max(0, min(int(max_x * 0.5 + drift_x - follow_x * 2.2 + focus_x), max_x))
+    y = max(0, min(int(max_y * 0.5 + drift_y - follow_y * 2.2 + focus_y), max_y))
     angle = (profile.rotation * math.sin(math.pi * eased) * (1.0 - 0.55 * settle)) + camera_state["camera_rot"]
     sx = 1.0 + 0.010 * math.sin(math.pi * spring) * energy
     sy = 1.0 - 0.006 * math.sin(math.pi * spring) * energy
@@ -822,8 +824,10 @@ def motion_frame(
 
     drift_x = profile.pan_x * max_x * math.sin(math.pi * eased)
     drift_y = profile.pan_y * max_y * math.sin(math.pi * eased)
-    x = int(max_x * 0.5 + drift_x - camera_state["camera_dx"] * 2.2 * camera_gain)
-    y = int(max_y * 0.5 + drift_y - camera_state["camera_dy"] * 2.2 * camera_gain)
+    focus_x = camera_state["camera_focus_x"] * max_x * 0.10 * camera_gain
+    focus_y = camera_state["camera_focus_y"] * max_y * 0.10 * camera_gain
+    x = int(max_x * 0.5 + drift_x - camera_state["camera_dx"] * 2.2 * camera_gain + focus_x)
+    y = int(max_y * 0.5 + drift_y - camera_state["camera_dy"] * 2.2 * camera_gain + focus_y)
     x = max(0, min(x, max_x))
     y = max(0, min(y, max_y))
 

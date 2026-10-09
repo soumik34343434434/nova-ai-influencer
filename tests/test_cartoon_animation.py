@@ -118,6 +118,8 @@ def test_delivery_camera_follows_delayed_character_root():
     max_x, max_y = 1080 - crop_w, 1920 - crop_h
     expected_x = int(max_x * 0.5 + profile.pan_x * max_x * math.sin(math.pi * eased) - delayed_root["camera_dx"] * 2.2)
     expected_y = int(max_y * 0.5 + profile.pan_y * max_y * math.sin(math.pi * eased) - delayed_root["camera_dy"] * 2.2)
+    expected_x += int(delayed_root["camera_focus_x"] * max_x * 0.10)
+    expected_y += int(delayed_root["camera_focus_y"] * max_y * 0.10)
 
     assert camera[:4] == (expected_x, expected_y, crop_w, crop_h)
 
