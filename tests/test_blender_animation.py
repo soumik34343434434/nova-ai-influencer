@@ -293,7 +293,8 @@ def test_speech_head_bob_is_added_to_cached_authored_pose_without_accumulation()
 def test_gaze_darts_use_evaluated_pose_at_each_key_without_accumulating():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
-    assert 'dart_delta=dart_mag*(1.0 if dart_i%2==0 else -0.7)' in text
+    assert 'dart_direction=(1.0 if dart_i%2==0 else -0.7)' in text
+    assert 'dart_delta=dart_mag*dart_direction' in text
     assert 'dart_keys=[]' in text
     assert 'eye_origins.append(eye.location.copy())' in text
     assert 'pupil_origins.append(pupil.location.copy() if pupil is not None else None)' in text
@@ -311,6 +312,15 @@ def test_gaze_darts_use_a_lead_peak_release_envelope():
     assert 'eye_weight=0.18 if pupil is not None else 0.42' in text
     assert 'eye.location.x=eye_origin.x + dart_delta*weight*eye_weight' in text
     assert 'pupil.location.x=pupil_origin.x + dart_delta*weight' in text
+
+
+def test_gaze_darts_check_the_action_target_then_counter_glance():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "gaze_sign={'give_homework':1,'press_button':1,'shock':-1" in text
+    assert "dart_direction=(1.0 if dart_i%2==0 else -0.7)*gaze_sign" in text
+    assert 'if gaze_sign:' in text
+    assert 'dart_delta=dart_mag*dart_direction' in text
 
 
 def test_action_eye_asymmetry_restores_authored_frame_before_keying():

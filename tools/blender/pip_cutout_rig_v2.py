@@ -757,7 +757,13 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
    # Ease into and out of the glance over four frames. Re-evaluate the
    # authored eye and pupil pose at each key so this stays an additive
    # accent and never compounds with the previous dart.
-   dart_delta=dart_mag*(1.0 if dart_i%2==0 else -0.7)
+   # Let the first and last glance check the action target, with a smaller
+   # counter-glance between them. Actions without a defined target retain the
+   # alternating exploratory pattern.
+   dart_direction=(1.0 if dart_i%2==0 else -0.7)
+   if gaze_sign:
+    dart_direction=(1.0 if dart_i%2==0 else -0.7)*gaze_sign
+   dart_delta=dart_mag*dart_direction
    dart_envelope=((df-2,0.0),(df-1,0.38),(df,1.0),(df+1,0.58),(df+2,0.0))
    dart_keys=[]
    for key_frame,weight in dart_envelope:

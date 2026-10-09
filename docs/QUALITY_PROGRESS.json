@@ -14,7 +14,7 @@
         "camera_acting": 7.0,
         "background_visual_world": 7.5
       },
-      "evidence": "This cycle repairs the facial_acting regression check in tests/test_blender_animation.py: its ordering assertion now locates the rig's multiplicative eye-scale asymmetry, which preserves the authored action expression, instead of searching for the removed neutral-reset assignment. The focused animation suite passes (44 passed). The full pytest suite was attempted but interrupted after 259.71s while stalled in PIL ImageFilter, with 59 tests passed and no reported failure; full-suite completion and Blender render review remain outstanding. facial_acting stays 7.9 and performance_animation remains active at 7.0 because this validation repair adds no new visual-quality evidence sufficient to raise scores."
+      "evidence": "This cycle corrects flattened-rig head transform composition: shared root translation, rotation, and scale are now applied once, while speech articulation remains layered onto the head. A focused regression test captures the transform and verifies root offsets and scale are not doubled (tests/test_cartoon_rig.py: 11 passed). Full pytest suite passed (193 passed, 3 deprecation warnings, 100.17s). animation_mechanics remains 8.3 and performance_animation remains active at 7.0; the implementation and tests verify the mechanics correction but do not replace creative render review required to raise area scores. Other area scores remain unchanged; all required areas remain below 8.5."
     },
     "audio": {
       "status": "complete",

@@ -90,3 +90,28 @@ def test_punchline_shared_state_becomes_stable_after_hold():
     a = kinematic_state(0.72, "punchline")
     b = kinematic_state(0.96, "punchline")
     assert a == b
+
+
+def test_flattened_rig_composes_shared_root_motion_once(monkeypatch):
+    from types import SimpleNamespace
+    from app.providers import cartoon_animation as animation
+
+    frame = Image.new("RGB", (24, 24), "white")
+    layer = Image.new("RGBA", (24, 24), (0, 0, 0, 0))
+    rig = SimpleNamespace(
+        source="missing-rig-source.png",
+        head_layer=layer,
+        cover_mask=Image.new("L", (24, 24), 0),
+    )
+    captured = {}
+    root = {"root_dx": 4.0, "root_dy": -3.0, "root_scale": 1.1, "root_rot": 0.2}
+    monkeypatch.setattr(animation, "head_motion", lambda *_: (2.0, 5.0, 1.2, -0.1))
+    monkeypatch.setattr(animation, "kinematic_state", lambda *_: root)
+    monkeypatch.setattr(animation, "_speech_pulse", lambda *_: 0.0)
+    monkeypatch.setattr(animation, "_transform_part", lambda _layer, *args: captured.update(args=args) or layer)
+    monkeypatch.setattr(animation, "_apply_face_performance", lambda result, *_args, **_kwargs: result)
+
+    animation._apply_rig_performance(frame, rig, 0.25, "reaction")
+
+    dx, dy, scale, rotation = captured["args"][:4]
+    assert (dx, dy, scale, rotation) == (6.0, 2.0, 1.32, 0.1)
