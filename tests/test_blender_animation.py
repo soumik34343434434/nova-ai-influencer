@@ -255,6 +255,15 @@ def test_organic_face_brows_pose_with_action_and_return_to_neutral():
     assert "brow.keyframe_insert('rotation_euler',frame=min(end,f+3))" in text
 
 
+def test_reaction_blinks_stagger_and_hold_the_second_eye_longer():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "blink_lag=1 if action in ('shock','overwhelmed') else 0" in text
+    assert "eye_frame=f+(blink_lag if side==1 else 0)" in text
+    assert "reopen_frame=eye_frame+(3 if action in ('shock','overwhelmed') and side==1 else 2)" in text
+    assert "frame=min(end,reopen_frame)" in text
+
+
 def test_gaze_darts_use_evaluated_pose_at_each_key_without_accumulating():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
