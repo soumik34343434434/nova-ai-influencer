@@ -13,6 +13,7 @@ from app.agents.performance import plan_performance
 from app.agents.shot_performance import build_shot_performance_spec
 from app.agents.director_decision import build_director_decision_packet
 from app.agents.reference_preflight import build_reference_manifest, assert_reference_preflight, required_reference_props
+from app.agents.character_world_bible import validate_storyboard_continuity
 
 
 @dataclass(frozen=True)
@@ -35,10 +36,15 @@ class Storyboard:
     shots: list[Shot]
 
     def to_dict(self) -> dict:
+        continuity_errors = validate_storyboard_continuity([
+            {"character": shot.world.get("character", ""), "character_plan": shot.world.get("character_plan", {})}
+            for shot in self.shots
+        ])
         return {
             "hook": self.hook,
             "total_duration": self.total_duration,
-            "shots": [asdict(s) for s in self.shots],
+        "shots": [asdict(s) for s in self.shots],
+            "validation": {"passed": not continuity_errors, "errors": continuity_errors},
         }
 
 
@@ -100,6 +106,12 @@ def build_storyboard(draft: dict) -> Storyboard:
         camera = _camera_for(index, text)
         action = _action_for(camera, text)
         world = world_engine.plan_shot(text, index)
+        world["bible_version"] = world_engine.bible.get("version", 1)
+        character = str(draft.get("character", "")).upper()
+        if character in world_engine.bible.get("characters", {}):
+            world["character"] = character
+            world["identity_lock"] = world_engine.bible["characters"][character]
+            world["style"] = world_engine.bible["style"]
         duration = max(2.6, min(4.8, 2.6 + len(text) / 45.0))
         performance = plan_performance(action, text, index)
         performance["shot_spec"] = build_shot_performance_spec(
@@ -185,4 +197,9 @@ def build_storyboard(draft: dict) -> Storyboard:
         ]
         total = round(sum(shot.duration for shot in shots), 2)
 
+    character = str(draft.get("character", "")).upper()
+    if character in world_engine.bible.get("characters", {}):
+        errors = validate_storyboard_continuity([{"character": character, "character_plan": {}} for _ in shots], world_engine.bible)
+        if errors:
+            raise ValueError("Character/world bible validation failed: " + "; ".join(errors))
     return Storyboard(hook=hook, total_duration=total, shots=shots)

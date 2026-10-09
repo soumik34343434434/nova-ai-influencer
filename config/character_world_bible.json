@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "style": {
+    "name": "original 2D cartoon",
+    "palette": ["sky_blue", "orange", "teal", "yellow", "cream", "dark_outline"],
+    "rules": ["clean readable silhouettes", "expressive eyes", "consistent flat cartoon rendering", "no logos"]
+  },
+  "characters": {
+    "PIP": {
+      "identity": "tiny sky-blue mischievous robot",
+      "proportions": {"body": "tiny compact robot body", "head": "oversized", "eyes": "oversized expressive"},
+      "palette": ["sky_blue", "orange", "dark_outline"],
+      "signature_props": ["orange backpack"],
+      "allowed_transformations": ["pose", "gaze", "facial_expression", "rotation", "screen_position", "scale_uniform"],
+      "forbidden_transformations": ["recolor_identity", "remove_backpack", "change_species_or_form", "change_proportions", "add_logo"]
+    },
+    "MOMO": {
+      "identity": "sleepy orange cartoon cat",
+      "proportions": {"body": "compact cat body", "head": "large rounded cat head", "eyes": "oversized expressive"},
+      "palette": ["orange", "teal", "dark_outline"],
+      "signature_props": ["tiny teal scarf"],
+      "allowed_transformations": ["pose", "gaze", "facial_expression", "rotation", "screen_position", "scale_uniform"],
+      "forbidden_transformations": ["recolor_identity", "remove_scarf", "change_species_or_form", "change_proportions", "add_logo"]
+    },
+    "BUBU": {
+      "identity": "round blue cartoon bird",
+      "proportions": {"body": "round compact bird body", "head": "round", "eyes": "oversized expressive"},
+      "palette": ["blue", "yellow", "dark_outline"],
+      "signature_props": ["tiny yellow backpack"],
+      "allowed_transformations": ["pose", "gaze", "facial_expression", "rotation", "screen_position", "scale_uniform"],
+      "forbidden_transformations": ["recolor_identity", "remove_backpack", "change_species_or_form", "change_proportions", "add_logo"]
+    }
+  },
+  "environments": {
+    "office": {"profile": "modern Indian technology office", "lighting": "neutral office light"},
+    "home": {"profile": "minimal apartment workspace at night", "lighting": "warm practical lamp"},
+    "cafe": {"profile": "quiet modern Indian cafe", "lighting": "soft natural daylight"},
+    "metro": {"profile": "clean modern Indian metro carriage", "lighting": "soft practical overhead light"}
+  },
+  "lighting_presets": ["neutral office light", "warm practical lamp", "soft natural daylight", "soft practical overhead light"],
+  "reusable_action_props": ["laptop", "calendar", "phone", "coffee", "headphones", "notebook", "metro card", "earbuds", "button", "alarm", "shoes", "fridge"],
+  "continuity_constraints": ["character identity and signature props remain stable across shots", "palette and rendering style remain stable across shots", "environment changes only when the shot plan explicitly changes scene"]
+}

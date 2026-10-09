@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from app.agents.world_director import plan_world_depth
+from app.agents.character_world_bible import load_bible
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -15,6 +16,7 @@ WORLD_PATH = ROOT / "config" / "world.json"
 class WorldEngine:
     def __init__(self, path: Path = WORLD_PATH):
         self.data = json.loads(path.read_text())
+        self.bible = load_bible()
 
     def choose_scene(self, text: str, shot_index: int = 0) -> str:
         lower = text.lower()
@@ -78,7 +80,7 @@ class WorldEngine:
             "calendar": "sees_calendar",
             "coffee": "reaches_for_coffee",
         }.get(prop, "small_scene_interaction"))
-        return {
+        result = {
             "scene": scene,
             "scene_label": self.data["scenes"][scene]["label"],
             "setting": self.data["scenes"][scene]["setting"],
@@ -87,3 +89,8 @@ class WorldEngine:
             "mood": self.data["scenes"][scene]["mood"],
             "depth_plan": plan_world_depth(scene, prop, action).to_dict(),
         }
+        environment = self.bible.get("environments", {}).get(scene, {})
+        result["environment_profile"] = environment.get("profile", result["setting"])
+        result["lighting"] = environment.get("lighting", "scene_default")
+        result["action_props"] = list(self.bible.get("reusable_action_props", []))
+        return result
