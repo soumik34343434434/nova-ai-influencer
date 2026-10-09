@@ -1,4 +1,4 @@
-from app.agents.trend_opportunity import score_content_opportunity
+from app.agents.trend_opportunity import analyze_trend_transfer, score_content_opportunity
 from app.agents.trend_intelligence_v2 import TrendSignalV2
 
 
@@ -45,3 +45,41 @@ def test_trend_signal_defaults_remain_backward_compatible():
     assert s.content_opportunity_score == 0.0
     assert s.best_character == ""
     assert s.best_format == ""
+
+
+def test_trend_transfer_strong_fit_explains_nova_match():
+    result = analyze_trend_transfer(_signal())
+    assert result["score"] > .55
+    assert result["best_format"] in {"story_comedy", "reaction", "cute_animal"}
+    assert result["best_character"] == "MOMO"
+    assert result["observed_evidence"]
+    assert "trend_to_character" in result["inferred_fit"]
+    assert result["reasons"]
+
+
+def test_trend_transfer_weak_fit_is_cautious():
+    result = analyze_trend_transfer(_signal(
+        title="Obscure regulatory filing", description="Dense technical appendix",
+        formats=(), emotions=(), hook_patterns=(), source_count=0, saturation_score=.9,
+    ))
+    assert result["score"] < .55
+    assert any("No format signal" in x for x in result["missing_evidence_warnings"])
+    assert any("owned content" in x for x in result["missing_evidence_warnings"])
+
+
+def test_trend_transfer_penalizes_contradictory_format_evidence():
+    result = analyze_trend_transfer(_signal(
+        title="Dance trend with no dance and without music", formats=("dance", "trend_audio"),
+    ))
+    assert result["dimensions"]["trend_to_format"] < .5
+    assert any("Contradiction" in x for x in result["missing_evidence_warnings"])
+
+
+def test_trend_transfer_marks_missing_signals_and_integrates_output():
+    from app.agents.trend_intelligence_v2 import enrich_signals
+    sparse = _signal(title="Something", description="", formats=(), emotions=(), hook_patterns=(), source_count=0)
+    result = analyze_trend_transfer(sparse)
+    assert len(result["missing_evidence_warnings"]) >= 4
+    enriched = enrich_signals([{"title": "POV: cute cat office reaction", "source_type": "reddit"}])[0]
+    assert enriched.trend_transfer_analysis
+    assert enriched.trend_transfer_analysis["score"] >= 0
