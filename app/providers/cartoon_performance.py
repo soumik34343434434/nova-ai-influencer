@@ -110,6 +110,18 @@ def _gaussian(p: float, center: float, width: float) -> float:
     return math.exp(-2.8 * x * x)
 
 
+def _camera_event_push(progress: float, event_fraction: float, beat: str) -> float:
+    """Build a short camera push that anticipates and lands on an action event."""
+    if beat not in {"escalation", "reaction"}:
+        return 0.0
+    p = _clamp(progress)
+    lead = _gaussian(p, event_fraction - 0.075, 0.055)
+    impact = _gaussian(p, event_fraction, 0.075)
+    release = _gaussian(p, event_fraction + 0.16, 0.12)
+    amplitude = 0.018 if beat == "escalation" else 0.014
+    return amplitude * (0.42 * lead + impact - 0.30 * release)
+
+
 def _anticipation(p: float, center: float, width: float) -> float:
     """Small pre-movement that prepares the body for a later action."""
     if p >= center:
@@ -247,7 +259,8 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
         "camera_dx": root_dx * 0.62,
         "camera_dy": root_dy * 0.48,
         "camera_rot": root_rot * 0.24,
-        "camera_zoom": 0.030 * impact if beat in {"escalation", "reaction"} else 0.012 * impact,
+        "camera_zoom": (0.030 * impact if beat in {"escalation", "reaction"} else 0.012 * impact)
+        + _camera_event_push(p, peak, beat),
     }
 
 

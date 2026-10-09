@@ -89,6 +89,20 @@ def test_gaze_dart_leads_event_and_releases_afterward():
     assert settled < 0.01
 
 
+def test_camera_push_anticipates_action_and_releases_after_impact():
+    from app.providers.cartoon_performance import _camera_event_push
+
+    event = 0.42
+    anticipation = _camera_event_push(event - 0.07, event, "escalation")
+    impact = _camera_event_push(event, event, "escalation")
+    release = _camera_event_push(event + 0.24, event, "escalation")
+    unrelated = _camera_event_push(event, event, "setup")
+
+    assert 0.0 < anticipation < impact
+    assert release < impact
+    assert unrelated == 0.0
+
+
 def test_kinematic_state_shares_root_motion_across_character_parts():
     from app.providers.cartoon_performance import kinematic_state, arm_motion, head_motion
     state = kinematic_state(0.5, "reaction")
