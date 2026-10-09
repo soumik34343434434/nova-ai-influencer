@@ -430,7 +430,7 @@ def camera_performance_keys(arm, cam, beats, rows=None):
                 cam.data.ortho_scale=previous_state[2]
                 cam.keyframe_insert('location',frame=frame); cam.keyframe_insert('rotation_euler',index=2,frame=frame); cam.data.keyframe_insert('ortho_scale',frame=frame)
                 continue
-            focus_w={'approach':0.08,'anticipation':0.16,'contact_approach':0.38,'contact':0.62,'overshoot':0.74,'recoil':0.56,'settle':0.34}[phase]
+            focus_w={'approach':0.08,'anticipation':0.16,'contact_approach':0.38,'contact':1.0,'overshoot':0.74,'recoil':0.56,'settle':0.34}[phase]
             contact_focus=_performed_action_focus(action,arm,(fx,fy))
             # Let the performed contact point dominate at impact, then retain
             # enough of it through overshoot to make the action readable.

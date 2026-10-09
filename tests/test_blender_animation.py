@@ -54,6 +54,14 @@ def test_camera_contact_focus_peaks_at_impact_and_releases_on_settle():
     assert 'focus_y=fy+(contact_focus[1]-fy)*focus_mix' in text
 
 
+def test_camera_centers_performed_contact_at_impact_then_releases():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "focus_w={'approach':0.08,'anticipation':0.16,'contact_approach':0.38,'contact':1.0,'overshoot':0.74,'recoil':0.56,'settle':0.34}[phase]" in text
+    assert "focus_mix={'approach':0.0,'anticipation':0.18,'contact_approach':0.55,'contact':1.0,'overshoot':0.78,'recoil':0.32,'settle':0.0}[phase]" in text
+    assert 'cam.location.x=loc.x*0.08 + focus_x*focus_w + lateral*curve + shake' in text
+
+
 def test_camera_focus_centers_performed_contact_then_releases_to_composition():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
