@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any
 from app.agents.performance import plan_performance
+from app.agents.facial_director import build_facial_timeline
 from app.agents.reference_preflight import required_reference_props
 
 @dataclass(frozen=True)
@@ -368,6 +369,13 @@ def build_shot_performance_spec(action: str, dialogue: str, duration: float=5.0,
     )
     p["source_action"] = action
     p["dialogue"] = dialogue
+    p["facial_timeline"] = build_facial_timeline(action)
+    p["facial_timing_contract"] = {
+        "eye_lead_before_head": True,
+        "expression_peak_after_attention": True,
+        "blink_after_peak": True,
+        "recovery_to_deadpan": True,
+    }
     p["reference_requirements"] = list(reference_requirements)
     p["action_chain_version"] = 2.3
     p["root_lock"] = "anchor feet/root in screen space; no world-space travel"
