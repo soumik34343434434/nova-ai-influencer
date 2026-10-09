@@ -136,7 +136,9 @@ def _camera_attention_envelope(progress: float, event_fraction: float, beat: str
     # Keep the look-space through the first recoil beat, then ease out as the
     # character's motion settles. The longer tail gives the audience time to
     # register where the character's attention landed after contact.
-    hold_end = 1.0 - _ease(_phase_progress(p, event_fraction + 0.34, event_fraction + 0.46))
+    # Keep the audience's look-space through the character's late recoil; the
+    # performance plan does not enter settle until well after the contact.
+    hold_end = 1.0 - _ease(_phase_progress(p, event_fraction + 0.42, event_fraction + 0.58))
     recovery_hold = hold_start * hold_end
     return min(1.0, 0.45 * lead + impact + 0.70 * recovery_hold + 0.18 * release)
 
