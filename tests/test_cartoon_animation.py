@@ -19,6 +19,25 @@ def test_profiles_cover_core_comedy_beats():
     assert set(("setup", "escalation", "reaction", "punchline")) <= set(BEAT_PROFILES)
 
 
+def test_impact_paper_burst_is_deterministic_and_contact_localized():
+    from PIL import ImageChops
+    from app.providers.cartoon_animation import _impact_graphics
+
+    blank = Image.new("RGBA", (1080, 1920), (30, 40, 50, 255))
+    no_impact = blank.copy()
+    _impact_graphics(no_impact, 0.0)
+    first = blank.copy()
+    repeated = blank.copy()
+    _impact_graphics(first, 0.8)
+    _impact_graphics(repeated, 0.8)
+
+    assert ImageChops.difference(blank.convert("RGB"), no_impact.convert("RGB")).getbbox() is None
+    assert first.tobytes() == repeated.tobytes()
+    difference = ImageChops.difference(blank.convert("RGB"), first.convert("RGB"))
+    assert difference.crop((300, 700, 780, 1100)).getbbox()
+    assert difference.crop((0, 0, 220, 500)).getbbox() is None
+
+
 def test_render_cartoon_motion_smoke(tmp_path: Path):
     images = []
     for i in range(4):

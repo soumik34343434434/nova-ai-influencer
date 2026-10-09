@@ -595,6 +595,7 @@ def _disclosure(draw: ImageDraw.ImageDraw) -> None:
 
 
 def _impact_graphics(frame: Image.Image, intensity: float) -> None:
+    intensity = max(0.0, min(1.0, intensity))
     if intensity <= 0:
         return
     overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
@@ -610,6 +611,30 @@ def _impact_graphics(frame: Image.Image, intensity: float) -> None:
         x1 = cx + math.cos(angle) * r1
         y1 = cy + math.sin(angle) * r1
         draw.line((x0, y0, x1, y1), fill=(255, 255, 255, int(110 * intensity)), width=7)
+    # Small paper slips radiate from the same contact point as the impact
+    # rays, giving the desk world a readable physical response. Their positions
+    # and rotation are fixed by index so repeated renders remain deterministic.
+    paper_colors = ((255, 232, 155), (244, 249, 255), (255, 191, 145))
+    for i in range(8):
+        angle = math.tau * (i / 8.0) + 0.31
+        distance = 190 + 52 * intensity + (i % 3) * 18
+        px = cx + math.cos(angle) * distance
+        py = cy + math.sin(angle) * distance
+        length = 18 + (i % 3) * 5
+        width = 8 + (i % 2) * 3
+        along = (math.cos(angle + 0.8), math.sin(angle + 0.8))
+        across = (-along[1], along[0])
+        points = [
+            (px + along[0] * length / 2 + across[0] * width / 2,
+             py + along[1] * length / 2 + across[1] * width / 2),
+            (px - along[0] * length / 2 + across[0] * width / 2,
+             py - along[1] * length / 2 + across[1] * width / 2),
+            (px - along[0] * length / 2 - across[0] * width / 2,
+             py - along[1] * length / 2 - across[1] * width / 2),
+            (px + along[0] * length / 2 - across[0] * width / 2,
+             py + along[1] * length / 2 - across[1] * width / 2),
+        ]
+        draw.polygon(points, fill=(*paper_colors[i % len(paper_colors)], int(210 * intensity)))
     overlay = overlay.filter(ImageFilter.GaussianBlur(0.35))
     frame.alpha_composite(overlay)
 
