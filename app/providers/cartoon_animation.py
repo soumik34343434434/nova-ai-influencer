@@ -606,12 +606,31 @@ def _speech_pulse(progress: float, performance: dict | None) -> float:
     return max(0.0, min(1.0, (a - 0.18) / 0.62))
 
 
+def _gaze_dart(progress: float, event_fraction: float, energy: float) -> float:
+    """Lead an action with a compact glance, then release with a counter-glance."""
+    p = max(0.0, min(1.0, progress))
+    def envelope(center: float, width: float) -> float:
+        distance = (p - center) / width
+        return math.exp(-2.8 * distance * distance)
+
+    return 3.2 * energy * (
+        envelope(event_fraction - 0.055, 0.045)
+        - 0.55 * envelope(event_fraction + 0.105, 0.070)
+    )
+
+
 def _face_motion(progress: float, beat: str, performance: dict | None = None) -> tuple[float, float, float, float, float]:
     """Return face dx/dy, x/y scale and blink strength."""
     p = max(0.0, min(1.0, progress))
     energy = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"]).energy
     speech = _speech_pulse(p, performance)
     shared_state = kinematic_state(p, beat, performance)
+    # A quick look toward the event leads the body reaction, then releases
+    # with a smaller counter-glance. Keeping this tied to the director's event
+    # timing makes the face read as attentive instead of riding the body sine.
+    gaze_dx = 0.0
+    if beat in {"escalation", "reaction"}:
+        gaze_dx = _gaze_dart(p, shared_state["event_fraction"], energy)
     if beat == "escalation":
         snap = math.sin(math.pi * max(0.0, min(1.0, (p - 0.16) / 0.34)))
         dx, dy = 7.0 * snap * energy, -4.0 * snap * energy
@@ -632,7 +651,7 @@ def _face_motion(progress: float, beat: str, performance: dict | None = None) ->
         dx, dy = 1.5 * breathe * energy, -0.8 * breathe * energy
         sx, sy = 1.0 + 0.002 * speech, 1.0 + 0.008 * breathe * energy + 0.008 * speech
         blink = 0.65 * max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.32) / 0.08))))
-    dx += shared_state["face_target_dx"]
+    dx += shared_state["face_target_dx"] + gaze_dx
     dy += shared_state["face_target_dy"]
     return dx, dy, sx, sy, blink
 
