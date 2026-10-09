@@ -34,6 +34,7 @@ from app.agents.cartoon_animatic import render_animatic
 from app.agents.cartoon_animatic_judge import AnimaticJudge
 from app.agents.cartoon_motion_qa import CartoonMotionQA
 from app.agents.cartoon_quality import CartoonQuality
+from app.agents.final_qa import FinalQAAggregator
 from app.agents.cartoon_research import discover, rank, ResearchSignal
 from app.agents.storyboard import build_storyboard
 from app.agents.story_engine import StoryEngine
@@ -68,6 +69,7 @@ class CartoonFactoryOrchestrator:
         self.animatic_judge = animatic_judge or AnimaticJudge()
         self.story_engine = StoryEngine()
         self.script_engine = ScriptEngine()
+        self.final_qa = FinalQAAggregator(self.quality, self.story_engine)
         self.plane = CartoonControlPlane(max_retries=1)
         self._register()
 
@@ -588,17 +590,35 @@ class CartoonFactoryOrchestrator:
     def _audio_engine(self, run: CartoonRun) -> dict[str, Any]:
         video = Path(run.payload["video"])
         if run.payload.get("audio_embedded") or run.payload.get("animation_backend") == "blender":
-            return {"voice_sfx_mixed": True, "audio_embedded": True, "audio_source": str(video)}
+            result = {"voice_sfx_mixed": True, "audio_embedded": True, "audio_source": str(video)}
+            # Some legacy/unit callers pass lightweight run-like objects; keep
+            # evidence persistence for real CartoonRun instances only.
+            if hasattr(run, "run_id") and hasattr(run, "stages"):
+                self.plane.store.set_payload(run, audio_metadata=result)
+            return result
         audio_candidates = list(video.parent.glob(video.stem + "_frames/episode_audio.wav"))
         has_audio_source = bool(audio_candidates and audio_candidates[0].exists())
         if not has_audio_source:
             raise RuntimeError("Audio stage expected renderer-produced episode_audio.wav")
-        return {"voice_sfx_mixed": True, "audio_source": str(audio_candidates[0])}
+        result = {"voice_sfx_mixed": True, "audio_source": str(audio_candidates[0])}
+        if hasattr(run, "run_id") and hasattr(run, "stages"):
+            self.plane.store.set_payload(run, audio_metadata=result)
+        return result
 
     def _caption_engine(self, run: CartoonRun) -> dict[str, Any]:
         candidate = run.payload["winner"]["candidate"]
         disclosure = "AI-generated • fictional cartoon"
-        return {"captions": [beat["voice"] for beat in candidate["beats"]], "disclosure": disclosure}
+        result = {"captions": [beat["voice"] for beat in candidate["beats"]], "disclosure": disclosure}
+        self.plane.store.set_payload(run, caption_metadata=result)
+        return result
+
+    def _final_qa(self, run: CartoonRun, media: dict[str, Any] | None, motion: dict[str, Any] | None, *, enforce_publish: bool = False) -> dict[str, Any]:
+        self.plane.store.set_payload(run, final_media_qa=media, final_motion_qa=motion)
+        result = self.final_qa.evaluate(run.payload)
+        self.plane.store.set_payload(run, final_qa=result)
+        if enforce_publish and not result["passed"]:
+            raise RuntimeError("Final QA blocked publish: " + ", ".join(result["blocking_failures"]))
+        return result
 
     def _video_qa(self, run: CartoonRun) -> dict[str, Any]:
         video = Path(run.payload["video"])
@@ -608,6 +628,7 @@ class CartoonFactoryOrchestrator:
 
         motion = self.quality.motion_check(video)
         if motion["passed"]:
+            final_qa = self._final_qa(run, media, motion)
             record_provider_observation(
                 provider=str(run.payload.get("animation_backend", "pillow")),
                 task="animation",
@@ -619,6 +640,7 @@ class CartoonFactoryOrchestrator:
                 "passed": True,
                 "media": media,
                 "motion": motion,
+                "final_qa": final_qa,
                 "repaired": bool(run.payload.get("motion_repair_attempts", 0)),
                 "repair_attempts": int(run.payload.get("motion_repair_attempts", 0)),
             }
@@ -641,6 +663,8 @@ class CartoonFactoryOrchestrator:
                 + ", ".join(repaired_motion["reasons"])
             )
 
+        final_qa = self._final_qa(run, repaired_media, repaired_motion)
+
         record_provider_observation(
             provider=str(run.payload.get("animation_backend", "pillow")),
             task="animation",
@@ -652,6 +676,7 @@ class CartoonFactoryOrchestrator:
             "passed": True,
             "media": repaired_media,
             "motion": repaired_motion,
+            "final_qa": final_qa,
             "repaired": True,
             "repair_attempts": 1,
             "repair": repair,
@@ -659,6 +684,14 @@ class CartoonFactoryOrchestrator:
         }
 
     def _publish(self, run: CartoonRun) -> dict[str, Any]:
+        # Re-evaluate at publish readiness, after story, script, audio, captions,
+        # and video QA have all had a chance to record their evidence.
+        media = run.payload.get("final_media_qa")
+        motion = run.payload.get("final_motion_qa")
+        self._final_qa(run, media, motion, enforce_publish=True)
+        gate = run.payload.get("final_qa")
+        if not isinstance(gate, dict) or gate.get("publish_gate", {}).get("decision") != "allow":
+            raise RuntimeError("Publish blocked: final QA publish-gate evidence is missing or failed")
         candidate = run.payload["winner"]["candidate"]
         experiment = ensure_experiment_identity(run.payload, run.run_id)
         item = {
@@ -669,6 +702,7 @@ class CartoonFactoryOrchestrator:
             "caption": candidate.get("caption", ""),
             "ai_generated": True,
             "status": "ready_for_review",
+            "final_qa": gate["publish_gate"],
             "audience_classification_review_required": True,
             "experiment_metadata": {
                 "controlled_experiment_id": experiment.get("controlled_experiment_id", ""),
