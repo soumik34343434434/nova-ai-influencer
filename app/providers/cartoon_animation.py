@@ -651,6 +651,23 @@ def _event_blink(progress: float, event_fraction: float) -> float:
                + 0.42 * pulse(event_fraction + 0.17, 0.035))
 
 
+def _asymmetric_blink(progress: float, event_fraction: float) -> tuple[float, float]:
+    """Stagger the two eye lids slightly to keep impact blinks from reading as a shutter."""
+    p = max(0.0, min(1.0, progress))
+
+    def pulse(center: float, width: float) -> float:
+        distance = (p - center) / width
+        return math.exp(-2.8 * distance * distance)
+
+    # One eye catches the impact first; the other follows and both share a
+    # quieter recovery blink. The small offset preserves a single reaction.
+    leading = min(1.0, pulse(event_fraction + 0.018, 0.037)
+                  + 0.34 * pulse(event_fraction + 0.165, 0.034))
+    trailing = min(1.0, pulse(event_fraction + 0.036, 0.039)
+                   + 0.42 * pulse(event_fraction + 0.178, 0.036))
+    return leading, trailing
+
+
 def _face_motion(progress: float, beat: str, performance: dict | None = None) -> tuple[float, float, float, float, float]:
     """Return face dx/dy, x/y scale and blink strength."""
     p = max(0.0, min(1.0, progress))
@@ -707,12 +724,26 @@ def _apply_face_performance(frame: Image.Image, rig: CharacterRig, progress: flo
     if blink > 0.02:
         fd = ImageDraw.Draw(face, "RGBA")
         band_y = int(face.height * 0.43)
-        band_h = max(4, int(face.height * 0.09 * blink))
-        fd.rounded_rectangle(
-            (int(face.width * 0.08), band_y - band_h, int(face.width * 0.92), band_y + band_h),
-            radius=max(3, band_h),
-            fill=(16, 27, 38, int(205 * blink)),
-        )
+        event = kinematic_state(progress, beat, performance)["event_fraction"]
+        left_blink, right_blink = _asymmetric_blink(progress, event)
+        if beat in {"escalation", "reaction"}:
+            for x0, x1, strength in (
+                (0.08, 0.49, left_blink), (0.51, 0.92, right_blink),
+            ):
+                band_h = max(2, int(face.height * 0.09 * strength))
+                fd.rounded_rectangle(
+                    (int(face.width * x0), band_y - band_h,
+                     int(face.width * x1), band_y + band_h),
+                    radius=max(2, band_h),
+                    fill=(16, 27, 38, int(205 * strength)),
+                )
+        else:
+            band_h = max(4, int(face.height * 0.09 * blink))
+            fd.rounded_rectangle(
+                (int(face.width * 0.08), band_y - band_h, int(face.width * 0.92), band_y + band_h),
+                radius=max(3, band_h),
+                fill=(16, 27, 38, int(205 * blink)),
+            )
 
     base = frame.copy()
     ox = int(fx0 + dx - (face.width - (fx1 - fx0)) / 2)

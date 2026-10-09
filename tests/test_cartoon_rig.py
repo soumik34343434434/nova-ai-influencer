@@ -161,6 +161,20 @@ def test_escalation_flash_follows_director_impact_timing():
     assert _impact_flash_envelope(event, event, "reaction") == 0.0
 
 
+def test_impact_blink_has_staggered_eyes_and_shared_recovery():
+    from app.providers.cartoon_animation import _asymmetric_blink
+
+    event = 0.40
+    first_lead = _asymmetric_blink(event + 0.018, event)
+    second_lead = _asymmetric_blink(event + 0.036, event)
+    recovery = _asymmetric_blink(event + 0.175, event)
+
+    assert first_lead[0] > first_lead[1]
+    assert second_lead[1] > second_lead[0]
+    assert recovery[0] > 0.25 and recovery[1] > 0.25
+    assert abs(recovery[0] - recovery[1]) < 0.15
+
+
 def test_kinematic_state_shares_root_motion_across_character_parts():
     from app.providers.cartoon_performance import kinematic_state, arm_motion, head_motion
     state = kinematic_state(0.5, "reaction")
