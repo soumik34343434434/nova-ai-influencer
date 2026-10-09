@@ -122,6 +122,17 @@ def _camera_event_push(progress: float, event_fraction: float, beat: str) -> flo
     return amplitude * (0.42 * lead + impact - 0.30 * release)
 
 
+def _camera_attention_envelope(progress: float, event_fraction: float, beat: str) -> float:
+    """Lead the camera toward the character's look, then hold through contact."""
+    if beat not in {"escalation", "reaction"}:
+        return 0.0
+    p = _clamp(progress)
+    lead = _gaussian(p, event_fraction - 0.065, 0.075)
+    impact = _gaussian(p, event_fraction, 0.105)
+    release = _gaussian(p, event_fraction + 0.17, 0.13)
+    return min(1.0, 0.50 * lead + impact + 0.22 * release)
+
+
 def _anticipation(p: float, center: float, width: float) -> float:
     """Small pre-movement that prepares the body for a later action."""
     if p >= center:
@@ -269,8 +280,8 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
         # Reserve a little look space in the direction of the character's
         # attention. The camera consumes this as a framing offset, not as
         # additional character motion.
-        "camera_focus_x": attention_x * impact,
-        "camera_focus_y": attention_y * impact,
+        "camera_focus_x": attention_x * _camera_attention_envelope(p, peak, beat),
+        "camera_focus_y": attention_y * _camera_attention_envelope(p, peak, beat),
         "speech_pulse": speech,
         # Camera tracks the root with a tiny delay, so the camera feels attached
         # to the scene and not like an independent Ken-Burns animation.
