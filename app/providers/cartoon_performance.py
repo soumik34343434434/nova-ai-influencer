@@ -225,6 +225,12 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
             speech = 0.0
 
     head_dx, head_dy, head_scale, head_rot = head
+    # The head trails the torso impulse before catching up. Keep this response
+    # separate from the hand lag so the upper body has its own readable mass.
+    head_lag = _settle_oscillation(p, peak + 0.025, frequency=4.2)
+    head_dx += 3.2 * head_lag * energy
+    head_dy += 1.4 * head_lag * energy
+    head_rot += 1.8 * head_lag * energy
     left = (left[0] + 2.2 * hand_lag, left[1] + 1.1 * hand_lag,
             left[2] - 1.8 * hand_lag, left[3])
     right = (right[0] + 2.8 * hand_lag, right[1] + 1.4 * hand_lag,

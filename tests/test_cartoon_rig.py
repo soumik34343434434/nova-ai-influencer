@@ -187,6 +187,22 @@ def test_hands_lag_impact_then_damped_follow_through():
     assert abs(late_settle["right_dx"]) < abs(follow_through["right_dx"])
 
 
+def test_head_lags_torso_impact_then_damped_follow_through():
+    from app.providers.cartoon_performance import kinematic_state
+
+    event = 0.40
+    at_impact = kinematic_state(event, "reaction")
+    follow_through = kinematic_state(event + 0.12, "reaction")
+    late_settle = kinematic_state(event + 0.50, "reaction")
+
+    # The head's local offset continues after contact, then returns toward rest.
+    impact_offset = at_impact["head_dx"] - at_impact["root_dx"]
+    follow_offset = follow_through["head_dx"] - follow_through["root_dx"]
+    settle_offset = late_settle["head_dx"] - late_settle["root_dx"]
+    assert follow_offset != impact_offset
+    assert abs(settle_offset) < abs(follow_offset)
+
+
 def test_camera_reserves_look_space_in_face_attention_direction():
     from app.providers.cartoon_performance import kinematic_state
 
