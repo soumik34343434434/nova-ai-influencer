@@ -19,9 +19,45 @@ class CartoonMotionQA:
         reasons: list[str],
         target_shots: list[int] | None = None,
     ) -> dict[str, Any]:
-        """Translate QA failures into one bounded, deterministic repair profile."""
+        """Map QA diagnostics to a bounded, deterministic multi-domain repair."""
         reasons = list(dict.fromkeys(reasons))
         target_shots = sorted({int(index) for index in (target_shots or []) if int(index) >= 0})
+        for reason in reasons:
+            suffix = reason.rsplit("_shot_", 1)
+            if len(suffix) == 2 and suffix[1].isdigit():
+                shot = int(suffix[1])
+                if shot >= 0 and shot not in target_shots:
+                    target_shots.append(shot)
+        target_shots.sort()
+        # Each rule is intentionally narrow: the repair worker receives only
+        # the instruction relevant to the diagnosed domain.
+        rules = {
+            "face": ("face_deformation", "Lock facial proportions and features to the reference; allow only small controlled expression changes."),
+            "hands": ("hand_deformation", "Keep hands or paws simple and anatomically stable; preserve the reference silhouette and digit count."),
+            "limbs_identity": ("limb_deformation identity_drift", "Preserve character identity, proportions, costume and limb connections; use restrained joint motion."),
+            "camera": ("camera_drift", "Stabilize the camera and remove unintended pan, zoom, shake or reframing."),
+            "world": ("background_drift world_drift", "Keep the environment, lighting and background object placement fixed to the reference."),
+            "audio_voice": ("missing_audio voice_overrun voice_peak_out_of_range", "Preserve the supplied voice track; correct voice level or duration without changing the spoken content."),
+            "sync": ("audio_video_duration_mismatch timing_failure sync_failure", "Align shot boundaries and action timing to the authored audio timeline; preserve the audio content."),
+            "props": ("prop_missing prop_deformation prop_drift", "Preserve the required prop identity, shape and screen position; show the intended interaction clearly."),
+            "captions": ("caption_character_collision", "Move captions into the reserved safe zone while keeping them readable and clear of the character."),
+            "motion": ("insufficient_character_motion too_many_near_duplicate_frames possible_pose_popping excessive_transition_spike no_anticipation no_recoil secondary_motion_missing", "Use readable, connected character movement with anticipation and settle; preserve pose continuity and avoid abrupt transitions."),
+        }
+        # Accept diagnostics with a trailing _shot_N suffix while retaining the
+        # explicit per-shot scope in the returned plan.
+        matched: dict[str, list[str]] = {}
+        unknown: list[str] = []
+        for reason in reasons:
+            base = reason.rsplit("_shot_", 1)[0] if "_shot_" in reason and reason.rsplit("_shot_", 1)[1].isdigit() else reason
+            found = [domain for domain, (keys, _) in rules.items() if base in keys.split()]
+            if found:
+                for domain in found:
+                    matched.setdefault(domain, []).append(reason)
+            elif reason not in {"motion_qa_below_threshold", "passed", "no_failure"}:
+                unknown.append(reason)
+        instructions = [rules[d][1] for d in rules if d in matched]
+        if unknown:
+            instructions.append("Make a conservative continuity-preserving correction for the reported issue; do not redesign the shot.")
         plan: dict[str, Any] = {
             "motion_gain": 1.0,
             "camera_gain": 1.0,
@@ -53,11 +89,22 @@ class CartoonMotionQA:
         if all(reason in {"motion_qa_below_threshold"} for reason in reasons):
             plan["motion_gain"] = 1.15
             plan["camera_gain"] = 1.10
+        if "possible_pose_popping" in reasons or "excessive_transition_spike" in reasons:
+            # Continuity failures dominate motion amplification to prevent
+            # contradictory requests in combined diagnostics.
+            plan["motion_gain"] = min(plan["motion_gain"], 0.84)
+        noop = not instructions
         return {
             "reasons": reasons,
             "target_shots": target_shots,
             "profile": plan,
-            "strategy": "targeted-shot-rerender",
+            "domains": {domain: sorted(values) for domain, values in matched.items()},
+            "unknown_reasons": unknown,
+            "instructions": instructions,
+            "confidence": round(0.95 if not unknown else max(0.35, 0.8 - 0.1 * len(unknown)), 2),
+            "scope": "targeted-shots" if target_shots else ("all-shots" if instructions else "none"),
+            "strategy": "no-op" if noop else "targeted-shot-rerender",
+            "max_attempts": 1,
         }
 
     def __init__(

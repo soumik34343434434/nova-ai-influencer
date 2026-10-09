@@ -154,7 +154,8 @@ def build_runway_repair_request(
 ) -> dict[str, Any]:
     """Create a zero-execution targeted Runway repair request from QA diagnostics."""
     reasons = list(dict.fromkeys(str(r) for r in qa_result.get("reasons", []) if r))
-    instructions = [RUNWAY_REPAIR_RULES[r] for r in reasons if r in RUNWAY_REPAIR_RULES]
+    supplied_plan = qa_result.get("plan") if isinstance(qa_result.get("plan"), dict) else {}
+    instructions = list(supplied_plan.get("instructions", [])) or [RUNWAY_REPAIR_RULES[r] for r in reasons if r in RUNWAY_REPAIR_RULES]
     target_shots = sorted({int(i) for i in qa_result.get("repair_shots", []) if int(i) >= 0})
     base_prompt = str(request.get("prompt", "")).strip()
     repair_prompt = base_prompt
@@ -172,7 +173,11 @@ def build_runway_repair_request(
             "target_shots": target_shots,
             "reasons": reasons,
             "instructions": instructions,
+            "domains": supplied_plan.get("domains", {}),
+            "confidence": supplied_plan.get("confidence", 0.0),
+            "scope": supplied_plan.get("scope", "targeted-shots" if target_shots else "all-shots"),
             "strategy": "targeted-rerender",
+            "max_attempts": 1,
         },
     }
 

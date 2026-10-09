@@ -527,6 +527,7 @@ class CartoonFactoryOrchestrator:
                                 {
                                     "reasons": reasons,
                                     "repair_shots": [shot_index],
+                                    "plan": plan,
                                 },
                             )
                         )

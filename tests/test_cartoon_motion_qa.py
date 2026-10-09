@@ -55,6 +55,33 @@ def test_repair_plan_moves_caption_when_collision_is_reported():
     assert plan["profile"]["caption_zone"][1] < 1480
 
 
+def test_expanded_repair_plan_combines_domains_without_conflicting_motion():
+    plan = CartoonMotionQA.plan_repair(
+        ["face_deformation", "camera_drift", "possible_pose_popping", "insufficient_character_motion"],
+        [3, 1, 3],
+    )
+    assert set(plan["domains"]) == {"face", "camera", "motion"}
+    assert plan["target_shots"] == [1, 3]
+    assert plan["scope"] == "targeted-shots"
+    assert plan["confidence"] > 0.8
+    assert plan["max_attempts"] == 1
+    assert plan["profile"]["motion_gain"] < 1.0
+
+
+def test_unknown_reasons_get_conservative_bounded_plan():
+    plan = CartoonMotionQA.plan_repair(["new_detector_reason"], [2])
+    assert plan["unknown_reasons"] == ["new_detector_reason"]
+    assert plan["instructions"]
+    assert plan["confidence"] < 0.8
+    assert plan["target_shots"] == [2]
+    assert plan["max_attempts"] == 1
+
+
+def test_pass_or_empty_failure_is_noop():
+    assert CartoonMotionQA.plan_repair([])["strategy"] == "no-op"
+    assert CartoonMotionQA.plan_repair(["passed"])["strategy"] == "no-op"
+
+
 def test_audio_sync_check_rejects_voice_overrun():
     from app.agents.cartoon_motion_qa import CartoonMotionQA
     metadata = {
