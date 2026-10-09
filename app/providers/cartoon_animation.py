@@ -632,6 +632,17 @@ def _gaze_dart(progress: float, event_fraction: float, energy: float, direction:
     )
 
 
+def _event_blink(progress: float, event_fraction: float) -> float:
+    """Close on contact, then give the face a smaller recovery blink."""
+    p = max(0.0, min(1.0, progress))
+    def pulse(center: float, width: float) -> float:
+        distance = (p - center) / width
+        return math.exp(-2.8 * distance * distance)
+
+    return min(1.0, pulse(event_fraction + 0.025, 0.040)
+               + 0.42 * pulse(event_fraction + 0.17, 0.035))
+
+
 def _face_motion(progress: float, beat: str, performance: dict | None = None) -> tuple[float, float, float, float, float]:
     """Return face dx/dy, x/y scale and blink strength."""
     p = max(0.0, min(1.0, progress))
@@ -649,12 +660,12 @@ def _face_motion(progress: float, beat: str, performance: dict | None = None) ->
         snap = math.sin(math.pi * max(0.0, min(1.0, (p - 0.16) / 0.34)))
         dx, dy = 7.0 * snap * energy, -4.0 * snap * energy
         sx, sy = 1.0 + 0.010 * snap + 0.010 * speech, 1.0 + 0.030 * snap + 0.014 * speech
-        blink = max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.10) / 0.08))))
+        blink = _event_blink(p, shared_state["event_fraction"])
     elif beat == "reaction":
         snap = math.sin(math.pi * max(0.0, min(1.0, (p - 0.10) / 0.30)))
         dx, dy = -8.0 * snap * energy, 3.0 * snap * energy
         sx, sy = 1.0 + 0.016 * snap + 0.009 * speech, 1.0 + 0.038 * snap + 0.018 * speech
-        blink = max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.18) / 0.09))))
+        blink = _event_blink(p, shared_state["event_fraction"])
     elif beat == "punchline":
         sway = math.sin(math.pi * p * 0.8)
         dx, dy = 2.0 * sway, -1.0 * sway

@@ -70,8 +70,25 @@ def test_face_motion_has_beat_specific_response():
 
 def test_face_motion_has_explicit_blink_window():
     from app.providers.cartoon_animation import _face_motion
-    assert _face_motion(0.22, "reaction")[4] > 0.0
-    assert _face_motion(0.50, "reaction")[4] < 1e-6
+    assert _face_motion(0.425, "reaction")[4] > 0.99
+    assert _face_motion(0.57, "reaction")[4] > 0.35
+    assert _face_motion(0.90, "reaction")[4] < 1e-6
+
+
+def test_contact_blinks_follow_director_event_timing():
+    from app.providers.cartoon_animation import _face_motion
+
+    performance = {"shot_spec": {"phases": [
+        {"name": "anticipate", "start": 0.0, "end": 0.60},
+        {"name": "impact", "start": 0.70, "end": 0.74},
+    ]}}
+    contact_blink = _face_motion(0.745, "reaction", performance)[4]
+    old_fixed_window = _face_motion(0.22, "reaction", performance)[4]
+    recovery_blink = _face_motion(0.89, "reaction", performance)[4]
+
+    assert contact_blink > 0.99
+    assert old_fixed_window < 1e-6
+    assert 0.30 < recovery_blink < contact_blink
 
 
 def test_gaze_dart_leads_event_and_releases_afterward():
