@@ -174,6 +174,81 @@ def _group(rows: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _evidence_summary(rows: list[dict[str, Any]], history: list[dict[str, Any]]) -> dict[str, Any]:
+    """Describe outcome evidence separately from the legacy selection posterior."""
+    observed_fields = ("views", "likes", "comments", "shares", "saves", "retention_pct",
+                      "avg_watch_seconds", "followers_gained")
+    evidence_rows = []
+    for row in rows:
+        supplied = [name for name in observed_fields if row.get(name) not in (None, "")]
+        proxy = (not supplied or str(row.get("platform", "")).lower() in {"sim", "simulation", "synthetic"}
+                 or str(row.get("metric_source", "")).lower() in {"proxy", "synthetic", "simulated"})
+        evidence_rows.append({**row, "_evidence_kind": "proxy" if proxy else "observed"})
+
+    def comparison(key: str, value: str) -> dict[str, Any]:
+        selected_all = [r for r in evidence_rows if str(r.get(key, "") or "").strip() == value]
+        # Compare within platform when possible; this avoids treating platform mix as a creative effect.
+        platforms = Counter(str(r.get("platform", "") or "") for r in selected_all)
+        platform = platforms.most_common(1)[0][0] if platforms else ""
+        pool = [r for r in evidence_rows if not platform or str(r.get("platform", "") or "") == platform]
+        selected = [r for r in pool if str(r.get(key, "") or "").strip() == value]
+        baseline = [r for r in pool if str(r.get(key, "") or "").strip() != value]
+        vals = [float(r.get("score", 0) or 0) for r in selected]
+        base_vals = [float(r.get("score", 0) or 0) for r in baseline]
+        mean = sum(vals) / len(vals) if vals else None
+        base_mean = sum(base_vals) / len(base_vals) if base_vals else None
+        # Descriptive standard error over bounded normalized scores, not a causal interval.
+        se = (math.sqrt(sum((x - mean) ** 2 for x in vals) / max(len(vals) - 1, 1) / len(vals))
+              if len(vals) > 1 and mean is not None else None)
+        return {"observations": len(vals), "observed_outcomes": sum(r["_evidence_kind"] == "observed" for r in selected),
+                "proxy_outcomes": sum(r["_evidence_kind"] == "proxy" for r in selected),
+                "mean": round(mean, 4) if mean is not None else None,
+                "standard_error": round(se, 4) if se is not None else None,
+                "baseline_observations": len(base_vals),
+                "baseline_mean": round(base_mean, 4) if base_mean is not None else None,
+                "baseline_standard_error": round(math.sqrt(sum((x - base_mean) ** 2 for x in base_vals) / max(len(base_vals) - 1, 1) / len(base_vals)), 4) if len(base_vals) > 1 and base_mean is not None else None,
+                "difference": round(mean - base_mean, 4) if mean is not None and base_mean is not None else None,
+                "comparison": "association"}
+
+    comparisons = {}
+    for key in ("format_name", "hook_pattern", "emotion", "character"):
+        comparisons[key] = {value: comparison(key, value) for value in sorted({str(r.get(key, "") or "").strip() for r in evidence_rows} - {""})}
+
+    ordered = sorted(history, key=lambda r: (str(r.get("captured_at", "")), str(r.get("content_id", ""))))
+    timelines: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in ordered:
+        combination = "|".join(str(row.get(k, "") or "").strip() for k in ("format_name", "hook_pattern", "character"))
+        if combination.strip("|"):
+            timelines[combination].append(normalize_metric(row))
+    declining = []
+    for combo, snapshots in timelines.items():
+        if len(snapshots) < 3:
+            continue
+        split = max(1, len(snapshots) // 2)
+        early = [float(r.get("score", 0) or 0) for r in snapshots[:split]]
+        recent = [float(r.get("score", 0) or 0) for r in snapshots[split:]]
+        delta = sum(recent) / len(recent) - sum(early) / len(early)
+        if delta <= -0.08:
+            declining.append({"combination": combo, "snapshots": len(snapshots), "early_mean": round(sum(early)/len(early), 4),
+                              "recent_mean": round(sum(recent)/len(recent), 4), "change": round(delta, 4), "interpretation": "temporal association; fatigue is not established"})
+    winners, losers, under_tested = [], [], []
+    for dimension, values in comparisons.items():
+        for value, stats in values.items():
+            item = {"dimension": dimension, "value": value, **stats,
+                    "confidence": "low" if stats["observations"] < 3 or stats["baseline_observations"] < 3 else "moderate"}
+            if stats["observations"] < 3:
+                under_tested.append(item)
+            if stats["difference"] is not None and stats["observations"] >= 2:
+                (winners if stats["difference"] >= 0.05 else losers if stats["difference"] <= -0.05 else []).append(item)
+    return {"outcome_evidence": {"observed": sum(r["_evidence_kind"] == "observed" for r in evidence_rows),
+                                   "proxy": sum(r["_evidence_kind"] == "proxy" for r in evidence_rows),
+                                   "observations": len(evidence_rows)},
+            "comparisons": comparisons,
+            "learnings": {"winners": winners, "losers": losers, "under_tested": under_tested,
+                          "declining_patterns": declining,
+                          "confidence_note": "Associations are descriptive; they do not establish causality."}}
+
+
 def build_strategy_memory(rows: Iterable[dict[str, Any]] | None = None) -> dict[str, Any]:
     data = list(rows) if rows is not None else _load_rows(METRICS_FILE)
     normalized = [normalize_metric(x) for x in data]
@@ -190,6 +265,7 @@ def build_strategy_memory(rows: Iterable[dict[str, Any]] | None = None) -> dict[
                 "preferred_characters": [],
             },
             "posteriors": {},
+            "evidence": _evidence_summary([], load_metric_history()),
             "lessons": ["collect first-party platform metrics before claiming a creative winner"],
         }
         _write_json(STRATEGY_FILE, memory)
@@ -263,6 +339,7 @@ def build_strategy_memory(rows: Iterable[dict[str, Any]] | None = None) -> dict[
             "preferred_characters": preferred_characters,
         },
         "posteriors": posteriors,
+        "evidence": _evidence_summary(normalized, load_metric_history()),
         "leaders": [
             {
                 "content_id": r.get("content_id"),

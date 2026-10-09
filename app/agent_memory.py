@@ -301,6 +301,8 @@ def update_experiment_learning(
         "observations": strategy_memory.get("observations", 0),
         "preferred_formats": strategy_memory.get("strategy", {}).get("preferred_formats", []),
         "preferred_hooks": strategy_memory.get("strategy", {}).get("preferred_hooks", []),
+        # Optional additive field: old strategy-memory payloads remain valid.
+        "evidence": strategy_memory.get("evidence", {}),
         "next_loop_experiments": next_loop_plan.get("experiments", []),
         "guardrails": next_loop_plan.get("guardrails", []),
     }
