@@ -123,14 +123,19 @@ def _camera_event_push(progress: float, event_fraction: float, beat: str) -> flo
 
 
 def _camera_attention_envelope(progress: float, event_fraction: float, beat: str) -> float:
-    """Lead the camera toward the character's look, then hold through contact."""
+    """Lead toward the character's look and hold attention through early recovery."""
     if beat not in {"escalation", "reaction"}:
         return 0.0
     p = _clamp(progress)
     lead = _gaussian(p, event_fraction - 0.065, 0.075)
     impact = _gaussian(p, event_fraction, 0.105)
     release = _gaussian(p, event_fraction + 0.17, 0.13)
-    return min(1.0, 0.50 * lead + impact + 0.22 * release)
+    # A brief eased hold keeps the camera's look-space through recoil instead
+    # of letting the focal intent collapse immediately after contact.
+    hold_start = _ease(_phase_progress(p, event_fraction - 0.045, event_fraction + 0.015))
+    hold_end = 1.0 - _ease(_phase_progress(p, event_fraction + 0.12, event_fraction + 0.27))
+    recovery_hold = hold_start * hold_end
+    return min(1.0, 0.45 * lead + impact + 0.55 * recovery_hold + 0.18 * release)
 
 
 def _anticipation(p: float, center: float, width: float) -> float:

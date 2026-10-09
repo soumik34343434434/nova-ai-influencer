@@ -301,6 +301,20 @@ def test_camera_reserves_look_space_in_face_attention_direction():
     assert abs(event["camera_focus_x"]) > abs(settled["camera_focus_x"])
 
 
+def test_camera_holds_action_focus_through_early_recovery():
+    from app.providers.cartoon_performance import _camera_attention_envelope
+
+    event = 0.40
+    contact = _camera_attention_envelope(event, event, "escalation")
+    early_recovery = _camera_attention_envelope(event + 0.08, event, "escalation")
+    settled = _camera_attention_envelope(event + 0.36, event, "escalation")
+
+    assert early_recovery > 0.70
+    assert early_recovery > settled
+    assert settled < 0.20
+    assert contact == 1.0
+
+
 def test_camera_vertical_look_space_tracks_above_and_below_action_targets():
     from app.providers.cartoon_performance import kinematic_state
 
