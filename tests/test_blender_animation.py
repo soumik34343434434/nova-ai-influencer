@@ -170,6 +170,17 @@ def test_secondary_hand_follow_through_emphasizes_the_acting_hand():
     assert 'follow_weight=1.35 if side==acting_hand else 0.65 if acting_hand else 1.0' in text
 
 
+def test_head_and_accessory_lag_reverse_with_signed_recoil_impulse():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert 'head_lag_distance=max(-0.028,min(0.028,impulse/9000.0))' in text
+    assert 'head.location.x=-ux*head_lag_distance' in text
+    assert 'head.location.y=-uy*head_lag_distance' in text
+    assert 'accessory_lag_distance=max(-0.055,min(0.055,impulse/4200.0))' in text
+    assert 'bp.location.x=-ux*accessory_lag_distance' in text
+    assert 'bp.location.y=-uy*accessory_lag_distance' in text
+
+
 def test_impact_facial_reaction_is_asymmetric_toward_action_hand():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')

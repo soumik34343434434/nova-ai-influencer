@@ -248,8 +248,9 @@ def write_pose(arm,frame,spec):
  accessory_follow_deg=float(secondary.get('accessory_follow_deg',0.0))
  head=arm.pose.bones['head']
  head.rotation_euler.z=math.radians(spec['head_rot']-head_lag_deg*drive*phase_weight)
- head.location.x=-ux*min(0.028,abs(impulse)/9000.0)
- head.location.y=-uy*min(0.028,abs(impulse)/9000.0)
+ head_lag_distance=max(-0.028,min(0.028,impulse/9000.0))
+ head.location.x=-ux*head_lag_distance
+ head.location.y=-uy*head_lag_distance
  head.keyframe_insert('rotation_euler',index=2,frame=kframe(head_lag))
  head.keyframe_insert('location',frame=kframe(head_lag))
  hand_follow=math.radians(hand_follow_deg*drive*phase_weight)
@@ -268,8 +269,9 @@ def write_pose(arm,frame,spec):
  root.keyframe_insert('scale',frame=frame)
  bp=arm.pose.bones['backpack']
  bp.rotation_euler.z=math.radians(spec['root_rot']*.45-accessory_follow_deg*drive*phase_weight)
- bp.location.x=-ux*min(0.055,abs(impulse)/4200.0)
- bp.location.y=-uy*min(0.055,abs(impulse)/4200.0)
+ accessory_lag_distance=max(-0.055,min(0.055,impulse/4200.0))
+ bp.location.x=-ux*accessory_lag_distance
+ bp.location.y=-uy*accessory_lag_distance
  bp.keyframe_insert('rotation_euler',frame=kframe(accessory_lag))
  bp.keyframe_insert('location',frame=kframe(accessory_lag))
 
