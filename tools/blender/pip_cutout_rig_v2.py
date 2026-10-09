@@ -727,8 +727,10 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
    # asymmetry so the key is based on its own pose.
    bpy.context.scene.frame_set(f)
    for side,(eye,sign) in enumerate(zip(face['eyes'],(-1,1))):
-    eye.scale.x=1.0 + (0.045 if action=='shock' else -0.035 if action=='deadpan' else 0.018*sign)
-    eye.scale.y=1.0 + (0.10 if action=='shock' else -0.08 if action=='overwhelmed' else 0.0)
+    # Layer the action accent over the pose already authored by the action
+    # chain. Assigning from 1.0 here erased its expression scale at this key.
+    eye.scale.x *= 1.0 + (0.045 if action=='shock' else -0.035 if action=='deadpan' else 0.018*sign)
+    eye.scale.y *= 1.0 + (0.10 if action=='shock' else -0.08 if action=='overwhelmed' else 0.0)
     eye.location.x += gaze_sign*0.012*sign; eye.location.y += (-0.010 if action=='deadpan' else 0.008 if action=='shock' else 0.0)
     eye.keyframe_insert('scale',frame=f); eye.keyframe_insert('location',frame=f)
    # Organic faces have separate brow shapes; pose them with the same action
