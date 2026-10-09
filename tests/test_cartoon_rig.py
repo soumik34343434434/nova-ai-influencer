@@ -307,10 +307,12 @@ def test_camera_holds_action_focus_through_early_recovery():
     event = 0.40
     contact = _camera_attention_envelope(event, event, "escalation")
     early_recovery = _camera_attention_envelope(event + 0.08, event, "escalation")
-    settled = _camera_attention_envelope(event + 0.36, event, "escalation")
+    recoil_recovery = _camera_attention_envelope(event + 0.24, event, "escalation")
+    settled = _camera_attention_envelope(event + 0.48, event, "escalation")
 
     assert early_recovery > 0.70
     assert early_recovery > settled
+    assert recoil_recovery > 0.70
     assert settled < 0.20
     assert contact == 1.0
 
