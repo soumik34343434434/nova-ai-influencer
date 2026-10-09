@@ -811,6 +811,10 @@ class CartoonFactoryOrchestrator:
             failure_summary=failure_summary,
             provider_summary=provider_summary,
         )
+        # Persist the same auditable action layer alongside posterior memory;
+        # existing strategy fields remain intact for older consumers.
+        from app import learning_v2
+        learning_v2._write_json(learning_v2.STRATEGY_FILE, memory)
         # Keep the legacy snapshot too so older dashboards and tests remain valid.
         from app.learning import build_learning_snapshot
         legacy = build_learning_snapshot()

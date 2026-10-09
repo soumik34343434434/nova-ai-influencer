@@ -182,6 +182,7 @@ def build_next_loop_plan(
 ) -> dict[str, Any]:
     strategy = strategy_memory.get("strategy", {})
     posteriors = strategy_memory.get("posteriors", {})
+    action_posteriors = strategy_memory.get("observed_posteriors", posteriors)
     exploration = float(strategy.get("exploration_rate", 0.30) or 0.30)
 
     # Keep the primary exploitation policy focused on the current leader.
@@ -190,6 +191,52 @@ def build_next_loop_plan(
     preferred_hooks = list(strategy.get("preferred_hooks", []))[:3]
     preferred_emotions = list(strategy.get("preferred_emotions", []))[:3]
     preferred_characters = list(strategy.get("preferred_characters", []))[:3]
+
+    # Translate observed outcomes into small, auditable changes. A category is
+    # eligible only when its posterior has evidence; absent analytics never
+    # becomes a zero score or a negative recommendation.
+    actions: list[dict[str, Any]] = []
+    dimension_fields = {
+        "format_name": "formats", "hook_pattern": "hook_styles",
+        "duration_band": "duration_bands", "character": "characters", "emotion": "emotions",
+    }
+    analytics_n = int(strategy_memory.get("analytics_observations", strategy_memory.get("observations", 0)) or 0)
+    if analytics_n:
+        for dimension, field in dimension_fields.items():
+            stats_table = action_posteriors.get(dimension, {})
+            # Ignore categories without observed outcomes. In particular, do
+            # not let a missing raw_mean turn into an invented baseline score.
+            ranked = sorted(
+                (
+                    (name, stats)
+                    for name, stats in stats_table.items()
+                    if int(stats.get("observations", 0) or 0) > 0 and "raw_mean" in stats
+                ),
+                key=lambda item: (-float(item[1]["raw_mean"]), item[0]),
+            )
+            if not ranked:
+                continue
+            best_name, best_stats = ranked[0]
+            evidence = int(best_stats.get("observations", 0))
+            mean = float(best_stats.get("raw_mean", .5))
+            confidence = round(min(.95, evidence / (evidence + 3)), 3)
+            if evidence > 0 and mean >= .62:
+                actions.append({"dimension": field, "change": "favor", "value": best_name,
+                    "evidence_count": evidence, "confidence": confidence,
+                    "rationale": f"Observed outcomes for {best_name} averaged {mean:.3f} across {evidence} item(s).",
+                    "classification": "exploit" if evidence >= 3 else "explore"})
+            for weak_name, weak_stats in ranked:
+                weak_mean = float(weak_stats["raw_mean"])
+                weak_n = int(weak_stats.get("observations", 0) or 0)
+                if weak_mean <= .38:
+                    actions.append({"dimension": field, "change": "deprioritize_and_retest", "value": weak_name,
+                        "evidence_count": weak_n, "confidence": round(min(.95, weak_n / (weak_n + 3)), 3),
+                        "rationale": f"Observed outcomes for {weak_name} averaged {weak_mean:.3f}; retest with a changed execution before dropping it.",
+                        "classification": "explore"})
+    if not actions:
+        actions.append({"dimension": "experiment_priorities", "change": "collect_baseline", "value": ["hook_styles", "duration_bands", "formats"],
+            "evidence_count": 0, "confidence": 0.0,
+            "rationale": "No usable analytics evidence supports a creative direction yet.", "classification": "explore"})
 
     experiments = []
     for fmt in preferred_formats[:2]:
@@ -277,6 +324,7 @@ def build_next_loop_plan(
         "generated_at": utc_now(),
         "objective": "maximize expected audience outcome and information gain while reducing avoidable production failure and cost",
         "exploration_rate": exploration,
+        "strategy_actions": actions,
         "reinforce": {
             "formats": preferred_formats,
             "hooks": preferred_hooks,
@@ -296,7 +344,6 @@ def build_next_loop_plan(
             "avoid expensive renders without a measurable hypothesis",
         ],
     }
-    _write(NEXT_LOOP_FILE, plan)
     # Make the plan directly consumable by the next generation pass. This is
     # deliberately a small policy surface rather than prose: future stages can
     # change behavior from these fields without reinterpreting free-form text.
@@ -309,6 +356,26 @@ def build_next_loop_plan(
         "avoid_error_types": [name for name, _ in dominant_failures],
         "provider_routes": preferred_provider_routes,
     }
+    cautions = []
+    for row in dominant_failures:
+        cautions.append({"dimension": "production", "change": "prevent_failure", "value": row[0],
+            "evidence_count": int(row[1]), "confidence": round(min(.95, row[1] / (row[1] + 3)), 3),
+            "rationale": f"{row[1]} recorded production failure(s) of type {row[0]}.", "classification": "exploit"})
+    for key, value in provider_rows.items():
+        repairs = int(value.get("repairs", 0) or 0)
+        if repairs:
+            cautions.append({"dimension": "repair", "change": "inspect_before_reuse", "value": key,
+                "evidence_count": int(value.get("observations", 0)),
+                "confidence": round(min(.95, repairs / (int(value.get("observations", 0)) + 3)), 3),
+                "rationale": f"This route required {repairs} repair(s); add a preflight check.", "classification": "explore"})
+    plan["production_cautions"] = cautions
+    plan["strategy_actions"].append({"dimension": "experiment_priorities", "change": "test_next",
+        "value": ["hook_styles", "duration_bands", "formats"], "evidence_count": analytics_n,
+        "confidence": round(min(.95, analytics_n / (analytics_n + 3)), 3),
+        "rationale": "Run a controlled factor test so the next cycle separates creative effects.",
+        "classification": "explore"})
+    _write(NEXT_LOOP_FILE, plan)
+    strategy_memory["strategy_actions"] = plan["strategy_actions"]
     return plan
 
 

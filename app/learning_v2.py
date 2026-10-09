@@ -97,6 +97,10 @@ def normalize_metric(row: dict[str, Any]) -> dict[str, Any]:
         "like_rate": round(like_rate, 8),
         "follow_rate": round(follow_rate, 8),
         "derived_retention": derived_retention,
+        "has_observed_analytics": any(
+            key in row and row.get(key) is not None
+            for key in ("views", "likes", "comments", "shares", "saves", "retention_pct", "avg_watch_seconds")
+        ),
     })
     return normalized
 
@@ -257,6 +261,7 @@ def build_strategy_memory(rows: Iterable[dict[str, Any]] | None = None) -> dict[
             "version": 2,
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "observations": 0,
+            "analytics_observations": 0,
             "strategy": {
                 "exploration_rate": 0.30,
                 "preferred_formats": [],
@@ -276,6 +281,24 @@ def build_strategy_memory(rows: Iterable[dict[str, Any]] | None = None) -> dict[
         key: _group(normalized, key)
         for key in ("format_name", "hook_pattern", "emotion", "character", "trend_id")
     }
+    # Duration is learned as a stable, interpretable band for next-cycle planning.
+    duration_rows = []
+    for row in normalized:
+        try:
+            duration = float(row.get("duration_seconds", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if duration > 0:
+            band = "short_0_8s" if duration <= 8 else "medium_9_15s" if duration <= 15 else "long_16s_plus"
+            duration_rows.append({**row, "duration_band": band})
+    posteriors["duration_band"] = _group(duration_rows, "duration_band")
+    observed_rows = [row for row in normalized if row.get("has_observed_analytics")]
+    observed_posteriors = {
+        key: _group(observed_rows, key)
+        for key in ("format_name", "hook_pattern", "emotion", "character")
+    }
+    observed_duration_rows = [row for row in duration_rows if row.get("has_observed_analytics")]
+    observed_posteriors["duration_band"] = _group(observed_duration_rows, "duration_band")
     interactions = {}
     for left, right in (("format_name", "hook_pattern"), ("format_name", "character"), ("hook_pattern", "emotion")):
         groups = defaultdict(list)
@@ -340,6 +363,8 @@ def build_strategy_memory(rows: Iterable[dict[str, Any]] | None = None) -> dict[
         },
         "posteriors": posteriors,
         "evidence": _evidence_summary(normalized, load_metric_history()),
+        "observed_posteriors": observed_posteriors,
+        "analytics_observations": sum(bool(r.get("has_observed_analytics")) for r in normalized),
         "leaders": [
             {
                 "content_id": r.get("content_id"),
