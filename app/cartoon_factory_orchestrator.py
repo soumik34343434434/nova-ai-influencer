@@ -564,14 +564,18 @@ class CartoonFactoryOrchestrator:
         video = Path(run.payload["video"])
         if run.payload.get("audio_embedded") or run.payload.get("animation_backend") == "blender":
             result = {"voice_sfx_mixed": True, "audio_embedded": True, "audio_source": str(video)}
-            self.plane.store.set_payload(run, audio_metadata=result)
+            # Some legacy/unit callers pass lightweight run-like objects; keep
+            # evidence persistence for real CartoonRun instances only.
+            if hasattr(run, "run_id") and hasattr(run, "stages"):
+                self.plane.store.set_payload(run, audio_metadata=result)
             return result
         audio_candidates = list(video.parent.glob(video.stem + "_frames/episode_audio.wav"))
         has_audio_source = bool(audio_candidates and audio_candidates[0].exists())
         if not has_audio_source:
             raise RuntimeError("Audio stage expected renderer-produced episode_audio.wav")
         result = {"voice_sfx_mixed": True, "audio_source": str(audio_candidates[0])}
-        self.plane.store.set_payload(run, audio_metadata=result)
+        if hasattr(run, "run_id") and hasattr(run, "stages"):
+            self.plane.store.set_payload(run, audio_metadata=result)
         return result
 
     def _caption_engine(self, run: CartoonRun) -> dict[str, Any]:

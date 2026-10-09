@@ -28,8 +28,14 @@ def _make_run(orchestrator, run_id, video_path, fmt):
                     "angle": "synthetic benchmark",
                     "duration_target": 8,
                     "production_cost": 0,
+                    "beats": [{"voice": "Test beat"}],
                 }
             },
+            "final_media_qa": {"passed": True, "reasons": []},
+            "final_motion_qa": {"passed": True, "score": 0.95, "reasons": [], "audio_sync_score": 0.98},
+            "story_quality": {"passed": True, "score": 9.0, "blockers": []},
+            "script_contract": {"quality": {"dimensions": [{"name": "caption_readiness", "score": 9.0}]}},
+            "runtime_qa": {"passed": True, "score": 1.0, "reasons": []},
         }
     )
     orchestrator.plane.store = store
@@ -51,7 +57,9 @@ def test_full_closed_loop_publish_metrics_learning_changes_next_ideas(monkeypatc
     monkeypatch.setattr(agent_memory, "NEXT_LOOP_FILE", tmp_path / "next_loop.json")
 
     video = tmp_path / "simulation.mp4"
-    video.write_bytes(b"synthetic-video-placeholder")
+    # Final QA intentionally rejects placeholder artifacts; this simulation
+    # supplies the minimum complete evidence needed to exercise the publish loop.
+    video.write_bytes(b"x" * 100_001)
 
     orchestrator = orch.CartoonFactoryOrchestrator()
 
