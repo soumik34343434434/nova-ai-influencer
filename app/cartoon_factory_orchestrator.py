@@ -386,6 +386,8 @@ class CartoonFactoryOrchestrator:
         return {"coverage": coverage(type("Spec", (), {"character": candidate["character"], "beats": candidate["beats"]})())}
 
     def _animation_engine(self, run: CartoonRun) -> dict[str, Any]:
+        from app.agents.edit_decision import build_edit_plan
+
         candidate = run.payload["winner"]["candidate"]
         images = [Path(p) for p in run.payload["asset_paths"]]
         captions = [beat["voice"] for beat in candidate["beats"]]
@@ -452,6 +454,10 @@ class CartoonFactoryOrchestrator:
             render_durations=effective_durations,
             animation_metadata=str(motion_metadata),
         )
+        edit_plan = build_edit_plan(candidate["beats"], effective_durations)
+        edit_plan_path = ARTIFACTS / f"{slug}.edit_plan.json"
+        _save(edit_plan_path, edit_plan)
+        self.plane.store.set_payload(run, edit_plan=edit_plan, edit_plan_path=str(edit_plan_path))
         return {"video": str(output), "renderer": "blender-cutout-performance-rig-v5" if backend == "blender" and candidate.get("character") in {"PIP", "MOMO", "BUBU"} else "cartoon-motion-3.6", "fps": 24}
 
     def _rerender_for_motion_qa(self, run: CartoonRun, motion_result: dict[str, Any]) -> dict[str, Any]:
@@ -653,6 +659,7 @@ class CartoonFactoryOrchestrator:
                 "angle": candidate.get("angle", ""),
                 "duration_target": candidate.get("duration_target", 0.0),
                 "production_cost": candidate.get("production_cost", 0.0),
+                "edit_plan": run.payload.get("edit_plan", {}),
             },
         }
         queue = []
