@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass
+from .idea_prediction import predict_idea
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,7 @@ class JuryResult:
     passed: bool
     judges: tuple[JudgeScore, ...]
     reasons: tuple[str, ...]
+    prediction: dict
 
 
 def _word_count(text: str) -> int:
@@ -59,7 +61,15 @@ class CartoonIdeaJury:
         )
         if not passed:
             reasons = reasons + ("jury_below_threshold",)
-        return JuryResult(overall, passed, tuple(judges), reasons)
+        # Prediction is a separate pre-production dimension. It is deliberately
+        # excluded from both the pass threshold and the safety/originality gate.
+        try:
+            from ..learning_v2 import METRICS_FILE, _load_rows
+            history = _load_rows(METRICS_FILE)
+        except (ImportError, OSError):
+            history = []
+        prediction = predict_idea(draft, history)
+        return JuryResult(overall, passed, tuple(judges), reasons, prediction)
 
     def _hook(self, hook: str) -> JudgeScore:
         words = _word_count(hook)

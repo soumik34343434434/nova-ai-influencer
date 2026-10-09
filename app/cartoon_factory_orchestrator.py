@@ -273,6 +273,13 @@ class CartoonFactoryOrchestrator:
                     + float(candidate["research"].get("score", 0.0)) * 0.20,
                     3,
                 )
+                # Keep expected audience outcome visible as a distinct ranking
+                # signal; hard gates above remain authoritative.
+                prediction = jury.prediction
+                score = round(score * 0.95 + 0.05 * (
+                    0.55 * float(prediction["predicted_retention"])
+                    + 0.45 * float(prediction["predicted_shareability"])
+                ), 3)
                 preselected.append({
                     "score": score,
                     "candidate": candidate,
