@@ -705,10 +705,13 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
   for j,frac in enumerate(blink_fracs):
    f=start+round((end-start)*frac)
    if start+3 < f < end-2:
-    for eye,pupil in zip(face['eyes'],face['pupils']):
-     eye.scale.y=.12; eye.keyframe_insert('scale',index=1,frame=f); eye.scale.y=1.0; eye.keyframe_insert('scale',index=1,frame=f+2)
+    blink_lag=1 if action in ('shock','overwhelmed') else 0
+    for side,(eye,pupil) in enumerate(zip(face['eyes'],face['pupils'])):
+     eye_frame=f+(blink_lag if side==1 else 0)
+     reopen_frame=eye_frame+(3 if action in ('shock','overwhelmed') and side==1 else 2)
+     eye.scale.y=.12; eye.keyframe_insert('scale',index=1,frame=eye_frame); eye.scale.y=1.0; eye.keyframe_insert('scale',index=1,frame=min(end,reopen_frame))
      if pupil is not None:
-      pupil.scale.y=.07; pupil.keyframe_insert('scale',index=1,frame=f); pupil.scale.y=1.0; pupil.keyframe_insert('scale',index=1,frame=f+2)
+      pupil.scale.y=.07; pupil.keyframe_insert('scale',index=1,frame=eye_frame); pupil.scale.y=1.0; pupil.keyframe_insert('scale',index=1,frame=min(end,reopen_frame))
   # Action-specific eye asymmetry and a small gaze dart.
   gaze_sign={'give_homework':1,'press_button':1,'shock':-1,'overwhelmed':1,'deadpan':0,'tap_alarm':-1,'open_fridge':1,'tap_shoes':1}.get(action,0)
   f=start+round((end-start)*0.42)
