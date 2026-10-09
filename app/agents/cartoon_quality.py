@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from app.agents.cartoon_motion_qa import CartoonMotionQA
+from app.agents.cartoon_runtime_qa import CartoonRuntimeQA
 
 
 @dataclass(frozen=True)
@@ -101,8 +102,16 @@ class CartoonQuality:
         }
 
     def motion_check(self, path: Path) -> dict:
-        """Run the deterministic motion-performance quality gate."""
-        return CartoonMotionQA().inspect(path)
+        """Run motion QA plus an encoded-runtime proof gate."""
+        motion = CartoonMotionQA().inspect(path)
+        runtime = CartoonRuntimeQA().inspect(path)
+        reasons = list(dict.fromkeys([*motion.get("reasons", []), *runtime.get("reasons", [])]))
+        return {
+            **motion,
+            "passed": bool(motion.get("passed") and runtime.get("passed")),
+            "reasons": reasons,
+            "runtime_qa": runtime,
+        }
 
 
 def quality_to_dict(result: CartoonEvaluation) -> dict:
