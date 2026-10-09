@@ -276,8 +276,11 @@ def test_gaze_darts_use_evaluated_pose_at_each_key_without_accumulating():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
     assert 'dart_delta=dart_mag*(1.0 if dart_i%2==0 else -0.7)' in text
-    assert 'eye_origin=eye.location.copy()' in text
-    assert 'pupil_origin=pupil.location.copy()' in text
+    assert 'dart_keys=[]' in text
+    assert 'eye_origins.append(eye.location.copy())' in text
+    assert 'pupil_origins.append(pupil.location.copy() if pupil is not None else None)' in text
+    assert 'dart_keys.append((key_frame,weight,eye_origins,pupil_origins))' in text
+    assert 'for key_frame,weight,eye_origins,pupil_origins in dart_keys:' in text
     assert 'bpy.context.scene.frame_set(key_frame)' in text
     assert 'eye.keyframe_insert(\'location\',frame=key_frame)' in text
     assert 'pupil.keyframe_insert(\'location\',frame=key_frame)' in text

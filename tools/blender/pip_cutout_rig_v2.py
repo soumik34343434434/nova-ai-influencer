@@ -747,10 +747,19 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
    # accent and never compounds with the previous dart.
    dart_delta=dart_mag*(1.0 if dart_i%2==0 else -0.7)
    dart_envelope=((df-2,0.0),(df-1,0.38),(df,1.0),(df+1,0.58),(df+2,0.0))
+   dart_keys=[]
    for key_frame,weight in dart_envelope:
     bpy.context.scene.frame_set(key_frame)
+    # Sample every authored pose before inserting this dart's keys. Otherwise
+    # Blender evaluates the earlier dart key while sampling the next frame,
+    # feeding part of the glance back into its own baseline.
+    eye_origins=[]; pupil_origins=[]
     for eye,pupil in zip(face['eyes'],face['pupils']):
-     eye_origin=eye.location.copy()
+     eye_origins.append(eye.location.copy())
+     pupil_origins.append(pupil.location.copy() if pupil is not None else None)
+    dart_keys.append((key_frame,weight,eye_origins,pupil_origins))
+   for key_frame,weight,eye_origins,pupil_origins in dart_keys:
+    for (eye,pupil),eye_origin,pupil_origin in zip(zip(face['eyes'],face['pupils']),eye_origins,pupil_origins):
      # Keep a separate-pupil eye socket steady so the pupil visibly changes
      # direction inside the eye. Organic face patches have no pupil control,
      # so give those eyes a restrained whole-eye glance instead.
@@ -758,7 +767,6 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
      eye.location.x=eye_origin.x + dart_delta*weight*eye_weight
      eye.keyframe_insert('location',frame=key_frame)
      if pupil is not None:
-      pupil_origin=pupil.location.copy()
       pupil.location.x=pupil_origin.x + dart_delta*weight
       pupil.keyframe_insert('location',frame=key_frame)
   # Tiny speech-driven head bob without breaking the action pose.
