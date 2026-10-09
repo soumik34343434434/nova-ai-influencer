@@ -4,6 +4,7 @@ import math
 from dataclasses import dataclass
 
 from app.providers.cartoon_rig import CharacterRig
+from app.providers.character_acting import acting_state
 
 
 @dataclass(frozen=True)
@@ -221,6 +222,19 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
     face_target_dy = 5.0 * attention_y * (0.30 + 0.70 * impact)
     from app.agents.camera_director import plan_camera
     camera = plan_camera(beat, p, impact, settle)
+    # Compose authored shot timing and action intent with the established rig
+    # primitives. These are deliberately small pose-space accents.
+    acting = acting_state(p, beat, voice_performance)
+    root_dx += acting["weight_shift"] * 5.0
+    root_dy += acting["torso_arc"] * 5.0
+    root_rot += acting["torso_arc"] * 0.9
+    left = (left[0], left[1] + acting["weight_shift"] * 2.0,
+            left[2] + acting["joint_articulation"] * 3.0 + acting["overlap"] * 1.4, left[3])
+    right = (right[0], right[1] - acting["weight_shift"] * 2.0,
+             right[2] - acting["joint_articulation"] * 3.0 - acting["overlap"] * 1.4, right[3])
+    head_dx += acting["overlap"] * 1.8
+    head_dy += acting["torso_arc"] * 1.2
+    head_rot += acting["overlap"] * 0.7
     return {
         "event_fraction": peak,
         "root_dx": root_dx,
@@ -253,6 +267,7 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
         "camera_focus_weight": camera.focus_weight,
         "camera_hold_strength": camera.hold_strength,
         "camera_lead_seconds": camera.lead_seconds,
+        **acting,
     }
 
 

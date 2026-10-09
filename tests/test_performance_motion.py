@@ -64,3 +64,42 @@ def test_semantic_pose_library_has_reusable_acting_vocabulary():
     assert library["reach"]["right_wrist"] != base["right_wrist"]
     assert library["shock"]["eye_open"] > library["idle"]["eye_open"]
     assert library["deadpan"]["mouth"] == "flat"
+
+
+def test_character_acting_tracks_shot_performance_timing_deterministically():
+    from app.agents.shot_performance import build_shot_performance_spec
+    from app.providers.character_acting import acting_state
+
+    performance = {"shot_spec": build_shot_performance_spec("checks_phone", "Oh no", 5.0)}
+    impact = next(p for p in performance["shot_spec"]["phases"] if p["name"] == "impact")
+    at_peak = (impact["start"] + impact["end"]) / (2 * performance["shot_spec"]["duration"])
+    a = acting_state(at_peak, "reaction", performance)
+    assert a == acting_state(at_peak, "reaction", performance)
+    assert abs(a["acting_peak"] - at_peak) < 1e-9
+    assert a["reaction"] > acting_state(0.05, "reaction", performance)["reaction"]
+    assert a["weight_shift"] != 0
+
+
+def test_character_acting_is_continuous_and_bounded():
+    from app.agents.shot_performance import build_shot_performance_spec
+    from app.providers.character_acting import acting_state
+
+    performance = {"shot_spec": build_shot_performance_spec("reaches_for_coffee", "Coffee", 4.0)}
+    left = acting_state(.499, "setup", performance)
+    right = acting_state(.501, "setup", performance)
+    for key in ("weight_shift", "torso_arc", "joint_articulation", "overlap", "reaction"):
+        assert abs(left[key] - right[key]) < .05
+    for key, limit in (("weight_shift", .35), ("torso_arc", .65),
+                       ("joint_articulation", .55), ("overlap", .45), ("reaction", 1.25)):
+        assert abs(left[key]) <= limit
+        assert abs(right[key]) <= limit
+    assert -1.0 <= left["acceleration"] <= 1.0
+
+
+def test_character_acting_unknown_action_is_safe_neutral():
+    from app.providers.character_acting import acting_state
+
+    performance = {"shot_spec": {"duration": 3, "source_action": "teleport", "phases": []}}
+    state = acting_state(.5, "escalation", performance)
+    assert state["acting_peak"] == .45
+    assert all(value == 0 for key, value in state.items() if key != "acting_peak")
