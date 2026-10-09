@@ -264,6 +264,14 @@ def test_reaction_blinks_stagger_and_hold_the_second_eye_longer():
     assert "frame=min(end,reopen_frame)" in text
 
 
+def test_speech_head_bob_is_added_to_cached_authored_pose_without_accumulation():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert 'bob_keys.append((f,head.location.y,math.sin(f*0.42)*(0.012+0.024*energy)))' in text
+    assert 'for f,base_y,bob in bob_keys:' in text
+    assert 'head.location.y=base_y+bob' in text
+
+
 def test_gaze_darts_use_evaluated_pose_at_each_key_without_accumulating():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')

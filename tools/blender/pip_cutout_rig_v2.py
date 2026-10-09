@@ -764,11 +764,17 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
   # Tiny speech-driven head bob without breaking the action pose.
   activity=(rows[idx].get('activity') if idx < len(rows) else []) if rows else []
   if activity:
+   bob_keys=[]
    for f in range(start,end+1,4):
     q=(f-start)/max(1,end-start); ai=min(len(activity)-1,int(round(q*(len(activity)-1))))
     try: energy=max(0.0,min(1.0,float(activity[ai])))
     except (TypeError,ValueError): energy=0.0
-    head=arm.pose.bones['head']; head.location.y += math.sin(f*0.42)*(0.012+0.024*energy); head.keyframe_insert('location',frame=f)
+    bpy.context.scene.frame_set(f)
+    head=arm.pose.bones['head']
+    bob_keys.append((f,head.location.y,math.sin(f*0.42)*(0.012+0.024*energy)))
+   for f,base_y,bob in bob_keys:
+    head.location.y=base_y+bob
+    head.keyframe_insert('location',frame=f)
  add_micro_performance_accents(arm,face,BEATS,rows)
  bpy.ops.object.camera_add(location=(0,0,30)); cam=bpy.context.object; cam.name=f'{CHARACTER}_Camera'; cam.data.type='ORTHO'; cam.data.ortho_scale=WORLD_H; scene.camera=cam
  camera_performance_keys(arm,cam,BEATS,rows)
