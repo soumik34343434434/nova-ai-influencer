@@ -9,12 +9,12 @@
       "areas": {
         "animation_mechanics": 8.2,
         "anticipation_contact_overshoot": 8.3,
-        "secondary_motion": 7.8,
+        "secondary_motion": 8.0,
         "facial_acting": 7.9,
         "camera_acting": 6.8,
         "background_visual_world": 7.5
       },
-      "evidence": "This cycle improves facial_acting implementation in tools/blender/pip_cutout_rig_v2.py: shock brows now react asymmetrically toward the acting side, peaking at contact (0.055 additional lift), reducing at overshoot (0.040), recoiling (0.018), and releasing by settle (0.0). tests/test_blender_animation.py adds regression assertions for the phase envelope, acting-side weighting, and applied brow lifts. The facial_acting score moves from 7.7 to 7.9 based on this implemented, regression-covered acting signal; it remains below the 8.5 floor pending runtime/render review. Python 3.14 syntax compilation and quality-target/scoreboard JSON validation passed. Focused and full pytest runs could not start because pytest is not installed (No module named pytest). No Blender runtime/render review was performed. All other area scores are unchanged and performance_animation remains active."
+      "evidence": "This cycle improves secondary_motion in tools/blender/pip_cutout_rig_v2.py: head and backpack lag offsets now preserve the signed impact impulse, so anticipation and recoil reverse the lag direction instead of always trailing in the contact direction. tests/test_blender_animation.py adds regression assertions for signed, capped head and accessory offsets. The secondary_motion score moves from 7.8 to 8.0 based on this implemented, regression-covered direction response; it remains below the 8.5 floor pending Blender runtime/render review. Python syntax compilation and quality-target/scoreboard JSON validation passed. Focused and full pytest runs could not start because pytest is not installed (No module named pytest). No Blender runtime/render review was performed. All other area scores are unchanged and performance_animation remains active."
     },
     "audio": {
       "status": "complete",
