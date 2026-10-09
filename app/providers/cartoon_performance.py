@@ -133,12 +133,12 @@ def _camera_attention_envelope(progress: float, event_fraction: float, beat: str
     # A brief eased hold keeps the camera's look-space through recoil instead
     # of letting the focal intent collapse immediately after contact.
     hold_start = _ease(_phase_progress(p, event_fraction - 0.045, event_fraction + 0.015))
-    # Keep the look-space through the first recoil beat, then ease out as the
-    # character's motion settles. The longer tail gives the audience time to
-    # register where the character's attention landed after contact.
-    # Keep the audience's look-space through the character's late recoil; the
-    # performance plan does not enter settle until well after the contact.
-    hold_end = 1.0 - _ease(_phase_progress(p, event_fraction + 0.42, event_fraction + 0.58))
+    # Keep the look-space through recoil, then release it at the authored
+    # settle transition. Deriving this from the beat avoids a long reaction
+    # hold that outlives the character's recovery.
+    settle = next((phase for phase in performance_plan(beat).phases if phase.name == "settle"), None)
+    settle_start = settle.start if settle is not None else event_fraction + 0.58
+    hold_end = 1.0 - _ease(_phase_progress(p, settle_start - 0.10, settle_start + 0.04))
     recovery_hold = hold_start * hold_end
     return min(1.0, 0.45 * lead + impact + 0.70 * recovery_hold + 0.18 * release)
 

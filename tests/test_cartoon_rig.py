@@ -320,19 +320,32 @@ def test_camera_reserves_look_space_in_face_attention_direction():
 def test_camera_holds_action_focus_through_early_recovery():
     from app.providers.cartoon_performance import _camera_attention_envelope
 
-    event = 0.40
+    event = 0.16
     contact = _camera_attention_envelope(event, event, "escalation")
     early_recovery = _camera_attention_envelope(event + 0.08, event, "escalation")
-    recoil_recovery = _camera_attention_envelope(event + 0.24, event, "escalation")
-    late_recovery = _camera_attention_envelope(event + 0.48, event, "escalation")
-    settled = _camera_attention_envelope(event + 0.64, event, "escalation")
+    recoil_recovery = _camera_attention_envelope(0.60, event, "escalation")
+    late_recovery = _camera_attention_envelope(0.64, event, "escalation")
+    settled = _camera_attention_envelope(0.76, event, "escalation")
 
     assert early_recovery > 0.70
     assert early_recovery > settled
-    assert recoil_recovery > 0.70
+    assert recoil_recovery > 0.60
     assert late_recovery > 0.35
     assert settled < 0.20
     assert contact == 1.0
+
+
+def test_reaction_camera_focus_releases_at_authored_settle_transition():
+    from app.providers.cartoon_performance import _camera_attention_envelope
+
+    event = 0.40
+    late_recoil = _camera_attention_envelope(0.60, event, "reaction")
+    settling = _camera_attention_envelope(0.68, event, "reaction")
+    settled = _camera_attention_envelope(0.78, event, "reaction")
+
+    assert late_recoil > 0.40
+    assert settling < late_recoil
+    assert settled < 0.10
 
 
 def test_camera_vertical_look_space_tracks_above_and_below_action_targets():
