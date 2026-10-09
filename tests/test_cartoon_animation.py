@@ -26,6 +26,8 @@ def test_impact_paper_burst_is_deterministic_and_contact_localized():
     blank = Image.new("RGBA", (1080, 1920), (30, 40, 50, 255))
     no_impact = blank.copy()
     _impact_graphics(no_impact, 0.0)
+    early = blank.copy()
+    _impact_graphics(early, 0.25)
     first = blank.copy()
     repeated = blank.copy()
     _impact_graphics(first, 0.8)
@@ -33,6 +35,7 @@ def test_impact_paper_burst_is_deterministic_and_contact_localized():
 
     assert ImageChops.difference(blank.convert("RGB"), no_impact.convert("RGB")).getbbox() is None
     assert first.tobytes() == repeated.tobytes()
+    assert early.tobytes() != first.tobytes()
     difference = ImageChops.difference(blank.convert("RGB"), first.convert("RGB"))
     assert difference.crop((300, 700, 780, 1100)).getbbox()
     assert difference.crop((0, 0, 220, 500)).getbbox() is None

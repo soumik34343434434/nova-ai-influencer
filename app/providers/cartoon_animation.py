@@ -617,11 +617,14 @@ def _impact_graphics(frame: Image.Image, intensity: float) -> None:
     paper_colors = ((255, 232, 155), (244, 249, 255), (255, 191, 145))
     for i in range(8):
         angle = math.tau * (i / 8.0) + 0.31
-        distance = 190 + 52 * intensity + (i % 3) * 18
+        # Fragments accelerate away from contact as the flash reaches its peak,
+        # then grow slightly to preserve a readable physical scale in the shot.
+        distance = 105 + 165 * intensity + (i % 3) * 18
         px = cx + math.cos(angle) * distance
         py = cy + math.sin(angle) * distance
-        length = 18 + (i % 3) * 5
-        width = 8 + (i % 2) * 3
+        scale = 0.65 + 0.55 * intensity
+        length = (18 + (i % 3) * 5) * scale
+        width = (8 + (i % 2) * 3) * scale
         along = (math.cos(angle + 0.8), math.sin(angle + 0.8))
         across = (-along[1], along[0])
         points = [
@@ -634,7 +637,7 @@ def _impact_graphics(frame: Image.Image, intensity: float) -> None:
             (px + along[0] * length / 2 - across[0] * width / 2,
              py + along[1] * length / 2 - across[1] * width / 2),
         ]
-        draw.polygon(points, fill=(*paper_colors[i % len(paper_colors)], int(210 * intensity)))
+        draw.polygon(points, fill=(*paper_colors[i % len(paper_colors)], int(220 * intensity)))
     overlay = overlay.filter(ImageFilter.GaussianBlur(0.35))
     frame.alpha_composite(overlay)
 
