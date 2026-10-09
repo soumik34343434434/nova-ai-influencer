@@ -11,6 +11,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
+from app.agents.subsystem_priority import select_subsystem_priority
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
@@ -86,14 +87,13 @@ def _load_quality_progress() -> dict:
 
 
 def _current_upgrade_target() -> tuple[str, dict]:
-    """Return the first engine that is not durably marked complete."""
+    """Return the evidence-ranked incomplete subsystem and its durable state."""
     progress = _load_quality_progress()
     engines = progress.get("engines", {})
-    for name in ENGINE_ORDER:
-        row = engines.get(name)
-        if isinstance(row, dict) and row.get("status") != "complete":
-            return name, row
-    return ENGINE_ORDER[-1], {"status": "complete", "score": 8.5}
+    decision = select_subsystem_priority(progress)
+    name = decision["selected"]
+    row = engines.get(name, {})
+    return name, {**(row if isinstance(row, dict) else {}), "priority": decision}
 
 class Action(BaseModel):
     action: str
@@ -265,6 +265,7 @@ def _codex_cycle() -> dict:
 
     target_name, target_state = _current_upgrade_target()
     progress = _load_quality_progress()
+    priority = target_state.get("priority", {})
     quality_floor = float(progress.get("quality_floor", 8.5) or 8.5)
 
     prompt = f'''You are the autonomous senior engineer for the NOVA AI influencer repository.
@@ -279,19 +280,22 @@ QUALITY CONTROL:
 - Active engine progress: {json.dumps(target_state, ensure_ascii=False)}
 - Durable scoreboard: docs/QUALITY_PROGRESS.json
 - config/cartoon_quality_targets.json is the authoritative definition of quality areas and minimums.
-- The scoreboard is the sequencing authority. One engine stays active until its required areas are supported at >= {quality_floor}; only then may the next engine begin.
+- Deterministic subsystem priority decision: {json.dumps(priority, ensure_ascii=False)}
+- Use the selected subsystem as the next target. Prioritize measured gaps, recurring failures, user impact, evidence confidence, and work that unblocks downstream quality. Do not keep optimizing an already-good subsystem while a higher-impact evidenced gap remains. If evidence is missing, gather runtime/render proof or integration evidence using the selector's safe fallback order; do not invent scores.
 
-STRICT ENGINE ORDER:
-1 Performance/Animation AI
-2 Audio Engine
-3 Editor AI
-4 Final QA
-5 Publishing
-6 Analytics
+SAFE FALLBACK ORDER (used only when priority evidence is missing or tied):
+1 Runtime/render proof
+2 Integrations
+3 Performance/Animation AI
+4 Audio Engine
+5 Editor AI
+6 Final QA
+7 Publishing
+8 Analytics
 
 Script Engine and Story Engine are already frozen/completed and MUST NOT be selected for new work. Do not create structural or regression-only Script Engine changes while the active target is {target_name}. A change is valid only when it materially improves the active target.
 
-Execute exactly ONE upgrade cycle for the active engine: inspect -> identify the largest evidenced gap -> implement -> add regression tests -> run focused tests -> run the full pytest suite when feasible -> update docs/QUALITY_PROGRESS.json with evidence-backed area scores/status. Keep the same engine active across multiple cycles until every required area is at least {quality_floor}. Do not advance to a later engine just because one PR was successful.
+Execute exactly ONE upgrade cycle for the selected subsystem: inspect -> identify the highest-priority evidenced gap -> implement -> add regression tests -> run focused tests -> run the full pytest suite when feasible -> update docs/QUALITY_PROGRESS.json with evidence-backed scores/status. A subsystem can be revisited when its current measured gap remains the highest priority, but completion of one subsystem does not override a higher-impact gap or an unblocking dependency.
 
 For Performance/Animation AI, stay inside these quality areas until all are >= {quality_floor}: animation_mechanics, anticipation_contact_overshoot, secondary_motion, facial_acting, camera_acting, background_visual_world. Prefer real character-performance improvements over cosmetic camera-only tricks, and prioritize rig integrity, gaze/facial continuity, hands/arms, anticipation/contact/overshoot/recoil/settle, and targeted motion repair.
 

@@ -32,7 +32,17 @@
 
 ## Next engineering target
 
-Use the provider interfaces to add:
+Upgrade cycles use the deterministic selector in `app/agents/subsystem_priority.py`.
+It ranks measured quality gaps, failure frequency, user impact, evidence confidence,
+and downstream unblock leverage. Missing evidence lowers confidence and falls back
+to this safe sequence: runtime/render proof, integrations, performance/animation,
+audio, editor, final QA, publishing, analytics. A dependency with incomplete
+prerequisites is marked blocked and its prerequisite can be prioritized as an
+unblocker. Scores are decision aids; they do not replace human review of creative
+quality.
+
+Once runtime/render evidence is available, use the provider interfaces to prioritize
+the highest remaining evidenced gap, including:
 1. A vidIQ ingestion adapter.
 2. A Metricool MCP scheduling bridge outside the GitHub runner.
 3. Optional local neural image-to-video backend when hardware supports it.
