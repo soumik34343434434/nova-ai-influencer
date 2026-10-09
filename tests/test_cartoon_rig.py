@@ -201,6 +201,28 @@ def test_hands_lag_impact_then_damped_follow_through():
     assert abs(late_settle["right_dx"]) < abs(follow_through["right_dx"])
 
 
+def test_escalation_arms_draw_back_before_custom_timed_contact():
+    from app.providers.cartoon_performance import kinematic_state
+
+    performance = {"shot_spec": {"phases": [
+        {"name": "anticipate", "start": 0.0, "end": 0.58},
+        {"name": "impact", "start": 0.70, "end": 0.74},
+    ]}}
+    event = kinematic_state(0.0, "escalation", performance)["event_fraction"]
+    anticipation = kinematic_state(event - 0.09, "escalation", performance)
+    contact = kinematic_state(event, "escalation", performance)
+    follow_through = kinematic_state(event + 0.12, "escalation", performance)
+
+    # Hands prepare in opposite directions, extend on contact, and retain a
+    # delayed local response after the torso's impact peak.
+    assert anticipation["left_dx"] > 0
+    assert anticipation["right_dx"] < 0
+    assert contact["left_dx"] < anticipation["left_dx"]
+    assert contact["right_dx"] > anticipation["right_dx"]
+    assert follow_through["left_dx"] != contact["left_dx"]
+    assert follow_through["right_dx"] != contact["right_dx"]
+
+
 def test_head_lags_torso_impact_then_damped_follow_through():
     from app.providers.cartoon_performance import kinematic_state
 

@@ -171,6 +171,7 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
     # Hands trail the torso impulse slightly, then overshoot and settle. Keep
     # this local to the arms so the shared center-of-mass motion stays coherent.
     hand_lag = _settle_oscillation(p, peak + 0.045, frequency=5.4)
+    arm_drawback = _gaussian(p, peak - 0.09, 0.055) if beat in {"escalation", "reaction"} else 0.0
     energy = performance_plan(beat).energy
     spec = voice_performance.get("shot_spec") if isinstance(voice_performance, dict) else None
     if isinstance(spec, dict):
@@ -211,12 +212,18 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
         right = (8.0 * impact + 0.7 * idle, -7.0 * impact + 0.5 * idle_breath, 8.5 * impact + 0.5 * idle, 1.0 + 0.025 * impact)
         head = (1.8 * impact + 0.55 * idle, -1.4 * impact, 0.010 * impact, -1.0 * impact + 0.12 * idle)
     elif beat == "escalation":
-        left = (-8.0 * impact, -13.0 * impact, -7.5 * impact, 1.0 + 0.045 * impact)
-        right = (10.0 * impact, -15.0 * impact, 8.5 * impact, 1.0 + 0.050 * impact)
+        # Draw the hands back before the hit, then let the existing delayed
+        # hand impulse carry them past the contact pose.
+        left = (4.0 * arm_drawback - 8.0 * impact, 1.2 * arm_drawback - 13.0 * impact,
+                2.8 * arm_drawback - 7.5 * impact, 1.0 + 0.045 * impact)
+        right = (-4.4 * arm_drawback + 10.0 * impact, 1.5 * arm_drawback - 15.0 * impact,
+                 -3.2 * arm_drawback + 8.5 * impact, 1.0 + 0.050 * impact)
         head = (4.0 * impact, -8.0 * impact, 0.028 * impact, 2.3 * impact)
     elif beat == "reaction":
-        left = (-9.0 * impact, 7.0 * impact, -7.0 * impact, 1.0 + 0.032 * impact)
-        right = (12.0 * impact, 5.0 * impact, 8.0 * impact, 1.0 + 0.030 * impact)
+        left = (3.8 * arm_drawback - 9.0 * impact, -1.4 * arm_drawback + 7.0 * impact,
+                2.8 * arm_drawback - 7.0 * impact, 1.0 + 0.032 * impact)
+        right = (-4.2 * arm_drawback + 12.0 * impact, -1.0 * arm_drawback + 5.0 * impact,
+                 -3.0 * arm_drawback + 8.0 * impact, 1.0 + 0.030 * impact)
         head = (-4.0 * impact, 6.0 * impact, 0.035 * impact, -3.0 * impact)
     else:
         gesture = math.sin(math.pi * _clamp((p - 0.22) / 0.58)) * (0.55 + 0.45 * energy)
