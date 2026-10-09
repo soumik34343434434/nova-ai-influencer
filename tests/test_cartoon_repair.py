@@ -95,3 +95,18 @@ def test_video_qa_triggers_one_targeted_rerender(monkeypatch, tmp_path: Path):
     # The same missing evidence remains fail-closed once the run reaches publish.
     with pytest.raises(RuntimeError, match="Final QA blocked publish"):
         orchestrator._publish(run)
+
+
+def test_runway_repair_request_carries_expanded_plan_without_provider_call():
+    from app.providers.ai_performance import build_runway_repair_request
+    from app.agents.cartoon_motion_qa import CartoonMotionQA
+
+    plan = CartoonMotionQA.plan_repair(["hand_deformation", "prop_drift"], [1])
+    request = build_runway_repair_request(
+        {"prompt": "Character holds a cup."},
+        {"reasons": plan["reasons"], "repair_shots": [1], "plan": plan},
+    )
+    assert request["repair"]["target_shots"] == [1]
+    assert set(request["repair"]["domains"]) == {"hands", "props"}
+    assert request["repair"]["confidence"] == plan["confidence"]
+    assert len(request["repair"]["instructions"]) == 2
