@@ -228,6 +228,20 @@ def test_hands_lag_impact_then_damped_follow_through():
     assert abs(late_settle["right_dx"]) < abs(follow_through["right_dx"])
 
 
+def test_hand_follow_through_is_staggered_between_sides():
+    from app.providers.cartoon_performance import kinematic_state
+
+    event = kinematic_state(0.0, "reaction")["event_fraction"]
+    early = kinematic_state(event + 0.045, "reaction")
+    later = kinematic_state(event + 0.075, "reaction")
+
+    # The left hand starts its local follow-through first; the right hand
+    # remains at its impact pose until its separately delayed response starts.
+    assert early["left_hand_lag"] != 0.0
+    assert early["right_hand_lag"] == 0.0
+    assert later["right_hand_lag"] != 0.0
+
+
 def test_escalation_arms_draw_back_before_custom_timed_contact():
     from app.providers.cartoon_performance import kinematic_state
 

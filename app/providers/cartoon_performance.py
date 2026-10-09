@@ -170,7 +170,11 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
     settle = _settle_oscillation(p, peak)
     # Hands trail the torso impulse slightly, then overshoot and settle. Keep
     # this local to the arms so the shared center-of-mass motion stays coherent.
-    hand_lag = _settle_oscillation(p, peak + 0.045, frequency=5.4)
+    # Stagger each hand's follow-through so the arms do not read as a mirrored
+    # pair attached to one delayed control. The farther/rear hand trails a beat
+    # longer while both remain driven by the same torso impact.
+    left_hand_lag = _settle_oscillation(p, peak + 0.035, frequency=5.6)
+    right_hand_lag = _settle_oscillation(p, peak + 0.065, frequency=5.0)
     arm_drawback = _gaussian(p, peak - 0.09, 0.055) if beat in {"escalation", "reaction"} else 0.0
     energy = performance_plan(beat).energy
     spec = voice_performance.get("shot_spec") if isinstance(voice_performance, dict) else None
@@ -254,10 +258,10 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
     head_dx += 3.2 * head_lag * energy
     head_dy += 1.4 * head_lag * energy
     head_rot += 1.8 * head_lag * energy
-    left = (left[0] + 2.2 * hand_lag, left[1] + 1.1 * hand_lag,
-            left[2] - 1.8 * hand_lag, left[3])
-    right = (right[0] + 2.8 * hand_lag, right[1] + 1.4 * hand_lag,
-             right[2] + 2.0 * hand_lag, right[3])
+    left = (left[0] + 2.2 * left_hand_lag, left[1] + 1.1 * left_hand_lag,
+            left[2] - 1.8 * left_hand_lag, left[3])
+    right = (right[0] + 2.8 * right_hand_lag, right[1] + 1.4 * right_hand_lag,
+             right[2] + 2.0 * right_hand_lag, right[3])
     attention = {
         "setup": (-0.55, 0.00),
         # The action target sits above the character during an escalation and
@@ -281,10 +285,12 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
         "left_dy": left[1],
         "left_rot": left[2],
         "left_scale": left[3],
+        "left_hand_lag": left_hand_lag,
         "right_dx": right[0],
         "right_dy": right[1],
         "right_rot": right[2],
         "right_scale": right[3],
+        "right_hand_lag": right_hand_lag,
         "head_dx": head_dx,
         "head_dy": head_dy,
         "head_scale": 1.0 + head_scale,
