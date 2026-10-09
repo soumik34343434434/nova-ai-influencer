@@ -157,6 +157,9 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
     impact = _gaussian(p, peak, width)
     anticipation = _anticipation(p, peak, width * 0.85)
     settle = _settle_oscillation(p, peak)
+    # Hands trail the torso impulse slightly, then overshoot and settle. Keep
+    # this local to the arms so the shared center-of-mass motion stays coherent.
+    hand_lag = _settle_oscillation(p, peak + 0.045, frequency=5.4)
     energy = performance_plan(beat).energy
     spec = voice_performance.get("shot_spec") if isinstance(voice_performance, dict) else None
     if isinstance(spec, dict):
@@ -222,6 +225,10 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
             speech = 0.0
 
     head_dx, head_dy, head_scale, head_rot = head
+    left = (left[0] + 2.2 * hand_lag, left[1] + 1.1 * hand_lag,
+            left[2] - 1.8 * hand_lag, left[3])
+    right = (right[0] + 2.8 * hand_lag, right[1] + 1.4 * hand_lag,
+             right[2] + 2.0 * hand_lag, right[3])
     attention = {
         "setup": (-0.55, 0.00),
         "escalation": (0.52, -0.04),

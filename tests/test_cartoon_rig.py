@@ -114,6 +114,21 @@ def test_kinematic_state_shares_root_motion_across_character_parts():
     assert abs(state["camera_dx"]) < abs(state["root_dx"])
 
 
+def test_hands_lag_impact_then_damped_follow_through():
+    from app.providers.cartoon_performance import kinematic_state
+
+    event = 0.40
+    before_lag = kinematic_state(event + 0.045, "reaction")
+    follow_through = kinematic_state(event + 0.12, "reaction")
+    late_settle = kinematic_state(event + 0.50, "reaction")
+
+    # The delayed hand response adds motion after the body impact, then decays.
+    assert follow_through["left_dx"] != before_lag["left_dx"]
+    assert follow_through["right_dx"] != before_lag["right_dx"]
+    assert abs(late_settle["left_dx"]) < abs(follow_through["left_dx"])
+    assert abs(late_settle["right_dx"]) < abs(follow_through["right_dx"])
+
+
 def test_punchline_shared_state_becomes_stable_after_hold():
     from app.providers.cartoon_performance import kinematic_state
     a = kinematic_state(0.72, "punchline")
