@@ -89,6 +89,21 @@ def test_gaze_dart_leads_event_and_releases_afterward():
     assert settled < 0.01
 
 
+def test_setup_gaze_leads_and_releases_toward_left_attention_target():
+    from app.providers.cartoon_animation import _face_motion, _gaze_dart
+    from app.providers.cartoon_performance import kinematic_state
+
+    event = kinematic_state(0.0, "setup")["event_fraction"]
+    lead = _gaze_dart(event - 0.055, event, 1.0, direction=-1.0)
+    release = _gaze_dart(event + 0.105, event, 1.0, direction=-1.0)
+    attention_lead = _face_motion(event - 0.055, "setup")[0]
+    attention_release = _face_motion(event + 0.105, "setup")[0]
+
+    assert lead < -2.5
+    assert release > 0.0
+    assert attention_lead < attention_release
+
+
 def test_camera_push_anticipates_action_and_releases_after_impact():
     from app.providers.cartoon_performance import _camera_event_push
 

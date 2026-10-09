@@ -608,14 +608,14 @@ def _speech_pulse(progress: float, performance: dict | None) -> float:
     return max(0.0, min(1.0, (a - 0.18) / 0.62))
 
 
-def _gaze_dart(progress: float, event_fraction: float, energy: float) -> float:
+def _gaze_dart(progress: float, event_fraction: float, energy: float, direction: float = 1.0) -> float:
     """Lead an action with a compact glance, then release with a counter-glance."""
     p = max(0.0, min(1.0, progress))
     def envelope(center: float, width: float) -> float:
         distance = (p - center) / width
         return math.exp(-2.8 * distance * distance)
 
-    return 3.2 * energy * (
+    return direction * 3.2 * energy * (
         envelope(event_fraction - 0.055, 0.045)
         - 0.55 * envelope(event_fraction + 0.105, 0.070)
     )
@@ -631,8 +631,9 @@ def _face_motion(progress: float, beat: str, performance: dict | None = None) ->
     # with a smaller counter-glance. Keeping this tied to the director's event
     # timing makes the face read as attentive instead of riding the body sine.
     gaze_dx = 0.0
-    if beat in {"escalation", "reaction"}:
-        gaze_dx = _gaze_dart(p, shared_state["event_fraction"], energy)
+    if beat in {"setup", "escalation", "reaction"}:
+        attention_direction = -1.0 if shared_state["attention_x"] < 0 else 1.0
+        gaze_dx = _gaze_dart(p, shared_state["event_fraction"], energy, attention_direction)
     if beat == "escalation":
         snap = math.sin(math.pi * max(0.0, min(1.0, (p - 0.16) / 0.34)))
         dx, dy = 7.0 * snap * energy, -4.0 * snap * energy
