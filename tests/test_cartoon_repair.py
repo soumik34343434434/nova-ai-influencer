@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from app.cartoon_factory_orchestrator import CartoonFactoryOrchestrator
 from app.cartoon_control import CartoonRun
 
@@ -86,3 +88,10 @@ def test_video_qa_triggers_one_targeted_rerender(monkeypatch, tmp_path: Path):
     assert calls[0]["images"] == run.payload["asset_paths"]
     assert run.payload["winner"]["candidate"]["premise_slug"] == "repair_test"
     assert run.payload["motion_repair_attempts"] == 1
+    # Video QA records the aggregate result, but missing publish-only domains
+    # must not prevent this focused motion-repair stage from succeeding.
+    assert run.payload["final_qa"]["publish_gate"]["decision"] == "block"
+    assert "story_payoff:story_quality_evidence_missing" in run.payload["final_qa"]["blocking_failures"]
+    # The same missing evidence remains fail-closed once the run reaches publish.
+    with pytest.raises(RuntimeError, match="Final QA blocked publish"):
+        orchestrator._publish(run)
