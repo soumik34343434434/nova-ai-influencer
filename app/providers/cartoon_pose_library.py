@@ -315,12 +315,13 @@ def make_action_pose_chain(
             out[k] = [a[k][i] + (b[k][i] - a[k][i]) * u for i in (0, 1)]
 
         # Cartoon hand-drawn motion rarely travels in a perfect straight line.
-        # Add a small configurable arc to elbows/wrists while preserving the
-        # real anticipation/overshoot extrapolation outside [0, 1].
+        # Extend the parabolic arc through anticipation and overshoot too, so
+        # those phases keep a continuous curved path instead of turning into
+        # straight-line extensions at the contact endpoints.
         arc_px = float(profile.get("arc_strength_px", 0.0))
-        if arc_px and 0.0 <= float(t) <= 1.0:
+        if arc_px:
             import math
-            arc = math.sin(math.pi * float(t)) * arc_px
+            arc = 4.0 * float(t) * (1.0 - float(t)) * arc_px
             for side, sign in (("left", 1.0), ("right", -1.0)):
                 dx = float(b[f"{side}_wrist"][0] - a[f"{side}_wrist"][0])
                 dy = float(b[f"{side}_wrist"][1] - a[f"{side}_wrist"][1])

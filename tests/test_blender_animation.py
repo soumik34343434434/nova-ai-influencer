@@ -32,7 +32,7 @@ def test_camera_action_focus_tracks_performed_contact_hand():
     assert "'press_button': 'R'" in text
     assert "'give_homework': 'L'" in text
     assert "contact_focus=_performed_action_focus(action,arm,(fx,fy))" in text
-    assert "'contact_approach':0.45,'contact':0.90,'overshoot':0.70,'recoil':0.25,'settle':0.0" in text
+    assert "'contact_approach':0.55,'contact':1.0,'overshoot':0.78,'recoil':0.32,'settle':0.0" in text
     assert 'point = arm.matrix_world @ hand.tail' in text
     assert 'point = arm.matrix_world @ hand.matrix.translation' not in text
 
@@ -49,7 +49,15 @@ def test_camera_reaction_focus_tracks_the_performed_head_pose():
 def test_camera_contact_focus_peaks_at_impact_and_releases_on_settle():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
-    assert "'contact_approach':0.45,'contact':0.90,'overshoot':0.70,'recoil':0.25,'settle':0.0" in text
+    assert "'approach':0.0,'anticipation':0.18,'contact_approach':0.55,'contact':1.0,'overshoot':0.78,'recoil':0.32,'settle':0.0" in text
+    assert 'focus_x=fx+(contact_focus[0]-fx)*focus_mix' in text
+    assert 'focus_y=fy+(contact_focus[1]-fy)*focus_mix' in text
+
+
+def test_camera_focus_centers_performed_contact_then_releases_to_composition():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "'contact':1.0,'overshoot':0.78,'recoil':0.32,'settle':0.0" in text
     assert 'focus_x=fx+(contact_focus[0]-fx)*focus_mix' in text
     assert 'focus_y=fy+(contact_focus[1]-fy)*focus_mix' in text
 
@@ -66,7 +74,14 @@ def test_camera_escalation_push_peaks_after_contact_and_releases_on_recoil():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
     assert "'contact_approach':-0.020,'contact':-0.105,'overshoot':-0.125,'recoil':-0.045,'settle':-0.010" in text
-    assert "cam.data.ortho_scale=max(10.0,base_scale[beat]*action_scale.get(action,1.0)*(1.0+punch))" in text
+    assert "cam.data.ortho_scale=max(10.0,base_scale[beat]*action_scale.get(action,1.0)*(1.0+punch+hook_reveal))" in text
+
+
+def test_camera_opening_reveals_character_from_wide_hook_framing():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "hook_reveal=0.10*max(0.0,1.0-frac/0.18) if beat=='setup' else 0.0" in text
+    assert '1.0+punch+hook_reveal' in text
 
 
 def test_blender_episode_metadata_contract_in_source():
@@ -143,6 +158,21 @@ def test_action_pose_chain_gaze_leads_body_without_erasing_extrapolation():
     assert chain[4][1]["gaze"][0] > 1  # overshoot remains physical extrapolation
 
 
+def test_action_pose_chain_keeps_arm_arc_during_anticipation_and_overshoot():
+    from app.providers.cartoon_pose_library import make_action_pose_chain
+    base={"root":[0,0],"neck":[0,0],"head_center":[0,0],"left_shoulder":[0,0],"left_elbow":[10,0],"left_wrist":[20,0],"right_shoulder":[0,0],"right_elbow":[10,0],"right_wrist":[20,0],"head_rot":0,"root_rot":0,"eye_open":1,"gaze":[0,0],"mouth":"flat"}
+    target={**base,"left_elbow":[10,10],"left_wrist":[20,20],"right_elbow":[10,10],"right_wrist":[20,20]}
+    profile={"default":{"arc_strength_px":20,"anticipation_at":0.2,"anticipation_t":-0.2,"contact_approach_at":0.45,"contact_approach_t":0.7,"contact_at":0.6,"contact_t":1.0,"overshoot_at":0.72,"overshoot_t":1.2,"recoil_at":0.84,"recoil_t":0.94,"settle_at":1.0,"settle_t":1.0}}
+    chain=make_action_pose_chain(base,target,"default",span=100,transition_profiles=profile)
+    anticipation=chain[1][1]["left_wrist"]
+    overshoot=chain[4][1]["left_wrist"]
+    # With vertical travel the arc offsets the wrist horizontally. The
+    # parabolic arc remains nonzero outside the contact interval [0, 1].
+    assert anticipation == [39.2, -4.0]
+    assert abs(overshoot[0] - 39.2) < 1e-9
+    assert overshoot[1] == 24.0
+
+
 def test_transition_profiles_exist_for_all_cartoon_characters():
     import json
     root=Path(__file__).resolve().parents[1]
@@ -168,6 +198,23 @@ def test_secondary_hand_follow_through_emphasizes_the_acting_hand():
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
     assert "acting_hand={'press_button':'R','give_homework':'L'" in text
     assert 'follow_weight=1.35 if side==acting_hand else 0.65 if acting_hand else 1.0' in text
+
+
+def test_forearm_rotation_lags_upper_arm_to_keep_elbow_chain_articulated():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "forearm_lag=max(0,int(secondary.get('forearm_lag_frames',joint_lag+1)))" in text
+    assert "p1.keyframe_insert('rotation_euler',index=2,frame=kframe(joint_lag))" in text
+    assert "p2.keyframe_insert('rotation_euler',index=2,frame=kframe(forearm_lag))" in text
+    assert "p3.keyframe_insert('rotation_euler',index=2,frame=kframe(hand_lag))" in text
+
+
+def test_wrist_follow_through_reverses_on_recoil_and_damps_on_settle():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "hand_phase_weight={'approach':0.0,'anticipation':-0.18,'contact_approach':0.55,'contact':1.0,'overshoot':1.35,'recoil':-0.72,'settle':0.08}.get(phase,0.0)" in text
+    assert 'hand_follow=math.radians(hand_follow_deg*drive*hand_phase_weight)' in text
+    assert 'hand.rotation_euler.z += hand_follow*follow_weight' in text
 
 
 def test_head_and_accessory_lag_reverse_with_signed_recoil_impulse():
@@ -208,17 +255,24 @@ def test_organic_face_brows_pose_with_action_and_return_to_neutral():
     assert "brow.keyframe_insert('rotation_euler',frame=min(end,f+3))" in text
 
 
-def test_gaze_darts_return_to_the_evaluated_pose_without_accumulating():
+def test_gaze_darts_use_evaluated_pose_at_each_key_without_accumulating():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
-    assert 'bpy.context.scene.frame_set(df)' in text
-    assert 'origin=eye.location.copy()' in text
     assert 'dart_delta=dart_mag*(1.0 if dart_i%2==0 else -0.7)' in text
-    assert 'eye.location.x=origin.x + dart_delta' in text
-    assert 'eye.location=origin' in text
-    assert 'eye.keyframe_insert(\'location\',frame=df+2)' in text
-    assert 'pupil.location.x=pupil_origin.x + dart_delta' in text
-    assert 'pupil.keyframe_insert(\'location\',frame=df+2)' in text
+    assert 'eye_origin=eye.location.copy()' in text
+    assert 'pupil_origin=pupil.location.copy()' in text
+    assert 'bpy.context.scene.frame_set(key_frame)' in text
+    assert 'eye.keyframe_insert(\'location\',frame=key_frame)' in text
+    assert 'pupil.keyframe_insert(\'location\',frame=key_frame)' in text
+
+
+def test_gaze_darts_use_a_lead_peak_release_envelope():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert 'dart_envelope=((df-2,0.0),(df-1,0.38),(df,1.0),(df+1,0.58),(df+2,0.0))' in text
+    assert 'eye_weight=0.18 if pupil is not None else 0.42' in text
+    assert 'eye.location.x=eye_origin.x + dart_delta*weight*eye_weight' in text
+    assert 'pupil.location.x=pupil_origin.x + dart_delta*weight' in text
 
 
 def test_blender_episode_audio_helper_creates_missing_work_directory(tmp_path):
