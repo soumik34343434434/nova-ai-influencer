@@ -17,6 +17,7 @@ from app.db.session import SessionLocal
 from app.providers.local_media import build_video_from_draft
 from app.agents.content_evaluator import ContentEvaluator
 from app.state_machine import DurableRun, Phase
+from app.providers.publisher import PublishJob, PublishOutbox
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -158,25 +159,21 @@ class Publisher:
         self.queue: list[dict] = []
 
     def enqueue(self, content_id: int, video: Path, caption: str) -> None:
-        self.queue.append({
-            "content_id": content_id,
-            "video": str(video),
-            "caption": caption,
-            "ai_generated": True,
-            "publish_mode": os.getenv("PUBLISH_MODE", "outbox"),
-            "status": "ready_for_review",
-        })
+        job = PublishJob.create(
+            video_path=video, platform="review", title=f"NOVA content {content_id}",
+            caption=caption, experiment_id=f"content-{content_id}", content_id=str(content_id),
+            metadata={"ai_generated": True, "content_id": content_id},
+            approved=False,
+        )
+        row = job.to_dict()
+        row.update({"content_id": content_id, "video": str(video), "ai_generated": True,
+                    "publish_mode": "outbox", "status": "ready_for_review"})
+        self.queue.append(row)
 
     def flush(self) -> Path:
-        ARTIFACTS.mkdir(parents=True, exist_ok=True)
-        current = []
-        if PUBLISH_QUEUE.exists():
-            try:
-                current = json.loads(PUBLISH_QUEUE.read_text())
-            except json.JSONDecodeError:
-                current = []
-        current.extend(self.queue)
-        PUBLISH_QUEUE.write_text(json.dumps(current, indent=2))
+        outbox = PublishOutbox(PUBLISH_QUEUE)
+        for row in self.queue:
+            outbox.enqueue(row)
         return PUBLISH_QUEUE
 
 
