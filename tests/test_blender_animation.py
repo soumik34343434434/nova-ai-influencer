@@ -295,6 +295,16 @@ def test_gaze_darts_use_a_lead_peak_release_envelope():
     assert 'pupil.location.x=pupil_origin.x + dart_delta*weight' in text
 
 
+def test_action_eye_asymmetry_restores_authored_frame_before_keying():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    asymmetry=text.index("eye.scale.x=1.0 + (0.045 if action=='shock'")
+    frame_restore=text.rindex('bpy.context.scene.frame_set(f)', 0, asymmetry)
+    authored_frame=text.rindex('f=start+round((end-start)*0.42)', 0, asymmetry)
+    eye_key=text.index("eye.keyframe_insert('scale',frame=f)", asymmetry)
+    assert authored_frame < frame_restore < asymmetry < eye_key
+
+
 def test_blender_episode_audio_helper_creates_missing_work_directory(tmp_path):
     import shutil
     import wave

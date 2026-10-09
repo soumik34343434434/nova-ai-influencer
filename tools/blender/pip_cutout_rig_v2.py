@@ -716,6 +716,10 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
   gaze_sign={'give_homework':1,'press_button':1,'shock':-1,'overwhelmed':1,'deadpan':0,'tap_alarm':-1,'open_fridge':1,'tap_shoes':1}.get(action,0)
   f=start+round((end-start)*0.42)
   if start < f < end:
+   # The preceding speech pass may leave Blender evaluating a later frame.
+   # Restore this beat's authored facial pose before applying the additive
+   # asymmetry so the key is based on its own pose.
+   bpy.context.scene.frame_set(f)
    for side,(eye,sign) in enumerate(zip(face['eyes'],(-1,1))):
     eye.scale.x=1.0 + (0.045 if action=='shock' else -0.035 if action=='deadpan' else 0.018*sign)
     eye.scale.y=1.0 + (0.10 if action=='shock' else -0.08 if action=='overwhelmed' else 0.0)
