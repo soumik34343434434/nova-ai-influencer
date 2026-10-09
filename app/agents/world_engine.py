@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from app.agents.world_director import plan_world_depth
+
 
 ROOT = Path(__file__).resolve().parents[2]
 WORLD_PATH = ROOT / "config" / "world.json"
@@ -70,11 +72,18 @@ class WorldEngine:
 
     def plan_shot(self, text: str, shot_index: int = 0) -> dict:
         scene = self.choose_scene(text, shot_index)
+        prop = self.prop(scene, text, shot_index)
+        action = str({
+            "phone": "checks_phone",
+            "calendar": "sees_calendar",
+            "coffee": "reaches_for_coffee",
+        }.get(prop, "small_scene_interaction"))
         return {
             "scene": scene,
             "scene_label": self.data["scenes"][scene]["label"],
             "setting": self.data["scenes"][scene]["setting"],
             "wardrobe": self.wardrobe(scene),
-            "prop": self.prop(scene, text, shot_index),
+            "prop": prop,
             "mood": self.data["scenes"][scene]["mood"],
+            "depth_plan": plan_world_depth(scene, prop, action).to_dict(),
         }
