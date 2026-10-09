@@ -678,9 +678,18 @@ def _face_motion(progress: float, beat: str, performance: dict | None = None) ->
     # with a smaller counter-glance. Keeping this tied to the director's event
     # timing makes the face read as attentive instead of riding the body sine.
     gaze_dx = 0.0
+    gaze_dy = 0.0
     if beat in {"setup", "escalation", "reaction"}:
         attention_direction = -1.0 if shared_state["attention_x"] < 0 else 1.0
+        vertical_direction = -1.0 if shared_state["attention_y"] < 0 else 1.0
         gaze_dx = _gaze_dart(p, shared_state["event_fraction"], energy, attention_direction)
+        # Let the eyes lead the head vertically too when the target is above or
+        # below the character. The compact counter-glance preserves continuity
+        # through contact without making the flattened face drift off its plate.
+        if shared_state["attention_y"] != 0:
+            gaze_dy = 0.65 * _gaze_dart(
+                p, shared_state["event_fraction"], energy, vertical_direction
+            )
     if beat == "escalation":
         snap = math.sin(math.pi * max(0.0, min(1.0, (p - 0.16) / 0.34)))
         dx, dy = 7.0 * snap * energy, -4.0 * snap * energy
@@ -702,7 +711,7 @@ def _face_motion(progress: float, beat: str, performance: dict | None = None) ->
         sx, sy = 1.0 + 0.002 * speech, 1.0 + 0.008 * breathe * energy + 0.008 * speech
         blink = 0.65 * max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.32) / 0.08))))
     dx += shared_state["face_target_dx"] + gaze_dx
-    dy += shared_state["face_target_dy"]
+    dy += shared_state["face_target_dy"] + gaze_dy
     return dx, dy, sx, sy, blink
 
 

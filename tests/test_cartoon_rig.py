@@ -121,6 +121,33 @@ def test_setup_gaze_leads_and_releases_toward_left_attention_target():
     assert attention_lead < attention_release
 
 
+def test_vertical_gaze_leads_and_releases_toward_attention_target():
+    from dataclasses import replace
+    from app.providers import cartoon_animation as animation
+    from app.providers.cartoon_animation import _face_motion
+    from app.providers.cartoon_performance import kinematic_state
+
+    for beat, expected_direction in (("escalation", -1), ("reaction", 1)):
+        event = kinematic_state(0.0, beat)["event_fraction"]
+        original = animation.kinematic_state
+
+        def without_vertical_attention(progress, current_beat, performance=None):
+            state = original(progress, current_beat, performance)
+            state["attention_y"] = 0.0
+            state["face_target_dy"] = 0.0
+            return state
+
+        animation.kinematic_state = without_vertical_attention
+        baseline_lead = _face_motion(event - 0.055, beat)[1]
+        baseline_release = _face_motion(event + 0.105, beat)[1]
+        animation.kinematic_state = original
+
+        lead = _face_motion(event - 0.055, beat)[1] - baseline_lead
+        release = _face_motion(event + 0.105, beat)[1] - baseline_release
+        assert lead * expected_direction > 0
+        assert release * expected_direction < 0
+
+
 def test_camera_push_anticipates_action_and_releases_after_impact():
     from app.providers.cartoon_performance import _camera_event_push
 
