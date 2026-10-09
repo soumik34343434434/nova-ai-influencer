@@ -54,6 +54,14 @@ def test_camera_contact_focus_peaks_at_impact_and_releases_on_settle():
     assert 'focus_y=fy+(contact_focus[1]-fy)*focus_mix' in text
 
 
+def test_camera_centers_performed_contact_at_impact_then_releases():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "focus_w={'approach':0.08,'anticipation':0.16,'contact_approach':0.38,'contact':1.0,'overshoot':0.74,'recoil':0.56,'settle':0.34}[phase]" in text
+    assert "focus_mix={'approach':0.0,'anticipation':0.18,'contact_approach':0.55,'contact':1.0,'overshoot':0.78,'recoil':0.32,'settle':0.0}[phase]" in text
+    assert 'cam.location.x=loc.x*0.08 + focus_x*focus_w + lateral*curve + shake' in text
+
+
 def test_camera_focus_centers_performed_contact_then_releases_to_composition():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
@@ -264,6 +272,16 @@ def test_reaction_blinks_stagger_and_hold_the_second_eye_longer():
     assert "frame=min(end,reopen_frame)" in text
 
 
+def test_blinks_restore_the_authored_expression_instead_of_neutralizing():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert 'eye_open=eye.scale.y' in text
+    assert 'eye.scale.y=min(eye_open,0.12)' in text
+    assert 'eye.scale.y=eye_open; eye.keyframe_insert' in text
+    assert 'pupil_open=pupil.scale.y if pupil is not None else None' in text
+    assert 'pupil.scale.y=pupil_open; pupil.keyframe_insert' in text
+
+
 def test_speech_head_bob_is_added_to_cached_authored_pose_without_accumulation():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
@@ -275,9 +293,13 @@ def test_speech_head_bob_is_added_to_cached_authored_pose_without_accumulation()
 def test_gaze_darts_use_evaluated_pose_at_each_key_without_accumulating():
     root=Path(__file__).resolve().parents[1]
     text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
-    assert 'dart_delta=dart_mag*(1.0 if dart_i%2==0 else -0.7)' in text
-    assert 'eye_origin=eye.location.copy()' in text
-    assert 'pupil_origin=pupil.location.copy()' in text
+    assert 'dart_direction=(1.0 if dart_i%2==0 else -0.7)' in text
+    assert 'dart_delta=dart_mag*dart_direction' in text
+    assert 'dart_keys=[]' in text
+    assert 'eye_origins.append(eye.location.copy())' in text
+    assert 'pupil_origins.append(pupil.location.copy() if pupil is not None else None)' in text
+    assert 'dart_keys.append((key_frame,weight,eye_origins,pupil_origins))' in text
+    assert 'for key_frame,weight,eye_origins,pupil_origins in dart_keys:' in text
     assert 'bpy.context.scene.frame_set(key_frame)' in text
     assert 'eye.keyframe_insert(\'location\',frame=key_frame)' in text
     assert 'pupil.keyframe_insert(\'location\',frame=key_frame)' in text
@@ -290,6 +312,34 @@ def test_gaze_darts_use_a_lead_peak_release_envelope():
     assert 'eye_weight=0.18 if pupil is not None else 0.42' in text
     assert 'eye.location.x=eye_origin.x + dart_delta*weight*eye_weight' in text
     assert 'pupil.location.x=pupil_origin.x + dart_delta*weight' in text
+
+
+def test_gaze_darts_check_the_action_target_then_counter_glance():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    assert "gaze_sign={'give_homework':1,'press_button':1,'shock':-1" in text
+    assert "dart_direction=(1.0 if dart_i%2==0 else -0.7)*gaze_sign" in text
+    assert 'if gaze_sign:' in text
+    assert 'dart_delta=dart_mag*dart_direction' in text
+
+
+def test_action_eye_asymmetry_restores_authored_frame_before_keying():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    asymmetry=text.index("eye.scale.x *= 1.0 + (0.045 if action=='shock'")
+    frame_restore=text.rindex('bpy.context.scene.frame_set(f)', 0, asymmetry)
+    authored_frame=text.rindex('f=start+round((end-start)*0.42)', 0, asymmetry)
+    eye_key=text.index("eye.keyframe_insert('scale',frame=f)", asymmetry)
+    assert authored_frame < frame_restore < asymmetry < eye_key
+
+
+def test_action_eye_asymmetry_layers_over_authored_expression_scale():
+    root=Path(__file__).resolve().parents[1]
+    text=(root/'tools'/'blender'/'pip_cutout_rig_v2.py').read_text(encoding='utf-8')
+    asymmetry=text.index("eye.scale.x *= 1.0 + (0.045 if action=='shock'")
+    assert "eye.scale.y *= 1.0 + (0.10 if action=='shock'" in text[asymmetry:]
+    assert 'eye.scale.x=1.0 + (0.045 if action' not in text
+    assert 'eye.scale.y=1.0 + (0.10 if action' not in text
 
 
 def test_blender_episode_audio_helper_creates_missing_work_directory(tmp_path):

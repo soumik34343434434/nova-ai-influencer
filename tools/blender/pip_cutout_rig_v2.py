@@ -430,7 +430,7 @@ def camera_performance_keys(arm, cam, beats, rows=None):
                 cam.data.ortho_scale=previous_state[2]
                 cam.keyframe_insert('location',frame=frame); cam.keyframe_insert('rotation_euler',index=2,frame=frame); cam.data.keyframe_insert('ortho_scale',frame=frame)
                 continue
-            focus_w={'approach':0.08,'anticipation':0.16,'contact_approach':0.38,'contact':0.62,'overshoot':0.74,'recoil':0.56,'settle':0.34}[phase]
+            focus_w={'approach':0.08,'anticipation':0.16,'contact_approach':0.38,'contact':1.0,'overshoot':0.74,'recoil':0.56,'settle':0.34}[phase]
             contact_focus=_performed_action_focus(action,arm,(fx,fy))
             # Let the performed contact point dominate at impact, then retain
             # enough of it through overshoot to make the action readable.
@@ -709,16 +709,28 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
     for side,(eye,pupil) in enumerate(zip(face['eyes'],face['pupils'])):
      eye_frame=f+(blink_lag if side==1 else 0)
      reopen_frame=eye_frame+(3 if action in ('shock','overwhelmed') and side==1 else 2)
-     eye.scale.y=.12; eye.keyframe_insert('scale',index=1,frame=eye_frame); eye.scale.y=1.0; eye.keyframe_insert('scale',index=1,frame=min(end,reopen_frame))
+     # Preserve the authored expression when the blink releases. A hard-coded
+     # 1.0 reopen erases squint/widening from the action pose and makes the face
+     # pop to neutral immediately after each blink.
+     bpy.context.scene.frame_set(eye_frame)
+     eye_open=eye.scale.y
+     pupil_open=pupil.scale.y if pupil is not None else None
+     eye.scale.y=min(eye_open,0.12); eye.keyframe_insert('scale',index=1,frame=eye_frame); eye.scale.y=eye_open; eye.keyframe_insert('scale',index=1,frame=min(end,reopen_frame))
      if pupil is not None:
-      pupil.scale.y=.07; pupil.keyframe_insert('scale',index=1,frame=eye_frame); pupil.scale.y=1.0; pupil.keyframe_insert('scale',index=1,frame=min(end,reopen_frame))
+      pupil.scale.y=min(pupil_open,0.07); pupil.keyframe_insert('scale',index=1,frame=eye_frame); pupil.scale.y=pupil_open; pupil.keyframe_insert('scale',index=1,frame=min(end,reopen_frame))
   # Action-specific eye asymmetry and a small gaze dart.
   gaze_sign={'give_homework':1,'press_button':1,'shock':-1,'overwhelmed':1,'deadpan':0,'tap_alarm':-1,'open_fridge':1,'tap_shoes':1}.get(action,0)
   f=start+round((end-start)*0.42)
   if start < f < end:
+   # The preceding speech pass may leave Blender evaluating a later frame.
+   # Restore this beat's authored facial pose before applying the additive
+   # asymmetry so the key is based on its own pose.
+   bpy.context.scene.frame_set(f)
    for side,(eye,sign) in enumerate(zip(face['eyes'],(-1,1))):
-    eye.scale.x=1.0 + (0.045 if action=='shock' else -0.035 if action=='deadpan' else 0.018*sign)
-    eye.scale.y=1.0 + (0.10 if action=='shock' else -0.08 if action=='overwhelmed' else 0.0)
+    # Layer the action accent over the pose already authored by the action
+    # chain. Assigning from 1.0 here erased its expression scale at this key.
+    eye.scale.x *= 1.0 + (0.045 if action=='shock' else -0.035 if action=='deadpan' else 0.018*sign)
+    eye.scale.y *= 1.0 + (0.10 if action=='shock' else -0.08 if action=='overwhelmed' else 0.0)
     eye.location.x += gaze_sign*0.012*sign; eye.location.y += (-0.010 if action=='deadpan' else 0.008 if action=='shock' else 0.0)
     eye.keyframe_insert('scale',frame=f); eye.keyframe_insert('location',frame=f)
    # Organic faces have separate brow shapes; pose them with the same action
@@ -745,12 +757,27 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
    # Ease into and out of the glance over four frames. Re-evaluate the
    # authored eye and pupil pose at each key so this stays an additive
    # accent and never compounds with the previous dart.
-   dart_delta=dart_mag*(1.0 if dart_i%2==0 else -0.7)
+   # Let the first and last glance check the action target, with a smaller
+   # counter-glance between them. Actions without a defined target retain the
+   # alternating exploratory pattern.
+   dart_direction=(1.0 if dart_i%2==0 else -0.7)
+   if gaze_sign:
+    dart_direction=(1.0 if dart_i%2==0 else -0.7)*gaze_sign
+   dart_delta=dart_mag*dart_direction
    dart_envelope=((df-2,0.0),(df-1,0.38),(df,1.0),(df+1,0.58),(df+2,0.0))
+   dart_keys=[]
    for key_frame,weight in dart_envelope:
     bpy.context.scene.frame_set(key_frame)
+    # Sample every authored pose before inserting this dart's keys. Otherwise
+    # Blender evaluates the earlier dart key while sampling the next frame,
+    # feeding part of the glance back into its own baseline.
+    eye_origins=[]; pupil_origins=[]
     for eye,pupil in zip(face['eyes'],face['pupils']):
-     eye_origin=eye.location.copy()
+     eye_origins.append(eye.location.copy())
+     pupil_origins.append(pupil.location.copy() if pupil is not None else None)
+    dart_keys.append((key_frame,weight,eye_origins,pupil_origins))
+   for key_frame,weight,eye_origins,pupil_origins in dart_keys:
+    for (eye,pupil),eye_origin,pupil_origin in zip(zip(face['eyes'],face['pupils']),eye_origins,pupil_origins):
      # Keep a separate-pupil eye socket steady so the pupil visibly changes
      # direction inside the eye. Organic face patches have no pupil control,
      # so give those eyes a restrained whole-eye glance instead.
@@ -758,7 +785,6 @@ def build(frames=190, voice_json=None, character='PIP', profile_path=None, backg
      eye.location.x=eye_origin.x + dart_delta*weight*eye_weight
      eye.keyframe_insert('location',frame=key_frame)
      if pupil is not None:
-      pupil_origin=pupil.location.copy()
       pupil.location.x=pupil_origin.x + dart_delta*weight
       pupil.keyframe_insert('location',frame=key_frame)
   # Tiny speech-driven head bob without breaking the action pose.

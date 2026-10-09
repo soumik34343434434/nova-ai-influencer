@@ -224,6 +224,7 @@ def _camera_geometry(progress: float, beat: str, voice_performance: dict | None 
     zoom += 0.012 * math.sin(p * math.tau) * energy
     if beat == "reaction":
         zoom += 0.022 * math.sin((p * 1.2) * math.tau) * (1.0 - settle)
+    zoom += camera_state["camera_zoom"]
 
     crop_w = max(2, int(W / zoom))
     crop_h = max(2, int(H / zoom))
@@ -239,7 +240,6 @@ def _camera_geometry(progress: float, beat: str, voice_performance: dict | None 
     x = max(0, min(int(max_x * 0.5 + drift_x - follow_x * 2.2), max_x))
     y = max(0, min(int(max_y * 0.5 + drift_y - follow_y * 2.2), max_y))
     angle = (profile.rotation * math.sin(math.pi * eased) * (1.0 - 0.55 * settle)) + camera_state["camera_rot"]
-    zoom += camera_state["camera_zoom"]
     sx = 1.0 + 0.010 * math.sin(math.pi * spring) * energy
     sy = 1.0 - 0.006 * math.sin(math.pi * spring) * energy
     if beat == "escalation":
@@ -606,12 +606,31 @@ def _speech_pulse(progress: float, performance: dict | None) -> float:
     return max(0.0, min(1.0, (a - 0.18) / 0.62))
 
 
+def _gaze_dart(progress: float, event_fraction: float, energy: float) -> float:
+    """Lead an action with a compact glance, then release with a counter-glance."""
+    p = max(0.0, min(1.0, progress))
+    def envelope(center: float, width: float) -> float:
+        distance = (p - center) / width
+        return math.exp(-2.8 * distance * distance)
+
+    return 3.2 * energy * (
+        envelope(event_fraction - 0.055, 0.045)
+        - 0.55 * envelope(event_fraction + 0.105, 0.070)
+    )
+
+
 def _face_motion(progress: float, beat: str, performance: dict | None = None) -> tuple[float, float, float, float, float]:
     """Return face dx/dy, x/y scale and blink strength."""
     p = max(0.0, min(1.0, progress))
     energy = BEAT_PROFILES.get(beat, BEAT_PROFILES["setup"]).energy
     speech = _speech_pulse(p, performance)
     shared_state = kinematic_state(p, beat, performance)
+    # A quick look toward the event leads the body reaction, then releases
+    # with a smaller counter-glance. Keeping this tied to the director's event
+    # timing makes the face read as attentive instead of riding the body sine.
+    gaze_dx = 0.0
+    if beat in {"escalation", "reaction"}:
+        gaze_dx = _gaze_dart(p, shared_state["event_fraction"], energy)
     if beat == "escalation":
         snap = math.sin(math.pi * max(0.0, min(1.0, (p - 0.16) / 0.34)))
         dx, dy = 7.0 * snap * energy, -4.0 * snap * energy
@@ -632,7 +651,7 @@ def _face_motion(progress: float, beat: str, performance: dict | None = None) ->
         dx, dy = 1.5 * breathe * energy, -0.8 * breathe * energy
         sx, sy = 1.0 + 0.002 * speech, 1.0 + 0.008 * breathe * energy + 0.008 * speech
         blink = 0.65 * max(0.0, math.sin(math.pi * max(0.0, min(1.0, (p - 0.32) / 0.08))))
-    dx += shared_state["face_target_dx"]
+    dx += shared_state["face_target_dx"] + gaze_dx
     dy += shared_state["face_target_dy"]
     return dx, dy, sx, sy, blink
 
@@ -680,15 +699,10 @@ def _apply_rig_performance(
     dx, dy, scale, rotation = head_motion(progress, beat, performance)
     root = kinematic_state(progress, beat, performance)
     speech = _speech_pulse(progress, performance)
-    dx += root["root_dx"] + 1.8 * math.sin(progress * math.tau * 3.0) * speech
-    dy += root["root_dy"] - 1.5 * speech
-    scale *= root["root_scale"]
-    rotation += root["root_rot"]
-    scale += 0.008 * speech
-    root = kinematic_state(progress, beat, performance)
-    dx = (root["root_dx"] + dx) * motion_gain
-    dy = (root["root_dy"] + dy) * motion_gain
+    dx = (root["root_dx"] + dx + 1.8 * math.sin(progress * math.tau * 3.0) * speech) * motion_gain
+    dy = (root["root_dy"] + dy - 1.5 * speech) * motion_gain
     scale = 1.0 + ((root["root_scale"] * scale) - 1.0) * motion_gain
+    scale += 0.008 * speech * motion_gain
     rotation = (root["root_rot"] + rotation) * motion_gain
     cover = frame.filter(ImageFilter.GaussianBlur(11))
     base = Image.composite(cover, frame, rig.cover_mask).convert("RGB")
@@ -789,10 +803,15 @@ def motion_frame(
     settle = max(0.0, min(1.0, (p - 0.72) / 0.28))
     spring = _spring(max(0.0, (p - 0.12) / 0.88))
 
+    # Keep the delivery camera coupled to the same delayed root motion used
+    # when character layers are projected into camera space. Without this
+    # follower, layered poses and the final frame use different camera paths.
+    camera_state = kinematic_state(max(0.0, p - 0.045), beat, voice_performance)
     zoom_start = 1.0 + (profile.zoom_start - 1.0) * camera_gain
     zoom_delta = (profile.zoom_end - profile.zoom_start) * camera_gain
     zoom = zoom_start + zoom_delta * eased
     zoom += 0.012 * math.sin(p * math.tau) * energy
+    zoom += camera_state["camera_zoom"] * camera_gain
     if beat == "reaction":
         zoom += 0.022 * math.sin((p * 1.2) * math.tau) * (1.0 - settle) * camera_gain
 
@@ -803,13 +822,14 @@ def motion_frame(
 
     drift_x = profile.pan_x * max_x * math.sin(math.pi * eased)
     drift_y = profile.pan_y * max_y * math.sin(math.pi * eased)
-    x = int(max_x * 0.5 + drift_x)
-    y = int(max_y * 0.5 + drift_y)
+    x = int(max_x * 0.5 + drift_x - camera_state["camera_dx"] * 2.2 * camera_gain)
+    y = int(max_y * 0.5 + drift_y - camera_state["camera_dy"] * 2.2 * camera_gain)
     x = max(0, min(x, max_x))
     y = max(0, min(y, max_y))
 
     frame = base.crop((x, y, x + crop_w, y + crop_h)).resize((W, H), Image.Resampling.LANCZOS)
     angle = profile.rotation * math.sin(math.pi * eased) * (1.0 - 0.55 * settle)
+    angle += camera_state["camera_rot"] * camera_gain
     frame = frame.rotate(angle, resample=Image.Resampling.BICUBIC, expand=False)
 
     # Squash/stretch proxy gives action frames a small animated rhythm without

@@ -99,6 +99,29 @@ def test_transition_direction_follows_pose_centers():
     assert _transition_direction(overwhelmed, deadpan) == 1
 
 
+def test_delivery_camera_follows_delayed_character_root():
+    import math
+    from app.providers.cartoon_animation import BEAT_PROFILES, _camera_geometry
+    from app.providers.cartoon_performance import kinematic_state
+
+    progress = 0.30
+    beat = "escalation"
+    camera = _camera_geometry(progress, beat)
+    delayed_root = kinematic_state(progress - 0.045, beat)
+    profile = BEAT_PROFILES[beat]
+    eased = progress * progress * (3 - 2 * progress)
+    zoom = profile.zoom_start + (profile.zoom_end - profile.zoom_start) * eased
+    zoom += 0.012 * math.sin(progress * math.tau) * profile.energy
+    zoom += delayed_root["camera_zoom"]
+    crop_w = int(1080 / zoom)
+    crop_h = int(1920 / zoom)
+    max_x, max_y = 1080 - crop_w, 1920 - crop_h
+    expected_x = int(max_x * 0.5 + profile.pan_x * max_x * math.sin(math.pi * eased) - delayed_root["camera_dx"] * 2.2)
+    expected_y = int(max_y * 0.5 + profile.pan_y * max_y * math.sin(math.pi * eased) - delayed_root["camera_dy"] * 2.2)
+
+    assert camera[:4] == (expected_x, expected_y, crop_w, crop_h)
+
+
 def test_transition_is_not_identical_at_midpoint(tmp_path: Path):
     from app.providers.cartoon_animation import _transition_frame
 
