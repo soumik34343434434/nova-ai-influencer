@@ -275,6 +275,18 @@ def test_camera_reserves_look_space_in_face_attention_direction():
     assert abs(event["camera_focus_x"]) > abs(settled["camera_focus_x"])
 
 
+def test_camera_vertical_look_space_tracks_above_and_below_action_targets():
+    from app.providers.cartoon_performance import kinematic_state
+
+    for beat in ("escalation", "reaction"):
+        event = kinematic_state(0.40, beat)
+        settled = kinematic_state(0.90, beat)
+        assert event["camera_focus_y"] * event["attention_y"] > 0
+        assert abs(event["camera_focus_y"]) > abs(settled["camera_focus_y"])
+    assert kinematic_state(0.40, "escalation")["camera_focus_y"] < 0
+    assert kinematic_state(0.40, "reaction")["camera_focus_y"] > 0
+
+
 def test_punchline_shared_state_becomes_stable_after_hold():
     from app.providers.cartoon_performance import kinematic_state
     a = kinematic_state(0.72, "punchline")

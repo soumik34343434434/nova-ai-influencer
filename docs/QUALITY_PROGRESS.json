@@ -11,10 +11,10 @@
         "anticipation_contact_overshoot": 8.3,
         "secondary_motion": 8.3,
         "facial_acting": 8.1,
-        "camera_acting": 7.1,
+        "camera_acting": 7.2,
         "background_visual_world": 7.5
       },
-      "evidence": "This cycle improves facial acting by adding an event-timed vertical gaze lead and counter-glance that follows the beat's above/below attention target, while retaining the existing head reaction and horizontal gaze (app/providers/cartoon_animation.py: _face_motion). Regression coverage isolates the new gaze signal from head offsets and verifies opposite vertical directions for escalation and reaction around the director-timed event (tests/test_cartoon_rig.py: test_vertical_gaze_leads_and_releases_toward_attention_target). Focused rig tests passed (23 passed); full pytest suite passed (205 passed, 3 deprecation warnings, 80.22s). Facial acting advances conservatively from 8.0 to 8.1 based on tested gaze direction and timing; no creative render review or calibrated scoring was performed. Prior area evidence remains: animation_mechanics 8.3, anticipation_contact_overshoot 8.3, secondary_motion 8.3, camera_acting 7.1, and background_visual_world 7.5. Overall performance_animation remains 7.0 and active because required areas remain below 8.5."
+      "evidence": "This cycle improves camera acting by strengthening the director-timed vertical attention target during escalation and reaction (app/providers/cartoon_performance.py: kinematic_state). The camera focus now reserves measurable framing in the target direction: above during escalation and below during reaction, with a reduced focus signal after the event. Regression coverage checks direction and event release for both beats (tests/test_cartoon_rig.py: test_camera_vertical_look_space_tracks_above_and_below_action_targets). Focused rig tests passed (24 passed); full pytest suite passed (206 passed, 3 deprecation warnings, 80.21s). Camera acting advances conservatively from 7.1 to 7.2 based on tested framing signals; no creative render review or calibrated scoring was performed. Prior area evidence remains: animation_mechanics 8.3, anticipation_contact_overshoot 8.3, secondary_motion 8.3, facial_acting 8.1, and background_visual_world 7.5. Overall performance_animation remains 7.0 and active because required areas remain below 8.5."
     },
     "audio": {
       "status": "complete",

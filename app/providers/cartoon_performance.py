@@ -255,8 +255,12 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
              right[2] + 2.0 * hand_lag, right[3])
     attention = {
         "setup": (-0.55, 0.00),
-        "escalation": (0.52, -0.04),
-        "reaction": (0.38, 0.02),
+        # The action target sits above the character during an escalation and
+        # below during a reaction. Give the camera enough vertical intent to
+        # reserve visible look space instead of letting the horizontal track
+        # do all the framing work.
+        "escalation": (0.52, -0.30),
+        "reaction": (0.38, 0.18),
         "punchline": (0.00, 0.00),
     }.get(beat, (0.0, 0.0))
     attention_x, attention_y = attention
