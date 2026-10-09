@@ -55,6 +55,65 @@ def test_story_engine_outputs_repair_guidance():
     assert result.repairs
     assert all(isinstance(item, str) and item for item in result.repairs)
 
+
+def test_deep_analysis_accepts_visible_comedy_escalation():
+    result = StoryEngine().evaluate(_strong_story())
+    analysis = result.to_dict()["story_analysis"]
+    assert result.passed, result.to_dict()
+    assert analysis["fake_escalation"] is False
+    assert analysis["dimensions"]
+    assert all(d["score"] >= QUALITY_FLOOR for d in analysis["dimensions"])
+    assert any(t["visible_change"] for t in analysis["transitions"])
+
+
+def test_deep_analysis_blocks_flat_repetitive_fake_escalation():
+    flat = _strong_story()
+    flat["beats"] = [
+        {"beat": role, "asset_action": "finish_work", "voice": voice,
+         "visual": "PIP sits at the desk."}
+        for role, voice in [("setup", "One task."), ("escalation", "More task."),
+                            ("reaction", "Again, more task."), ("punchline", "Even more task.")]
+    ]
+    result = StoryEngine().evaluate(flat).to_dict()
+    assert not result["passed"]
+    assert result["story_analysis"]["fake_escalation"] is True
+    assert any("fake_escalation" in b for b in result["story_analysis"]["blockers"])
+
+
+def test_deep_analysis_flags_unplanted_twist_at_last_beat():
+    delayed = _strong_story()
+    delayed["beats"][-1] = {
+        "beat": "punchline", "asset_action": "deadpan",
+        "voice": "Actually, the moon was a receipt.",
+        "visual": "A receipt suddenly covers the moon.",
+    }
+    analysis = StoryEngine().evaluate(delayed).to_dict()["story_analysis"]
+    twist = next(d for d in analysis["dimensions"] if d["name"] == "twist_clarity")
+    assert twist["score"] < QUALITY_FLOOR
+    assert any("final beat without an earlier plant" in e for e in twist["evidence"])
+
+
+def test_deep_analysis_flags_payoff_without_setup_dependency():
+    weak = _strong_story()
+    weak["beats"][-1]["voice"] = "Blue Tuesday, the triangle wins."
+    weak["beats"][-1]["visual"] = "PIP points at a blue triangle."
+    analysis = StoryEngine().evaluate(weak).to_dict()["story_analysis"]
+    payoff = next(d for d in analysis["dimensions"] if d["name"] == "payoff_setup_dependency")
+    assert payoff["score"] < QUALITY_FLOOR
+    assert payoff["repair"]
+
+
+def test_deep_analysis_rewards_strong_loopable_ending_and_is_backward_compatible():
+    story = _strong_story()
+    story["beats"][-1]["voice"] = "PIP: One sandwich, coming right back."
+    story["beats"][-1]["visual"] = "PIP presses the same cooking button again."
+    result = StoryEngine().evaluate(story).to_dict()
+    assert "score" in result and "dimensions" in result and "blockers" in result
+    ending = next(d for d in result["story_analysis"]["dimensions"]
+                  if d["name"] == "ending_strength_loopability")
+    assert ending["score"] >= QUALITY_FLOOR
+    assert any("echoes the opening" in e for e in ending["evidence"])
+
 def test_control_plane_migrates_legacy_stage_numbers(tmp_path):
     import json
     from app.cartoon_control import CartoonRunStore
