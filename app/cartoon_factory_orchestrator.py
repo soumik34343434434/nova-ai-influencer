@@ -317,6 +317,27 @@ class CartoonFactoryOrchestrator:
             duration=chosen.get("duration_target", 0.0),
             production_method=__import__("os").environ.get("NOVA_CARTOON_ANIMATION_BACKEND", "pillow"),
         )
+        # Bind this local run to a deterministic controlled plan. No posting is
+        # involved; the variant identity travels through the review outbox.
+        from app.experiment_system import plan_experiment
+        dimension = "format"
+        chosen_value = chosen.get("format_name", "story_comedy")
+        controls = list(dict.fromkeys([chosen_value, "alternative:" + str(chosen_value)]))
+        controlled = plan_experiment(
+            dimension=dimension, variants=controls,
+            hypothesis="Format changes normalized audience outcome",
+            success_metric="normalized_score", mode="exploration",
+            context=str(chosen.get("trend_id", "")),
+        )
+        # The selected candidate is the materialized variant for this run.
+        # Stable allocator remains available to allocate future candidate pools.
+        assignment = next(v for v in controlled["variants"] if v["value"] == chosen_value)
+        assignment = {"experiment_id": controlled["experiment_id"], "variant_id": assignment["variant_id"],
+                      "dimension": dimension, "variant_value": chosen_value}
+        self._sync_experiment(run, controlled_experiment_id=controlled["experiment_id"],
+                              variant_id=assignment["variant_id"], variant_dimension=dimension,
+                              variant_value=assignment["variant_value"],
+                              hypothesis=controlled["hypothesis"], success_metric=controlled["success_metric"])
         return {
             "winner_score": winner["score"],
             "alternates": len(preselected[1:4]),
@@ -644,6 +665,10 @@ class CartoonFactoryOrchestrator:
             "status": "ready_for_review",
             "audience_classification_review_required": True,
             "experiment_metadata": {
+                "controlled_experiment_id": experiment.get("controlled_experiment_id", ""),
+                "variant_id": experiment.get("variant_id", ""),
+                "variant_dimension": experiment.get("variant_dimension", ""),
+                "variant_value": experiment.get("variant_value", ""),
                 "idea_id": candidate.get("idea_id", candidate.get("premise_slug", "")),
                 "trend_id": candidate.get("trend_id", ""),
                 "format_name": candidate.get("format_name", ""),
@@ -693,11 +718,25 @@ class CartoonFactoryOrchestrator:
 
         if snapshots:
             rows = []
+            from app.experiment_system import record_observation
             for snapshot in snapshots:
                 metadata = dict(run.payload.get("content_metadata", {}).get(snapshot.content_id, {}))
                 metadata.update(content_map.get(snapshot.platform, {}).get(snapshot.content_id, {}))
                 metadata["experiment_id"] = run.payload.get("experiment", {}).get("experiment_id", metadata.get("experiment_id", ""))
-                rows.append(metric_to_record(snapshot, metadata))
+                controlled = run.payload.get("experiment", {})
+                metadata.setdefault("controlled_experiment_id", controlled.get("controlled_experiment_id", ""))
+                metadata.setdefault("variant_id", controlled.get("variant_id", ""))
+                metadata.setdefault("variant_dimension", controlled.get("variant_dimension", ""))
+                metric_row = metric_to_record(snapshot, metadata)
+                rows.append(metric_row)
+                if metadata.get("controlled_experiment_id") and metadata.get("variant_id"):
+                    record_observation(
+                        str(metadata["controlled_experiment_id"]),
+                        variant_id=str(metadata["variant_id"]),
+                        metric_value=float(metric_row.get("score", 0.0)),
+                        content_id=str(snapshot.content_id), run_id=run.run_id,
+                        analytics_id=str(snapshot.captured_at),
+                    )
             merged = ingest_learning_metrics(rows)
             self._sync_experiment(run, platform_metrics=len(rows), last_metrics_at=max((r.get("captured_at", "") for r in rows), default=""))
         else:
