@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from app.agents.world_engine import WorldEngine
 from app.agents.performance import plan_performance
 from app.agents.shot_performance import build_shot_performance_spec
+from app.agents.director_decision import build_director_decision_packet
 from app.agents.reference_preflight import build_reference_manifest, assert_reference_preflight, required_reference_props
 
 
@@ -24,6 +25,7 @@ class Shot:
     visual: str
     world: dict
     performance: dict
+    director_decision: dict
 
 
 @dataclass(frozen=True)
@@ -106,6 +108,8 @@ def build_storyboard(draft: dict) -> Storyboard:
             duration=duration,
             camera=camera,
         )
+        source_beats = draft.get("beats") or []
+        source_beat = source_beats[index] if index < len(source_beats) and isinstance(source_beats[index], dict) else {}
         performance["expected_scene"] = str(world["scene"])
         performance["reference_manifest"] = build_reference_manifest(
             character=str(draft.get("character", "")),
@@ -131,6 +135,15 @@ def build_storyboard(draft: dict) -> Storyboard:
                 ),
                 world=world,
                 performance=performance,
+                director_decision=build_director_decision_packet(
+                    index=index, dialogue=text, camera=camera, action=action,
+                    world={**world, "sfx": str(source_beat.get("sfx", ""))},
+                    performance=performance, duration=duration,
+                    story_role=str(source_beat.get("story_role", source_beat.get("beat", ""))),
+                    story_intent=str(source_beat.get("story_intent", "")),
+                    audio_emphasis=str(source_beat.get("audio_emphasis", "")),
+                    prop_action=str(source_beat.get("prop_interaction", "")),
+                ).to_dict(),
             )
         )
 
@@ -156,6 +169,17 @@ def build_storyboard(draft: dict) -> Storyboard:
                         camera=s.camera,
                     ),
                 },
+                build_director_decision_packet(
+                    index=s.index, dialogue=s.dialogue, camera=s.camera, action=s.action,
+                    world=s.world, performance={**s.performance, "shot_spec": build_shot_performance_spec(
+                        action=s.action, dialogue=s.dialogue,
+                        duration=round(max(2.4, s.duration * factor), 2), camera=s.camera,
+                    )}, duration=round(max(2.4, s.duration * factor), 2),
+                    story_role=s.director_decision["story"]["role"],
+                    story_intent=s.director_decision["story"]["intent"],
+                    audio_emphasis=s.director_decision["audio"]["emphasis"],
+                    prop_action=s.director_decision["prop_interaction"]["intent"],
+                ).to_dict(),
             )
             for s in shots
         ]
