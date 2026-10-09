@@ -227,6 +227,29 @@ def build_next_loop_plan(
         {"type": "factor_test", "dimension": "duration", "values": [6, 8, 10], "reason": "test retention/pacing trade-off"},
     ])
 
+    # Turn the policy suggestions into durable, deduplicated controlled plans.
+    # These are assignments for future/local runs; planning never publishes.
+    from app.experiment_system import plan_experiment
+    for suggestion in experiments:
+        dimension = suggestion.get("dimension")
+        values = suggestion.get("values") or []
+        if not dimension:
+            dimension = "format" if suggestion.get("format_name") else "character" if suggestion.get("character") else "hook"
+            value = suggestion.get("format_name", suggestion.get("character", ""))
+            values = [value, f"alternative:{value}"] if value else []
+        if len(values) < 2:
+            continue
+        plan = plan_experiment(
+            dimension=dimension, variants=values,
+            hypothesis=f"Changing {dimension} changes the success metric",
+            success_metric="normalized_score", mode="exploration" if suggestion.get("type") != "reinforcement" else "exploitation",
+            context=str(suggestion.get("format_name", "")),
+        )
+        suggestion["experiment_id"] = plan["experiment_id"]
+        suggestion["variants"] = plan["variants"]
+        suggestion["hypothesis"] = plan["hypothesis"]
+        suggestion["success_metric"] = plan["success_metric"]
+
     failure_summary = failure_summary or summarize_failures()
     provider_summary = provider_summary or summarize_providers()
 
