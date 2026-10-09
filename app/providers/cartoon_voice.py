@@ -7,11 +7,14 @@ animation engine can consume on the same performance clock.
 from __future__ import annotations
 
 import math
+import os
 import shutil
 import subprocess
 import wave
 from dataclasses import dataclass
 from pathlib import Path
+
+from app.providers.runway_voice import RunwayVoiceProvider, render_runway_script
 
 RATE = 44100
 
@@ -179,7 +182,11 @@ def _render_espeak(text: str, path: Path, profile: VoiceProfile, rate_override: 
     processed.replace(path)
 
 
-def _render_voice(text: str, path: Path, profile: VoiceProfile, rate_override: int | None = None) -> None:
+def _render_voice(text: str, path: Path, profile: VoiceProfile, rate_override: int | None = None, beat: str | None = None) -> None:
+    backend = os.getenv("NOVA_VOICE_BACKEND", "local").strip().lower()
+    if backend == "runway":
+        RunwayVoiceProvider().synthesize(text, beat or "setup", path)
+        return
     if shutil.which("say"):
         _render_say(text, path, profile, rate_override)
     else:
@@ -216,7 +223,7 @@ def prepare_voice_performance(
         text = performance_text(line, beat)
         raw = work / f"voice_{i:02d}_raw.wav"
         final = work / f"voice_{i:02d}.wav"
-        _render_voice(text, raw, profile)
+        _render_voice(text, raw, profile, beat=beat)
         natural_duration = _duration(raw)
         available = None
         rate_used = profile.rate
@@ -225,7 +232,7 @@ def prepare_voice_performance(
             if natural_duration > available * 1.05:
                 adjusted = round(profile.rate * natural_duration / available)
                 adjusted = max(135, min(235, adjusted))
-                _render_voice(text, raw, profile, rate_override=adjusted)
+                _render_voice(text, raw, profile, rate_override=adjusted, beat=beat)
                 natural_duration = _duration(raw)
                 rate_used = adjusted
         _add_padding(raw, final, profile.pre_pause, profile.post_pause)
