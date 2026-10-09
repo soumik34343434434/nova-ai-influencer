@@ -250,9 +250,18 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
     speech = 0.0
     speech_activity = (voice_performance or {}).get("activity") if voice_performance else None
     if isinstance(speech_activity, list) and speech_activity:
-        idx = min(len(speech_activity) - 1, int(round(_clamp(progress) * (len(speech_activity) - 1))))
+        # Activity is sampled sparsely by the voice analyzer. Interpolate between
+        # neighboring samples so head articulation changes smoothly at render fps
+        # instead of stepping whenever progress crosses a sample boundary.
+        sample = _clamp(progress) * (len(speech_activity) - 1)
+        lower = int(sample)
+        upper = min(len(speech_activity) - 1, lower + 1)
+        blend = sample - lower
         try:
-            speech = _clamp((float(speech_activity[idx]) - 0.18) / 0.62)
+            low_value = float(speech_activity[lower])
+            high_value = float(speech_activity[upper])
+            activity = low_value + (high_value - low_value) * blend
+            speech = _clamp((activity - 0.18) / 0.62)
         except (TypeError, ValueError):
             speech = 0.0
 

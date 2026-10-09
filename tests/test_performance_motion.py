@@ -24,6 +24,18 @@ def test_shared_kinematic_state_has_physical_attachment_offsets():
     assert state["right_rot"] != 0
 
 
+def test_speech_articulation_interpolates_between_voice_activity_samples():
+    from app.providers.cartoon_performance import kinematic_state
+
+    voice = {"activity": [0.18, 0.80]}
+    before = kinematic_state(0.49, "setup", voice)["speech_pulse"]
+    midpoint = kinematic_state(0.50, "setup", voice)["speech_pulse"]
+    after = kinematic_state(0.51, "setup", voice)["speech_pulse"]
+
+    assert before < midpoint < after
+    assert after - before < 0.03
+
+
 def test_root_motion_is_coupled_but_camera_is_damped():
     from app.providers.cartoon_performance import kinematic_state
     state = kinematic_state(0.50, "reaction")
