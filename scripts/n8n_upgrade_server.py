@@ -23,7 +23,7 @@ CODEX_BIN = shutil.which("codex") or "/Users/sante/.nvm/versions/node/v24.21.0/b
 CODEX_TIMEOUT = 660
 CODEX_MAX_PROMPT = 30_000
 CODEX_ALLOWED_PREFIXES = ("app/", "tests/", "docs/", "tools/blender/")
-CODEX_ALLOWED_FILES = {"pyproject.toml", "pytest.ini", "requirements.txt", "requirements-dev.txt"}
+CODEX_ALLOWED_FILES = {"pyproject.toml", "pytest.ini", "requirements.txt", "requirements-dev.txt", "config/cartoon_blender_profiles.json"}
 BLOCKED_NAMES = {".env", ".env.local", ".git"}
 
 app = FastAPI(title="NOVA n8n Upgrade Executor", version="1.0")
