@@ -107,3 +107,56 @@ def test_metrics_change_future_policy(tmp_path, monkeypatch):
     # Loop 2 must see that changed policy.
     assert "story_comedy" in memory["strategy"]["preferred_formats"]
     assert "dance" in memory["strategy"]["preferred_formats"] or "dance" in memory["posteriors"]["format_name"]
+
+
+def test_sparse_history_labels_under_tested_and_proxy_evidence(tmp_path, monkeypatch):
+    monkeypatch.setattr(learning, "METRICS_FILE", tmp_path / "metrics.json")
+    monkeypatch.setattr(learning, "METRICS_HISTORY_FILE", tmp_path / "history.json")
+    monkeypatch.setattr(learning, "STRATEGY_FILE", tmp_path / "strategy.json")
+    rows = [_metric("a", "dance", .9)]
+    memory = learning.build_strategy_memory(rows)
+    evidence = memory["evidence"]
+    assert evidence["outcome_evidence"] == {"observed": 0, "proxy": 1, "observations": 1}
+    assert evidence["learnings"]["under_tested"][0]["confidence"] == "low"
+    assert "causality" in evidence["learnings"]["confidence_note"]
+
+
+def test_balanced_comparison_uses_platform_baseline(tmp_path, monkeypatch):
+    monkeypatch.setattr(learning, "METRICS_FILE", tmp_path / "metrics.json")
+    monkeypatch.setattr(learning, "METRICS_HISTORY_FILE", tmp_path / "history.json")
+    monkeypatch.setattr(learning, "STRATEGY_FILE", tmp_path / "strategy.json")
+    rows = []
+    for i, (fmt, ret) in enumerate([("dance", 80), ("dance", 82), ("story", 40), ("story", 42)]):
+        rows.append({**_metric(str(i), fmt, 0), "platform": "instagram", "retention_pct": ret})
+    memory = learning.build_strategy_memory(rows)
+    dance = memory["evidence"]["comparisons"]["format_name"]["dance"]
+    assert dance["baseline_observations"] == 2
+    assert dance["difference"] > 0
+    assert dance["comparison"] == "association"
+
+
+def test_imbalanced_groups_report_sample_size_and_uncertainty(tmp_path, monkeypatch):
+    monkeypatch.setattr(learning, "METRICS_HISTORY_FILE", tmp_path / "history.json")
+    monkeypatch.setattr(learning, "STRATEGY_FILE", tmp_path / "strategy.json")
+    rows = [{**_metric(f"d{i}", "dance", .9), "platform": "youtube", "retention_pct": 80} for i in range(8)]
+    rows += [{**_metric("s", "story", .2), "platform": "youtube", "retention_pct": 20}]
+    memory = learning.build_strategy_memory(rows)
+    result = memory["evidence"]["comparisons"]["format_name"]["dance"]
+    assert (result["observations"], result["baseline_observations"]) == (8, 1)
+    winner = next(x for x in memory["evidence"]["learnings"]["winners"] if x["value"] == "dance")
+    assert winner["confidence"] == "low"
+
+
+def test_time_ordered_snapshots_mark_declining_patterns(tmp_path, monkeypatch):
+    monkeypatch.setattr(learning, "METRICS_HISTORY_FILE", tmp_path / "history.json")
+    monkeypatch.setattr(learning, "STRATEGY_FILE", tmp_path / "strategy.json")
+    history = []
+    for i, retention in enumerate((90, 85, 40, 35)):
+        history.append({**_metric("same", "dance", 0), "platform": "instagram", "retention_pct": retention,
+                        "captured_at": f"2026-10-0{1+i}T00:00:00+00:00"})
+    (tmp_path / "history.json").write_text(__import__("json").dumps(history))
+    memory = learning.build_strategy_memory([history[-1]])
+    decline = memory["evidence"]["learnings"]["declining_patterns"]
+    assert decline
+    assert decline[0]["change"] < 0
+    assert "not established" in decline[0]["interpretation"]
