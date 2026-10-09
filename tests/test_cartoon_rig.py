@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 from app.providers.cartoon_performance import PLANS, head_motion, performance_plan
 from app.providers.cartoon_rig import PIP_ACTION_REGIONS, get_rig, rig_summary
@@ -56,6 +56,21 @@ def test_pip_rig_extracts_face_performance_plate():
     assert rig.face_layer.size == (1080, 1920)
     assert rig.face_bbox[0] < rig.face_bbox[2]
     assert rig.face_bbox[1] < rig.face_bbox[3]
+
+
+def test_ground_shadow_is_confined_beneath_rig_and_tracks_performance():
+    from app.providers.cartoon_animation import _apply_ground_shadow
+
+    rig = get_rig("assets/cartoon/actions/pip_press_button.png")
+    plate = Image.new("RGB", (1080, 1920), (180, 190, 200))
+    neutral = _apply_ground_shadow(plate, rig, 0.90, "setup")
+    action = _apply_ground_shadow(plate, rig, 0.42, "escalation")
+    x0, _, x1, y1 = rig.bbox
+    shadow_region = (max(0, x0), max(0, y1 - 35), min(1080, x1), min(1920, y1 + 55))
+
+    assert ImageChops.difference(plate, neutral).crop(shadow_region).getbbox()
+    assert ImageChops.difference(neutral, action).crop(shadow_region).getbbox()
+    assert ImageChops.difference(plate, neutral).crop((0, 0, 1080, y1 - 80)).getbbox() is None
 
 
 def test_face_motion_has_beat_specific_response():

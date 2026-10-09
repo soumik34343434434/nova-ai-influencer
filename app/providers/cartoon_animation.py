@@ -814,6 +814,42 @@ def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, 
     return base
 
 
+def _apply_ground_shadow(
+    frame: Image.Image,
+    rig: CharacterRig,
+    progress: float,
+    beat: str,
+    performance: dict | None = None,
+    motion_gain: float = 1.0,
+) -> Image.Image:
+    """Keep a soft contact shadow under the rig as its body compresses and lifts."""
+    x0, y0, x1, y1 = rig.bbox
+    width = max(24, x1 - x0)
+    state = kinematic_state(progress, beat, performance)
+    # A small lift narrows and lightens the contact, while a squash makes it
+    # broader and darker. The ellipse is drawn on the plate before the character
+    # layers are restored, so the feet continue to occlude it naturally.
+    lift = max(0.0, -state["root_dy"] * motion_gain)
+    squash = max(0.0, state["root_scale"] - 1.0) * motion_gain
+    shadow_w = int(width * (0.46 + min(0.10, squash * 2.0)))
+    shadow_h = max(8, int(width * 0.055))
+    cx = int((x0 + x1) * 0.5 + state["root_dx"] * motion_gain)
+    cy = int(y1 + state["root_dy"] * motion_gain - min(24.0, lift * 0.45))
+    opacity = int(max(16, min(58, 38 + squash * 180 - lift * 0.35)))
+
+    layer = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer, "RGBA")
+    draw.ellipse(
+        (cx - shadow_w // 2, cy - shadow_h // 2,
+         cx + shadow_w // 2, cy + shadow_h // 2),
+        fill=(20, 26, 32, opacity),
+    )
+    layer = layer.filter(ImageFilter.GaussianBlur(max(5, width * 0.025)))
+    base = frame.convert("RGBA")
+    base.alpha_composite(layer)
+    return base.convert("RGB")
+
+
 def _apply_arm_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, side: str, motion_gain: float = 1.0, performance: dict | None = None, source_name: str | None = None) -> Image.Image:
     alpha = layer.getchannel("A")
     bbox = alpha.getbbox()
@@ -865,6 +901,10 @@ def motion_frame(
             rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
             layers = load_action_layers(image, rig_dir)
             base = layers["body_plate"].convert("RGB")
+            base = _apply_ground_shadow(
+                base, rig, p, beat, performance=voice_performance,
+                motion_gain=motion_gain,
+            )
             base = _apply_torso_layer(base, layers["torso"], p, beat, motion_gain=motion_gain, performance=voice_performance, source_name=image.name)
             base = _apply_arm_layer(base, layers["left_arm"], p, beat, "left", motion_gain=motion_gain, performance=voice_performance, source_name=image.name)
             base = _apply_arm_layer(base, layers["right_arm"], p, beat, "right", motion_gain=motion_gain, performance=voice_performance, source_name=image.name)
