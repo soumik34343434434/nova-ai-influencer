@@ -87,12 +87,14 @@ def _score_candidate(candidate: dict[str, Any], states: dict[str, Any]) -> dict[
         raw *= 0.55
     score_value = round(raw * (0.25 if blocked else 1.0), 3)
     reasons = [f"{key}={value:g} × {WEIGHTS[key]:.2f}" for key, value in components.items()]
-    if not evidence_present:
-        reasons.append("evidence missing; confidence and score discounted")
     if blocked:
         reasons.append("blocked by incomplete dependencies: " + ", ".join(map(str, unmet)))
     elif unlock:
         reasons.append(f"can unblock downstream work (leverage {unlock:g}/10)")
+    if not evidence_present:
+        # Keep missing evidence as the terminal explanation: callers can safely
+        # surface it as the reason no quality gap was claimed.
+        reasons.append("evidence missing; confidence and score discounted")
     return {
         "name": name,
         "priority_score": score_value,
