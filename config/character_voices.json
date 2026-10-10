@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "notes": "Per-character voice identity. local_voice is the macOS `say` voice; espeak_voice is the eSpeak NG voice/variant used on Linux and CI. pitch_scale and rate_scale shape each character on top of the per-beat delivery profiles. runway_voice is sent to Runway when NOVA_VOICE_BACKEND=runway; Brodie is the current testing voice, so replace it per character once final voices are chosen.",
+  "characters": {
+    "PIP": {
+      "local_voice": "Eddy (English (US))",
+      "espeak_voice": "en-us+m7",
+      "pitch_scale": 1.06,
+      "rate_scale": 1.04,
+      "runway_voice": {"type": "runway-preset", "presetId": "Brodie"}
+    },
+    "MOMO": {
+      "local_voice": "Eddy (English (US))",
+      "espeak_voice": "en-us+m3",
+      "pitch_scale": 0.94,
+      "rate_scale": 0.92,
+      "runway_voice": {"type": "runway-preset", "presetId": "Brodie"}
+    },
+    "BUBU": {
+      "local_voice": "Eddy (English (US))",
+      "espeak_voice": "en-us+f4",
+      "pitch_scale": 1.10,
+      "rate_scale": 1.06,
+      "runway_voice": {"type": "runway-preset", "presetId": "Brodie"}
+    }
+  }
+}

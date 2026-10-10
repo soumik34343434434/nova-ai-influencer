@@ -7,6 +7,7 @@ outbox entry; a platform adapter can consume it without changing upstream work.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,8 @@ from app.learning_v2 import build_strategy_memory, ingest as ingest_learning_met
 from app.agent_memory import (
     build_next_loop_plan,
     ensure_experiment_identity,
+    explores,
+    load_next_loop_plan,
     record_provider_observation,
     summarize_failures,
     summarize_providers,
@@ -46,11 +49,22 @@ from app.providers.ai_performance import (
     RunwayPerformanceProvider,
     build_runway_repair_request,
 )
+from app.providers import runway_video
+from app.providers.reel_editor import assemble_reel, verify_reel
 
 
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = ROOT / "artifacts" / "cartoon"
 OUTBOX = ARTIFACTS / "publish_queue.json"
+
+
+# Visual QA -> Repair AI loop budget (override with NOVA_MAX_REPAIR_ATTEMPTS).
+DEFAULT_MAX_REPAIR_ATTEMPTS = 2
+# Failures a rerender cannot fix: the toolchain itself is missing.
+UNREPAIRABLE_VIDEO_REASONS = {"ffprobe_missing"}
+
+# The renderer and voice profiles know setup/escalation/reaction/punchline.
+RENDER_BEATS = {"hook": "setup", "attempt": "setup", "payoff": "punchline"}
 
 
 def _save(path: Path, value: Any) -> None:
@@ -85,18 +99,30 @@ class CartoonFactoryOrchestrator:
         self.plane.register(CartoonStage.ANIMATION_ENGINE, self._animation_engine)
         self.plane.register(CartoonStage.AUDIO_ENGINE, self._audio_engine)
         self.plane.register(CartoonStage.CAPTION_ENGINE, self._caption_engine)
+        self.plane.register(CartoonStage.EDITOR_ENGINE, self._editor_engine)
         self.plane.register(CartoonStage.VIDEO_QA, self._video_qa)
         self.plane.register(CartoonStage.PUBLISH, self._publish)
         self.plane.register(CartoonStage.ANALYTICS, self._analytics)
         self.plane.register(CartoonStage.LEARNING, self._learning)
 
+    @staticmethod
+    def _new_run_payload(topic: str) -> dict[str, Any]:
+        # Carry the last learning pass's policy into this run so the trend and
+        # idea stages act on what previous experiments measured.
+        return {
+            "topic": topic,
+            "artifacts": {},
+            "versions": {"orchestrator": "1.0"},
+            "next_loop_plan": load_next_loop_plan(),
+        }
+
     def create_run(self, topic: str = "") -> CartoonRun:
         store = CartoonRunStore()
-        return store.create({"topic": topic, "artifacts": {}, "versions": {"orchestrator": "1.0"}})
+        return store.create(self._new_run_payload(topic))
 
     def run(self, topic: str = "", run_id: str | None = None) -> CartoonRun:
         store = CartoonRunStore(run_id) if run_id else CartoonRunStore()
-        run = store.load() if run_id else store.create({"topic": topic, "artifacts": {}, "versions": {"orchestrator": "1.0"}})
+        run = store.load() if run_id else store.create(self._new_run_payload(topic))
         self.plane.store = store
         return self.plane.run(run)
 
@@ -123,16 +149,20 @@ class CartoonFactoryOrchestrator:
         store = CartoonRunStore(run_id)
         run = store.load()
         self.plane.store = store
+        # Merge, so platforms published at different times all stay bound.
+        merged = {platform: dict(mapping) for platform, mapping in run.payload.get("published_content_map", {}).items()}
+        for platform, mapping in published_content_map.items():
+            merged.setdefault(platform, {}).update(mapping)
         store.set_payload(
             run,
-            published_content_map=published_content_map,
+            published_content_map=merged,
             publish_status="published",
             metrics_pending=True,
         )
         self._sync_experiment(
             run,
             publish_status="published",
-            published_content_map=published_content_map,
+            published_content_map=merged,
         )
         return run
 
@@ -178,7 +208,8 @@ class CartoonFactoryOrchestrator:
         avoid_errors = set(policy.get("avoid_error_types", []))
         if preferred:
             for item in formats:
-                item["learned_priority"] = 1.0 if item.get("format_name") in preferred else 0.0
+                # Format candidates name their format under "name".
+                item["learned_priority"] = 1.0 if (item.get("format_name") or item.get("name")) in preferred else 0.0
                 item["policy_adjusted_score"] = float(item.get("score", 0.0)) + 0.12 * item["learned_priority"]
             formats.sort(key=lambda x: float(x.get("policy_adjusted_score", x.get("score", 0.0))), reverse=True)
         self.plane.store.set_payload(
@@ -209,15 +240,25 @@ class CartoonFactoryOrchestrator:
         preferred_hooks = set(policy.get("preferred_hooks", []))
         preferred_emotions = set(policy.get("preferred_emotions", []))
         preferred_characters = set(policy.get("preferred_characters", []))
-        exploration_rate = float(policy.get("exploration_rate", 0.30) or 0.30)
+        raw_rate = policy.get("exploration_rate")
+        exploration_rate = 0.30 if raw_rate is None else float(raw_rate)
+        # Epsilon-greedy over runs: an exploring run deliberately favours
+        # formats the policy is not already reinforcing, so under-tested
+        # options keep receiving evidence instead of being starved.
+        explore = bool(preferred_formats) and explores(run.run_id, exploration_rate)
+        selection_mode = "explore" if explore else "exploit"
         for candidate in candidates:
-            candidate["learning_adjustment"] = (
-                0.10 * float(candidate.get("format_name") in preferred_formats)
-                + 0.06 * float(candidate.get("hook_pattern") in preferred_hooks)
-                + 0.04 * float(candidate.get("emotion") in preferred_emotions)
-                + 0.04 * float(candidate.get("character") in preferred_characters)
-            )
+            if explore:
+                candidate["learning_adjustment"] = 0.08 * float(candidate.get("format_name") not in preferred_formats)
+            else:
+                candidate["learning_adjustment"] = (
+                    0.10 * float(candidate.get("format_name") in preferred_formats)
+                    + 0.06 * float(candidate.get("hook_pattern") in preferred_hooks)
+                    + 0.04 * float(candidate.get("emotion") in preferred_emotions)
+                    + 0.04 * float(candidate.get("character") in preferred_characters)
+                )
             candidate["exploration_rate"] = exploration_rate
+            candidate["selection_mode"] = selection_mode
         candidates.sort(key=lambda x: float(x.get("learning_adjustment", 0.0)), reverse=True)
         # Adapt the high-volume idea pool to the production contract used by the
         # existing jury/animatic stages. Generation remains cheap; only a small
@@ -247,8 +288,9 @@ class CartoonFactoryOrchestrator:
             ) or __import__("os").environ.get("NOVA_CARTOON_ANIMATION_BACKEND", "pillow").strip().lower() == "blender"
             normalized.append(candidate)
         topic = run.payload.get("topic") or (trend_rows[0].get("title") if trend_rows else "evergreen cartoon")
-        self.plane.store.set_payload(run, candidates=normalized, idea_topic=topic)
+        self.plane.store.set_payload(run, candidates=normalized, idea_topic=topic, selection_mode=selection_mode)
         return {
+            "selection_mode": selection_mode,
             "count": len(normalized),
             "generated_pool": len(raw_ideas),
             "topic": topic,
@@ -280,6 +322,9 @@ class CartoonFactoryOrchestrator:
                     0.55 * float(prediction["predicted_retention"])
                     + 0.45 * float(prediction["predicted_shareability"])
                 ), 3)
+                # Learned policy nudges the ranking among gate-passing ideas
+                # (at most +0.12); it can never rescue an idea that failed a gate.
+                score = round(score + 0.5 * float(candidate.get("learning_adjustment", 0.0) or 0.0), 3)
                 preselected.append({
                     "score": score,
                     "candidate": candidate,
@@ -325,6 +370,7 @@ class CartoonFactoryOrchestrator:
             angle=chosen.get("angle", ""),
             duration=chosen.get("duration_target", 0.0),
             production_method=__import__("os").environ.get("NOVA_CARTOON_ANIMATION_BACKEND", "pillow"),
+            selection_mode=chosen.get("selection_mode", "exploit"),
         )
         # Bind this local run to a deterministic controlled plan. No posting is
         # involved; the variant identity travels through the review outbox.
@@ -396,11 +442,56 @@ class CartoonFactoryOrchestrator:
             "hook": candidate["hook"],
             "character": candidate["character"],
             "script": run.payload["script"],
+            "beats": self._script_beats(run),
         }
         storyboard = build_storyboard(draft)
         data = storyboard.to_dict()
         self.plane.store.set_payload(run, storyboard=data)
         return {"shots": len(storyboard.shots), "duration": storyboard.total_duration}
+
+    def _script_beats(self, run: CartoonRun) -> list[dict[str, Any]]:
+        """Script beats merged with the candidate's renderable actions, one per rendered beat.
+
+        The Script Engine owns the spoken line (the approved hook replaces the
+        first beat) and timing; the idea owns the action image for each beat.
+        Falls back to the raw idea beats for runs without a script contract.
+        """
+        candidate = run.payload["winner"]["candidate"]
+        idea_beats = [dict(b) for b in candidate.get("beats", [])]
+        script_beats = list(run.payload.get("script_contract", {}).get("beats", []))
+        if len(script_beats) != len(idea_beats):
+            return [dict(b, dialogue=b.get("voice", "")) for b in idea_beats]
+        merged = []
+        for idea_beat, script_beat in zip(idea_beats, script_beats):
+            row = dict(idea_beat)
+            row.update({k: v for k, v in script_beat.items() if k not in {"action"}})
+            row["asset_action"] = idea_beat.get("asset_action", script_beat.get("action", ""))
+            row["voice"] = script_beat.get("voice_text") or script_beat.get("dialogue") or idea_beat.get("voice", "")
+            row["dialogue"] = row["voice"]
+            row["beat"] = idea_beat.get("beat", script_beat.get("story_role", ""))
+            merged.append(row)
+        return merged
+
+    @staticmethod
+    def _check_asset_identity(character: str, assets: list[str]) -> dict[str, Any]:
+        """Check each action image's character region against the bible palette."""
+        from PIL import Image
+
+        from app.agents.character_world_bible import validate_asset_identity
+        from app.providers.cartoon_rig import _cover, get_rig
+
+        errors: list[str] = []
+        checked = []
+        for asset in dict.fromkeys(assets):
+            try:
+                bbox = get_rig(asset).bbox
+            except ValueError:
+                bbox = None  # Unknown layout (e.g. a Blender master sheet): check the whole frame.
+            with Image.open(asset) as image:
+                problems = validate_asset_identity(character, _cover(image), bbox)
+            checked.append({"asset": asset, "errors": problems})
+            errors.extend(f"{Path(asset).name}:{problem}" for problem in problems)
+        return {"checked": checked, "errors": errors}
 
     def _asset_engine(self, run: CartoonRun) -> dict[str, Any]:
         candidate = run.payload["winner"]["candidate"]
@@ -412,25 +503,36 @@ class CartoonFactoryOrchestrator:
                     f"Missing action asset: {candidate['character']}:{beat['asset_action']}"
                 )
             assets.append(str(path))
-        self.plane.store.set_payload(run, asset_paths=assets)
-        return {"coverage": coverage(type("Spec", (), {"character": candidate["character"], "beats": candidate["beats"]})())}
+        identity = self._check_asset_identity(candidate["character"], assets)
+        if identity["errors"]:
+            raise RuntimeError("Character bible identity check failed: " + "; ".join(identity["errors"]))
+        self.plane.store.set_payload(run, asset_paths=assets, asset_identity=identity)
+        return {
+            "coverage": coverage(type("Spec", (), {"character": candidate["character"], "beats": candidate["beats"]})()),
+            "identity_checked": len(identity["checked"]),
+        }
 
     def _animation_engine(self, run: CartoonRun) -> dict[str, Any]:
         from app.agents.edit_decision import build_edit_plan
 
         candidate = run.payload["winner"]["candidate"]
         images = [Path(p) for p in run.payload["asset_paths"]]
-        captions = [beat["voice"] for beat in candidate["beats"]]
-        sfx = [beat["sfx"] for beat in candidate["beats"]]
-        beats = [beat["beat"] for beat in candidate["beats"]]
-        durations = [float(beat.get("duration", 2.0)) for beat in candidate["beats"]]
+        script_beats = self._script_beats(run)
+        captions = [beat["voice"] for beat in script_beats]
+        sfx = [beat["sfx"] for beat in script_beats]
+        beats = [RENDER_BEATS.get(beat["beat"], beat["beat"]) for beat in script_beats]
+        durations = [float(beat.get("duration", 2.0)) for beat in script_beats]
         slug = candidate["premise_slug"] + "_factory"
+        storyboard_shots = list(run.payload.get("storyboard", {}).get("shots", []))
+        shot_specs = (
+            [shot.get("performance", {}).get("shot_spec") for shot in storyboard_shots]
+            if len(storyboard_shots) == len(images) else None
+        )
 
         # Build the zero-credit Runway handoff for every storyboard shot.
         # Local rendering remains the default worker until a Runway execution
         # adapter is explicitly enabled; the plan is still persisted now so QA
         # and future provider workers consume the same Director intent.
-        storyboard_shots = list(run.payload.get("storyboard", {}).get("shots", []))
         if storyboard_shots and len(storyboard_shots) == len(images):
             runway_plan = RunwayPerformanceProvider().build_storyboard_plan(
                 storyboard_shots,
@@ -470,6 +572,8 @@ class CartoonFactoryOrchestrator:
                 voice_lines=captions,
                 sfx_kinds=sfx,
                 fps=24,
+                shot_specs=shot_specs,
+                character=candidate.get("character"),
             )
         motion_metadata = output.with_suffix(".motion.json")
         effective_durations = durations
@@ -484,23 +588,44 @@ class CartoonFactoryOrchestrator:
             render_durations=effective_durations,
             animation_metadata=str(motion_metadata),
         )
-        edit_plan = build_edit_plan(candidate["beats"], effective_durations)
+        edit_plan = build_edit_plan(script_beats, effective_durations)
         edit_plan_path = ARTIFACTS / f"{slug}.edit_plan.json"
         _save(edit_plan_path, edit_plan)
         self.plane.store.set_payload(run, edit_plan=edit_plan, edit_plan_path=str(edit_plan_path))
-        return {"video": str(output), "renderer": "blender-cutout-performance-rig-v5" if backend == "blender" and candidate.get("character") in {"PIP", "MOMO", "BUBU"} else "cartoon-motion-3.6", "fps": 24}
+        hosted = None
+        if backend == "runway":
+            # Hosted shots replace the local pictures; the local render still
+            # supplies the voice/SFX track and timing the Editor cuts to.
+            plan_path = run.payload.get("runway_plan")
+            if not plan_path:
+                raise RuntimeError("Runway backend needs one storyboard shot per beat to build a plan")
+            plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
+            hosted = runway_video.execute_plan(plan, ARTIFACTS / f"{slug}_runway")
+            clips = [hosted["clips"][index] for index in sorted(hosted["clips"])]
+            self.plane.store.set_payload(run, shot_clips=clips, runway_execution={
+                k: v for k, v in hosted.items() if k != "clips"
+            }, animation_backend="runway")
+        return {
+            "video": str(output),
+            "renderer": "blender-cutout-performance-rig-v5" if backend == "blender" and candidate.get("character") in {"PIP", "MOMO", "BUBU"} else "cartoon-motion-3.6",
+            "fps": 24,
+            "script_driven": bool(run.payload.get("script_contract")),
+            "director_shot_specs": sum(1 for spec in (shot_specs or []) if spec),
+            "hosted_shots": len(hosted["clips"]) if hosted else 0,
+        }
 
     def _rerender_for_motion_qa(self, run: CartoonRun, motion_result: dict[str, Any]) -> dict[str, Any]:
         """Surgically rerender failed shots plus their dependent outgoing bridges."""
         attempt = int(run.payload.get("motion_repair_attempts", 0)) + 1
-        if attempt > 1:
-            raise RuntimeError("Motion QA repair already attempted for this run")
+        if attempt > self._max_repair_attempts():
+            raise RuntimeError(f"Motion QA repair budget exhausted after {attempt - 1} attempt(s)")
 
         candidate = run.payload["winner"]["candidate"]
         images = [Path(p) for p in run.payload["asset_paths"]]
-        captions = [beat["voice"] for beat in candidate["beats"]]
-        beats = [beat["beat"] for beat in candidate["beats"]]
-        durations = [float(beat.get("duration", 2.0)) for beat in candidate["beats"]]
+        script_beats = self._script_beats(run)
+        captions = [beat["voice"] for beat in script_beats]
+        beats = [RENDER_BEATS.get(beat["beat"], beat["beat"]) for beat in script_beats]
+        durations = [float(beat.get("duration", 2.0)) for beat in script_beats]
         reasons = list(motion_result.get("reasons", []))
         target_shots = list(motion_result.get("repair_shots", []))
         if not target_shots:
@@ -552,6 +677,9 @@ class CartoonFactoryOrchestrator:
             except (OSError, json.JSONDecodeError, TypeError, ValueError):
                 runway_repair_path = None
 
+        if run.payload.get("shot_clips") and runway_repair_path:
+            return self._repair_hosted_shots(run, attempt, reasons, target_shots, plan, Path(runway_repair_path))
+
         tuning = {
             **plan["profile"],
             "repair_attempt": attempt,
@@ -595,6 +723,28 @@ class CartoonFactoryOrchestrator:
             "video": str(output),
         }
 
+    def _repair_hosted_shots(self, run: CartoonRun, attempt: int, reasons: list[str], target_shots: list[int],
+                             plan: dict[str, Any], repair_plan_path: Path) -> dict[str, Any]:
+        """Targeted hosted repair: regenerate only failing shots, then re-cut the reel."""
+        candidate = run.payload["winner"]["candidate"]
+        repair_plan = json.loads(repair_plan_path.read_text(encoding="utf-8"))
+        result = runway_video.execute_plan(repair_plan, ARTIFACTS / f"{candidate['premise_slug']}_runway_repair_{attempt}")
+        clips = list(run.payload["shot_clips"])
+        for shot, clip in result["clips"].items():
+            clips[int(shot)] = clip
+        audio = run.payload.get("audio_metadata", {}).get("audio_source")
+        output = ARTIFACTS / f"{candidate['premise_slug']}_edited_r{attempt}.mp4"
+        report = assemble_reel([Path(c) for c in clips], run.payload["edit_plan"], output,
+                               audio=Path(audio) if audio else None)
+        history = list(run.payload.get("motion_repair_history", []))
+        history.append({"attempt": attempt, "reasons": reasons, "target_shots": target_shots, "plan": plan,
+                        "video": str(output), "strategy": "hosted-targeted-regeneration"})
+        self.plane.store.set_payload(run, shot_clips=clips, video=str(output), editor=report,
+                                     motion_repair_attempts=attempt, motion_repair_target_shots=target_shots,
+                                     motion_repair_history=history)
+        return {"attempt": attempt, "plan": plan, "target_shots": target_shots, "video": str(output),
+                "strategy": "hosted-targeted-regeneration"}
+
     def _audio_engine(self, run: CartoonRun) -> dict[str, Any]:
         video = Path(run.payload["video"])
         if run.payload.get("audio_embedded") or run.payload.get("animation_backend") == "blender":
@@ -614,11 +764,41 @@ class CartoonFactoryOrchestrator:
         return result
 
     def _caption_engine(self, run: CartoonRun) -> dict[str, Any]:
-        candidate = run.payload["winner"]["candidate"]
         disclosure = "AI-generated • fictional cartoon"
-        result = {"captions": [beat["voice"] for beat in candidate["beats"]], "disclosure": disclosure}
+        result = {"captions": [beat["voice"] for beat in self._script_beats(run)], "disclosure": disclosure}
         self.plane.store.set_payload(run, caption_metadata=result)
         return result
+
+    def _editor_engine(self, run: CartoonRun) -> dict[str, Any]:
+        """Editor AI: assemble hosted shot clips, or conform the local reel, to the edit plan."""
+        candidate = run.payload["winner"]["candidate"]
+        plan = run.payload.get("edit_plan") or {}
+        if not plan.get("shots"):
+            raise RuntimeError("Editor needs an edit plan from the animation stage")
+        clips = list(run.payload.get("shot_clips") or [])
+        if clips:
+            audio = run.payload.get("audio_metadata", {}).get("audio_source")
+            output = ARTIFACTS / f"{candidate['premise_slug']}_edited.mp4"
+            report = assemble_reel([Path(c) for c in clips], plan, output, audio=Path(audio) if audio else None)
+            mode = "assembled"
+            if report["passed"]:
+                self.plane.store.set_payload(run, video=str(output))
+        else:
+            metadata_path = Path(str(run.payload.get("animation_metadata", "")))
+            shot_frames, fps = None, 24
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                shot_frames = [int(row["frames"]) for row in metadata.get("shots", [])] or None
+                fps = int(metadata.get("fps", 24))
+            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+                pass
+            report = verify_reel(Path(run.payload["video"]), plan, shot_frames=shot_frames, fps=fps)
+            mode = "conformed"
+        report["mode"] = mode
+        self.plane.store.set_payload(run, editor=report)
+        if not report["passed"]:
+            raise RuntimeError("Editor: reel does not match the edit plan: " + ", ".join(report["reasons"]))
+        return {"mode": mode, "duration": report["duration_seconds"], "cuts": len(report["measured_cut_points_seconds"])}
 
     def _final_qa(self, run: CartoonRun, media: dict[str, Any] | None, motion: dict[str, Any] | None, *, enforce_publish: bool = False) -> dict[str, Any]:
         self.plane.store.set_payload(run, final_media_qa=media, final_motion_qa=motion)
@@ -628,68 +808,87 @@ class CartoonFactoryOrchestrator:
             raise RuntimeError("Final QA blocked publish: " + ", ".join(result["blocking_failures"]))
         return result
 
+    @staticmethod
+    def _max_repair_attempts() -> int:
+        try:
+            return max(0, int(os.environ.get("NOVA_MAX_REPAIR_ATTEMPTS", str(DEFAULT_MAX_REPAIR_ATTEMPTS))))
+        except ValueError:
+            return DEFAULT_MAX_REPAIR_ATTEMPTS
+
+    def _rerender_full_for_video_qa(self, run: CartoonRun, media: dict[str, Any]) -> dict[str, Any]:
+        """Rebuild the reel after a technical failure (bad file, codec, missing audio).
+
+        A hosted reel is re-cut from the clips already downloaded, so a broken
+        assembly never spends Runway credits again; a local reel is re-rendered.
+        """
+        attempt = int(run.payload.get("video_repair_attempts", 0)) + 1
+        if run.payload.get("shot_clips"):
+            self._editor_engine(run)
+            strategy = "reassemble_hosted_clips"
+        else:
+            self._animation_engine(run)
+            strategy = "full_rerender"
+        history = list(run.payload.get("video_repair_history", []))
+        history.append({"attempt": attempt, "strategy": strategy, "reasons": list(media.get("reasons", [])),
+                        "video": run.payload["video"]})
+        self.plane.store.set_payload(run, video_repair_attempts=attempt, video_repair_history=history)
+        return {"attempt": attempt, "strategy": strategy, "reasons": list(media.get("reasons", [])),
+                "video": run.payload["video"]}
+
     def _video_qa(self, run: CartoonRun) -> dict[str, Any]:
+        """Visual QA -> Repair AI -> Visual QA, repeated up to a bounded budget.
+
+        Motion failures get a targeted rerender of only the failing shots;
+        technical failures (file, codec, audio, dimensions) get a full rerender.
+        The script, assets, voice and approved idea never change during repair.
+        """
+        max_attempts = self._max_repair_attempts()
         video = Path(run.payload["video"])
-        media = self.quality.render_check(video)
-        if not media["passed"]:
-            raise RuntimeError("Video QA failed: " + ", ".join(media["reasons"]))
+        repairs: list[dict[str, Any]] = []
+        initial_motion: dict[str, Any] | None = None
+        while True:
+            media = self.quality.render_check(video)
+            motion = self.quality.motion_check(video) if media["passed"] else None
+            if media["passed"] and motion is not None and motion["passed"]:
+                break
+            technical = not media["passed"]
+            reasons = list(media["reasons"] if technical else motion["reasons"])
+            if technical and set(reasons) & UNREPAIRABLE_VIDEO_REASONS:
+                raise RuntimeError("Video QA failed: " + ", ".join(reasons))
+            if len(repairs) >= max_attempts:
+                label = "Video QA" if technical else "Motion QA"
+                raise RuntimeError(f"{label} failed after {len(repairs)} repair attempt(s): " + ", ".join(reasons))
+            if technical:
+                repair = self._rerender_full_for_video_qa(run, media)
+            else:
+                initial_motion = initial_motion or motion
+                repair = self._rerender_for_motion_qa(run, motion)
+            repairs.append(repair)
+            video = Path(repair["video"])
 
-        motion = self.quality.motion_check(video)
-        if motion["passed"]:
-            final_qa = self._final_qa(run, media, motion)
-            record_provider_observation(
-                provider=str(run.payload.get("animation_backend", "pillow")),
-                task="animation",
-                success=True,
-                experiment_id=str(run.payload.get("experiment", {}).get("experiment_id", "")),
-                repaired=bool(run.payload.get("motion_repair_attempts", 0)),
-            )
-            return {
-                "passed": True,
-                "media": media,
-                "motion": motion,
-                "final_qa": final_qa,
-                "repaired": bool(run.payload.get("motion_repair_attempts", 0)),
-                "repair_attempts": int(run.payload.get("motion_repair_attempts", 0)),
-            }
-
-        # Repair once without rewinding the durable pipeline. The script, assets,
-        # voice, SFX and approved idea remain unchanged; only the render tuning changes.
-        if int(run.payload.get("motion_repair_attempts", 0)) >= 1:
-            raise RuntimeError("Motion QA failed after targeted repair: " + ", ".join(motion["reasons"]))
-
-        repair = self._rerender_for_motion_qa(run, motion)
-        repaired_video = Path(repair["video"])
-        repaired_media = self.quality.render_check(repaired_video)
-        if not repaired_media["passed"]:
-            raise RuntimeError("Repaired video QA failed: " + ", ".join(repaired_media["reasons"]))
-
-        repaired_motion = self.quality.motion_check(repaired_video)
-        if not repaired_motion["passed"]:
-            raise RuntimeError(
-                "Motion QA failed after targeted repair: "
-                + ", ".join(repaired_motion["reasons"])
-            )
-
-        final_qa = self._final_qa(run, repaired_media, repaired_motion)
-
+        final_qa = self._final_qa(run, media, motion)
         record_provider_observation(
             provider=str(run.payload.get("animation_backend", "pillow")),
             task="animation",
             success=True,
             experiment_id=str(run.payload.get("experiment", {}).get("experiment_id", "")),
-            repaired=True,
+            repaired=bool(repairs),
         )
-        return {
+        result: dict[str, Any] = {
             "passed": True,
-            "media": repaired_media,
-            "motion": repaired_motion,
+            "media": media,
+            "motion": motion,
             "final_qa": final_qa,
-            "repaired": True,
-            "repair_attempts": 1,
-            "repair": repair,
-            "initial_motion": motion,
+            "repaired": bool(repairs),
+            "repair_attempts": len(repairs),
+            "max_repair_attempts": max_attempts,
         }
+        if repairs:
+            result["repair"] = repairs[-1]
+            result["repairs"] = repairs
+        if initial_motion is not None:
+            result["initial_motion"] = initial_motion
+        return result
 
     def _publish(self, run: CartoonRun) -> dict[str, Any]:
         # Re-evaluate at publish readiness, after story, script, audio, captions,
@@ -726,6 +925,7 @@ class CartoonFactoryOrchestrator:
                 "angle": candidate.get("angle", ""),
                 "duration_target": candidate.get("duration_target", 0.0),
                 "production_cost": candidate.get("production_cost", 0.0),
+                "selection_mode": candidate.get("selection_mode", "exploit"),
                 "edit_plan": run.payload.get("edit_plan", {}),
             },
         }

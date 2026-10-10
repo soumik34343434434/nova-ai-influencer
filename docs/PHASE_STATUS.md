@@ -1,39 +1,48 @@
 # NOVA Phase Validation
 
-Last validated on 2026-10-06 against the local M2 Mac environment.
+Last validated on 2026-10-10 in a Linux container matching CI (Python 3.13,
+FFmpeg, eSpeak NG). The earlier 2026-10-06 validation on the 8 GB M2 Mac covered
+the original 10-phase NOVA persona pipeline.
 
-| Phase | Component | Zero-cost status | Backtest status | Contract |
-|---|---|---|---|---|
-| 1 | Persona / character | ✅ | ✅ | Stable NOVA identity + disclosure |
-| 2 | Trend discovery | ✅ | ✅ | RSS input → ranked Trend objects |
-| 3 | Content director | ✅ | ✅ | Trend → original script/caption + scores |
-| 4 | Safety gate | ✅ | ✅ | Blocks low-originality/high-risk/reuse signals |
-| 5 | Media | ✅ | ✅ | 1080×1920 MP4 + local speech, no paid API |
-| 6 | Publishing outbox | ✅ | ✅ | JSON outbox with AI disclosure |
-| 7 | Analytics | ✅ | ✅ | Views/likes/comments/shares/retention/revenue |
-| 8 | Learning loop | ✅ | ✅ | Winner selection + next strategy |
-| 9 | Scheduler / CI | ✅ | ✅ | GitHub Actions scheduled generation |
-| 10 | External auto-publishing | ⚠️ provider-dependent | adapter ready | Metricool MCP can schedule on Free; Metricool REST API requires Advanced/Custom |
+## Cartoon factory (16 stages)
 
-## Real-machine regression
+| Stage | Status | Evidence |
+|---|---|---|
+| 1 Research | ✅ public sources; optional keyed connectors | offline fixture in end-to-end test |
+| 2 Trend + format intelligence | ✅ | learned format boost applies (`test_closed_loop_simulation.py`) |
+| 3 Idea generator | ✅ every idea is renderable and passes all gates | `test_idea_generator_gates.py`, `test_action_packs.py` |
+| 4 Idea jury + cheap animatic | ✅ | end-to-end test |
+| 5–6 Story + script | ✅ script lines are what is rendered | end-to-end test |
+| 7 Storyboard / Director AI | ✅ one shot per beat; plans reach the renderer | end-to-end test, `test_character_world_bible.py` |
+| 8 Assets + bible identity | ✅ palette check on every action image | `test_character_world_bible.py` |
+| 9 Animation | ✅ local; Runway execution opt-in | end-to-end test, `test_runway_video.py`, `test_reel_editor.py` |
+| 10–11 Audio + captions | ✅ per-character voices | `test_cartoon_voice.py` |
+| 12 Editor | ✅ assembles hosted clips; conforms local reels | `test_reel_editor.py`, end-to-end test |
+| 13 Video QA + repair loop | ✅ bounded loop, technical + motion | `test_cartoon_repair.py` |
+| 14 Publish queue | ✅ approval-first; live adapters opt-in | `test_platform_publishers.py` |
+| 15 Analytics | ✅ binds only published content | `test_closed_loop_simulation.py` |
+| 16 Learning | ✅ next run loads the policy | `test_closed_loop_simulation.py`, end-to-end test |
 
-Validated on an Apple M2 Mac with 8 GB RAM:
+## End-to-end run
 
-- 4 tests passed
-- 3 synthetic trends
-- 3 drafts
-- 3 videos
-- 3 publish-outbox items
-- 0 safety blocks
-- winner selected
-- full backtest exited with code 0
+`tests/test_factory_end_to_end.py` runs all 16 stages offline in order. In the
+validation run it produced a ~10 s 1080×1920 episode with audio that passed
+motion QA, the Editor conformance check and the final QA publish gate, queued
+it for review, and the next run loaded the learned policy. It takes about
+3 minutes.
+
+## Not yet validated against live services
+
+The Runway video worker, the live YouTube/Instagram/TikTok publishers and the
+Instagram hashtag trend connector are tested only against simulated HTTP
+responses, because no credentials were available. Their request shapes follow
+the public API documentation; confirm a first live run with a private post and
+a small `NOVA_RUNWAY_MAX_CREDITS` budget.
 
 ## Important zero-cost boundary
 
-The core software does not require OpenAI, Runway, ElevenLabs, or another paid generation API.
+The core loop needs no paid API: public research sources, local rendering with
+Pillow + FFmpeg, local speech (`say` or eSpeak NG), and an approval-first outbox.
+Runway, live publishing and keyed trend APIs are optional and fail closed.
 
-The zero-cost media renderer is deliberately conservative: it creates an animated vertical short from a character image using local speech + FFmpeg. It is a real video pipeline, but it is **not** a high-end neural image-to-video model.
-
-For external publishing, Metricool currently offers MCP access on its Free plan, but its REST API is restricted to Advanced/Custom plans. Keep publishing as an outbox unless a supported account/API path is explicitly configured.
-
-See README for operating modes.
+See `docs/factory_architecture.md` for the stage-to-code map.

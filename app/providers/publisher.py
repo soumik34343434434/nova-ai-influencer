@@ -1,7 +1,8 @@
 """Provider-neutral publish jobs with an intentionally safe outbox default.
 
-No implementation in this module performs network I/O. A future provider must
-receive an approved job through an explicitly enabled adapter.
+This module performs no network I/O. Live uploads live in
+``platform_publishers`` and are reachable only for an approved job when real
+publishing is explicitly enabled and the platform's credentials are configured.
 """
 from __future__ import annotations
 
@@ -215,13 +216,26 @@ def assert_publish_allowed(job: PublishJob, *, dry_run: bool) -> None:
         raise PermissionError("publish_approval_required")
     if not real_publish_enabled():
         raise PermissionError("real_publishing_disabled")
-    # This repository intentionally ships no live adapter; callers must still
-    # implement one explicitly rather than falling through to an upload.
-    raise PermissionError("no_real_publisher_configured")
+    from app.providers.platform_publishers import LIVE_PUBLISHERS
+
+    adapter = LIVE_PUBLISHERS.get(job.platform)
+    if adapter is None or not adapter.configured():
+        # No adapter, or its credentials are missing: never fall through to an upload.
+        missing = [name for name in (adapter.required_env if adapter else ()) if not os.getenv(name, "").strip()]
+        raise PermissionError("no_real_publisher_configured" + (f":{job.platform}:missing={','.join(missing)}" if missing else f":{job.platform}"))
 
 
 def build_publisher(platform: str) -> Publisher:
-    """Return a non-network adapter; real publishing is intentionally unavailable."""
+    """Return the live adapter only when real publishing is enabled and configured.
+
+    Otherwise return the non-network dry-run adapter. A live adapter still
+    refuses to upload unless the job itself is approved (assert_publish_allowed).
+    """
+    from app.providers.platform_publishers import LIVE_PUBLISHERS
+
+    adapter = LIVE_PUBLISHERS.get(platform.strip().lower())
+    if real_publish_enabled() and adapter is not None and adapter.configured():
+        return adapter()
     return DryRunPublisher(platform)
 
 
@@ -240,5 +254,5 @@ def publish_review_item(*, video_path: str | Path, experiment_id: str, title: st
 
 
 def real_publish_enabled() -> bool:
-    """Fail-closed gate; no real publisher currently exists regardless of this flag."""
+    """Fail-closed gate: live adapters are used only when this is explicitly true."""
     return os.getenv("NOVA_ENABLE_REAL_PUBLISH", "false").strip().lower() == "true"

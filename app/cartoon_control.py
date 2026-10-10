@@ -34,26 +34,28 @@ class CartoonStage(str, Enum):
     ANIMATION_ENGINE = "9_animation_engine"
     AUDIO_ENGINE = "10_audio_engine"
     CAPTION_ENGINE = "11_caption_engine"
-    VIDEO_QA = "12_video_qa"
-    PUBLISH = "13_publish"
-    ANALYTICS = "14_analytics"
-    LEARNING = "15_learning"
+    EDITOR_ENGINE = "12_editor_engine"
+    VIDEO_QA = "13_video_qa"
+    PUBLISH = "14_publish"
+    ANALYTICS = "15_analytics"
+    LEARNING = "16_learning"
 
 
 STAGES = tuple(CartoonStage)
+_STAGE_BY_NAME = {stage.value.split("_", 1)[1]: stage.value for stage in CartoonStage}
 
-LEGACY_STAGE_MAP = {
-    "5_script_engine": "6_script_engine",
-    "6_storyboard_engine": "7_storyboard_engine",
-    "7_asset_engine": "8_asset_engine",
-    "8_animation_engine": "9_animation_engine",
-    "9_audio_engine": "10_audio_engine",
-    "10_caption_engine": "11_caption_engine",
-    "11_video_qa": "12_video_qa",
-    "12_publish": "13_publish",
-    "13_analytics": "14_analytics",
-    "14_learning": "15_learning",
-}
+
+def migrate_stage_key(key: str) -> str:
+    """Map a checkpointed stage key from any earlier numbering to the current one.
+
+    Stage values are "<order>_<name>" and names are unique, so a run saved
+    before a stage was inserted (story engine, editor) resumes on the right stage.
+    """
+    if key in _STAGE_BY_NAME.values():
+        return key
+    prefix, _, name = key.partition("_")
+    return _STAGE_BY_NAME.get(name, key) if prefix.isdigit() else key
+
 
 
 @dataclass
@@ -107,19 +109,17 @@ class CartoonRunStore:
             raise FileNotFoundError(f"Unknown cartoon run: {self.run_id}")
         raw = json.loads(self.path.read_text())
         raw_stages = raw.get("stages", {})
-        # Runs created before the Story Engine was inserted used stages 5-14.
-        # Migrate those durable checkpoints in-memory so resume/repair remains
-        # safe after the stage insertion. New runs never take this path.
-        is_legacy = "5_script_engine" in raw_stages and "5_story_engine" not in raw_stages
-        if is_legacy:
-            migrated = {}
-            for key, value in raw_stages.items():
-                new_key = LEGACY_STAGE_MAP.get(key, key)
-                row = dict(value)
-                row["stage"] = new_key
-                migrated[new_key] = row
-            raw_stages = migrated
-            raw["current_stage"] = LEGACY_STAGE_MAP.get(raw["current_stage"], raw["current_stage"])
+        # Runs saved before a stage was inserted (Story Engine, Editor) use older
+        # numbering. Migrate those checkpoints by stage name so resume/repair
+        # stays safe. Current runs map to themselves.
+        migrated = {}
+        for key, value in raw_stages.items():
+            new_key = migrate_stage_key(key)
+            row = dict(value)
+            row["stage"] = new_key
+            migrated[new_key] = row
+        raw_stages = migrated
+        raw["current_stage"] = migrate_stage_key(raw["current_stage"])
         return CartoonRun(
             run_id=raw["run_id"],
             created_at=raw["created_at"],

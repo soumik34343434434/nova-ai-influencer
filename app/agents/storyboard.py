@@ -14,6 +14,7 @@ from app.agents.shot_performance import build_shot_performance_spec
 from app.agents.director_decision import build_director_decision_packet
 from app.agents.reference_preflight import build_reference_manifest, assert_reference_preflight, required_reference_props
 from app.agents.character_world_bible import validate_storyboard_continuity
+from app.agents.action_packs import action_spec
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,12 @@ class Storyboard:
 
     def to_dict(self) -> dict:
         continuity_errors = validate_storyboard_continuity([
-            {"character": shot.world.get("character", ""), "character_plan": shot.world.get("character_plan", {})}
+            {
+                "character": shot.world.get("character", ""),
+                "character_plan": shot.world.get("character_plan", {}),
+                "framing": shot.world.get("framing", ""),
+                **({"signature_props": shot.world["signature_props"]} if "signature_props" in shot.world else {}),
+            }
             for shot in self.shots
         ])
         return {
@@ -91,20 +97,33 @@ def _action_for(camera: str, text: str) -> str:
     return "talks_with_small_hand_gesture"
 
 
+def _beat_text(beat: dict) -> str:
+    return " ".join(str(beat.get("dialogue") or beat.get("voice_text") or beat.get("voice") or "").split())
+
+
 def build_storyboard(draft: dict) -> Storyboard:
     hook = " ".join(str(draft.get("hook", "")).split())
     paragraphs = _paragraphs(str(draft.get("script", "")))
+    source_beats = [b for b in (draft.get("beats") or []) if isinstance(b, dict)]
+    # When the script supplies beats, plan exactly one shot per rendered beat so
+    # the Director's per-shot decisions line up with the frames that are drawn.
+    beat_locked = bool(source_beats) and all(_beat_text(b) for b in source_beats)
 
     # A shortform Reel works better as a handful of decisive visual beats.
-    selected = paragraphs[:5]
+    selected = [_beat_text(b) for b in source_beats] if beat_locked else paragraphs[:5]
     if not selected:
         selected = [hook]
+    subject = str(draft.get("character") or "NOVA").upper()
 
     world_engine = WorldEngine()
     shots: list[Shot] = []
     for index, text in enumerate(selected):
+        source_beat = source_beats[index] if index < len(source_beats) else {}
         camera = _camera_for(index, text)
-        action = _action_for(camera, text)
+        if str(source_beat.get("framing", "")) == "close_up":
+            camera = "reaction_close_up"
+        # Prefer the beat's authored, renderable action over text heuristics.
+        action = str(source_beat.get("asset_action") or source_beat.get("action") or "") or _action_for(camera, text)
         world = world_engine.plan_shot(text, index)
         world["bible_version"] = world_engine.bible.get("version", 1)
         character = str(draft.get("character", "")).upper()
@@ -112,7 +131,11 @@ def build_storyboard(draft: dict) -> Storyboard:
             world["character"] = character
             world["identity_lock"] = world_engine.bible["characters"][character]
             world["style"] = world_engine.bible["style"]
-        duration = max(2.6, min(4.8, 2.6 + len(text) / 45.0))
+        try:
+            authored = float(source_beat.get("duration") or 0.0)
+        except (TypeError, ValueError):
+            authored = 0.0
+        duration = authored if beat_locked and authored > 0 else max(2.6, min(4.8, 2.6 + len(text) / 45.0))
         performance = plan_performance(action, text, index)
         performance["shot_spec"] = build_shot_performance_spec(
             action=action,
@@ -120,8 +143,6 @@ def build_storyboard(draft: dict) -> Storyboard:
             duration=duration,
             camera=camera,
         )
-        source_beats = draft.get("beats") or []
-        source_beat = source_beats[index] if index < len(source_beats) and isinstance(source_beats[index], dict) else {}
         performance["expected_scene"] = str(world["scene"])
         performance["reference_manifest"] = build_reference_manifest(
             character=str(draft.get("character", "")),
@@ -142,7 +163,7 @@ def build_storyboard(draft: dict) -> Storyboard:
                 action=action,
                 dialogue=text,
                 visual=(
-                    f"NOVA {action.replace('_', ' ')} in a {camera.replace('_', ' ')} shot "
+                    f"{subject} {action.replace('_', ' ')} in a {camera.replace('_', ' ')} shot "
                     f"at {world['scene_label']}, with {world['prop']}."
                 ),
                 world=world,
@@ -161,7 +182,7 @@ def build_storyboard(draft: dict) -> Storyboard:
 
     # Keep the edit punchy. The final reaction can loop back into the hook.
     total = round(sum(shot.duration for shot in shots), 2)
-    if total > 18 and shots:
+    if total > 18 and shots and not beat_locked:
         factor = 18 / total
         shots = [
             Shot(
@@ -199,7 +220,30 @@ def build_storyboard(draft: dict) -> Storyboard:
 
     character = str(draft.get("character", "")).upper()
     if character in world_engine.bible.get("characters", {}):
-        errors = validate_storyboard_continuity([{"character": character, "character_plan": {}} for _ in shots], world_engine.bible)
+        plans = [_bible_shot_plan(character, shot.action) for shot in shots]
+        for shot, plan in zip(shots, plans):
+            shot.world["character_plan"] = plan["character_plan"]
+            shot.world["framing"] = plan["framing"]
+            if "signature_props" in plan:
+                shot.world["signature_props"] = plan["signature_props"]
+        errors = validate_storyboard_continuity(plans, world_engine.bible)
         if errors:
             raise ValueError("Character/world bible validation failed: " + "; ".join(errors))
     return Storyboard(hook=hook, total_duration=total, shots=shots)
+
+
+# What the local renderer does to a character image within a shot.
+RENDER_TRANSFORMATIONS = ("pose", "gaze", "facial_expression", "rotation", "screen_position", "scale_uniform")
+
+
+def _bible_shot_plan(character: str, action: str) -> dict:
+    """Describe a shot in the bible's terms using the action pack's authored data."""
+    spec = action_spec(character, action) or {}
+    plan = {
+        "character": character,
+        "framing": str(spec.get("framing", "medium")),
+        "character_plan": {"transformations": list(RENDER_TRANSFORMATIONS)},
+    }
+    if isinstance(spec.get("visible_props"), list):
+        plan["signature_props"] = list(spec["visible_props"])
+    return plan

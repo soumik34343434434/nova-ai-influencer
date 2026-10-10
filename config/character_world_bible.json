@@ -12,7 +12,8 @@
       "palette": ["sky_blue", "orange", "dark_outline"],
       "signature_props": ["orange backpack"],
       "allowed_transformations": ["pose", "gaze", "facial_expression", "rotation", "screen_position", "scale_uniform"],
-      "forbidden_transformations": ["recolor_identity", "remove_backpack", "change_species_or_form", "change_proportions", "add_logo"]
+      "forbidden_transformations": ["recolor_identity", "remove_backpack", "change_species_or_form", "change_proportions", "add_logo"],
+      "pixel_identity": {"min_share": {"sky_blue": 0.25, "orange": 0.12}, "max_share": {"teal": 0.15}}
     },
     "MOMO": {
       "identity": "sleepy orange cartoon cat",
@@ -20,7 +21,8 @@
       "palette": ["orange", "teal", "dark_outline"],
       "signature_props": ["tiny teal scarf"],
       "allowed_transformations": ["pose", "gaze", "facial_expression", "rotation", "screen_position", "scale_uniform"],
-      "forbidden_transformations": ["recolor_identity", "remove_scarf", "change_species_or_form", "change_proportions", "add_logo"]
+      "forbidden_transformations": ["recolor_identity", "remove_scarf", "change_species_or_form", "change_proportions", "add_logo"],
+      "pixel_identity": {"min_share": {"orange": 0.5}, "max_share": {"blue": 0.10}}
     },
     "BUBU": {
       "identity": "round blue cartoon bird",
@@ -28,7 +30,8 @@
       "palette": ["blue", "yellow", "dark_outline"],
       "signature_props": ["tiny yellow backpack"],
       "allowed_transformations": ["pose", "gaze", "facial_expression", "rotation", "screen_position", "scale_uniform"],
-      "forbidden_transformations": ["recolor_identity", "remove_backpack", "change_species_or_form", "change_proportions", "add_logo"]
+      "forbidden_transformations": ["recolor_identity", "remove_backpack", "change_species_or_form", "change_proportions", "add_logo"],
+      "pixel_identity": {"min_share": {"blue": 0.5}, "max_share": {"orange": 0.12}}
     }
   },
   "environments": {
@@ -39,5 +42,6 @@
   },
   "lighting_presets": ["neutral office light", "warm practical lamp", "soft natural daylight", "soft practical overhead light"],
   "reusable_action_props": ["laptop", "calendar", "phone", "coffee", "headphones", "notebook", "metro card", "earbuds", "button", "alarm", "shoes", "fridge"],
+  "pixel_identity_notes": "Share of saturated pixels in the character region whose hue falls in each palette colour. Thresholds leave margin around the current action packs: PIP is blue with a 0.22+ orange backpack share, MOMO is 0.94+ orange with no blue, BUBU is 0.94+ blue with at most 0.04 orange.",
   "continuity_constraints": ["character identity and signature props remain stable across shots", "palette and rendering style remain stable across shots", "environment changes only when the shot plan explicitly changes scene"]
 }

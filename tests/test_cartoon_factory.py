@@ -17,7 +17,9 @@ def test_pip_episode_has_full_action_coverage():
 
 def test_unready_character_is_blocked_until_action_pack_exists():
     spec = next(s for s in list_episode_specs(5) if s.slug == "homework_robot")
-    assert coverage(spec) == 0.0
+    # MOMO now has an action pack, but this legacy premise asks for actions
+    # (give_homework, shock, overwhelmed) that the pack does not provide.
+    assert coverage(spec) < 1.0
     allowed, reasons = quality_gate(spec)
     assert not allowed
     assert "missing_action_asset_coverage" in reasons

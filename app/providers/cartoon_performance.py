@@ -71,6 +71,31 @@ def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
 
 
+def spec_phase(spec: dict | None, name: str) -> tuple[float, float] | None:
+    """Return a Director phase as (start, end) fractions of the shot.
+
+    ShotPerformanceSpec phases are authored in seconds; older callers passed
+    fractions. Both are accepted by normalising against the spec duration.
+    """
+    if not isinstance(spec, dict):
+        return None
+    row = next((p for p in spec.get("phases", []) if isinstance(p, dict) and p.get("name") == name), None)
+    if row is None:
+        return None
+    try:
+        start, end = float(row.get("start")), float(row.get("end"))
+        total = float(spec.get("duration") or 1.0)
+    except (TypeError, ValueError):
+        return None
+    if end > 1.0 + 1e-9 or total > 1.0:
+        if total <= 0:
+            return None
+        start, end = start / total, end / total
+    if 0.0 <= start < end <= 1.0 + 1e-9:
+        return start, min(1.0, end)
+    return None
+
+
 def _event_fraction(beat: str, voice_performance: dict | None) -> float:
     defaults = {"setup": 0.46, "escalation": 0.16, "reaction": 0.40, "punchline": 0.64}
     if voice_performance:
@@ -78,20 +103,9 @@ def _event_fraction(beat: str, voice_performance: dict | None) -> float:
         # impact/action timing over a generic beat default so local animation
         # and hosted video prompts share the same performance choreography.
         spec = voice_performance.get("shot_spec")
-        if isinstance(spec, dict):
-            phases = spec.get("phases")
-            if isinstance(phases, list) and phases:
-                preferred = next((p for p in phases if p.get("name") == "impact"), None)
-                if preferred is None:
-                    preferred = next((p for p in phases if p.get("name") == "action"), None)
-                if isinstance(preferred, dict):
-                    try:
-                        start = float(preferred.get("start"))
-                        end = float(preferred.get("end"))
-                        if 0.0 <= start <= end <= 1.0 and end > start:
-                            return (start + end) / 2.0
-                    except (TypeError, ValueError):
-                        pass
+        window = spec_phase(spec, "impact") or spec_phase(spec, "action")
+        if window is not None:
+            return (window[0] + window[1]) / 2.0
         measured = voice_performance.get("performance_peak_fraction", voice_performance.get("peak_fraction"))
         if measured is not None:
             try:
@@ -218,8 +232,17 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
         "punchline": (0.00, 0.00),
     }.get(beat, (0.0, 0.0))
     attention_x, attention_y = attention
-    face_target_dx = 8.0 * attention_x * (0.35 + 0.65 * impact)
-    face_target_dy = 5.0 * attention_y * (0.30 + 0.70 * impact)
+    # Eye lead -> head follow: with a Director plan, the eyes reach the
+    # attention target during eye_lead and the head turns only during
+    # head_follow, so the gaze visibly leads the head.
+    eye_window = spec_phase(spec, "eye_lead")
+    follow_window = spec_phase(spec, "head_follow")
+    eye_gate = _ease(_phase_progress(p, *eye_window)) if eye_window else impact
+    head_gate = _ease(_phase_progress(p, *follow_window)) if follow_window else 0.0
+    face_target_dx = 8.0 * attention_x * (0.35 + 0.65 * max(impact, eye_gate))
+    face_target_dy = 5.0 * attention_y * (0.30 + 0.70 * max(impact, eye_gate))
+    head_dx += 3.0 * attention_x * head_gate
+    head_rot += 2.2 * attention_x * head_gate
     from app.agents.camera_director import plan_camera
     camera = plan_camera(beat, p, impact, settle)
     # Compose authored shot timing and action intent with the established rig
@@ -237,6 +260,8 @@ def kinematic_state(progress: float, beat: str, voice_performance: dict | None =
     head_rot += acting["overlap"] * 0.7
     return {
         "event_fraction": peak,
+        "eye_lead_gate": eye_gate,
+        "head_follow_gate": head_gate,
         "root_dx": root_dx,
         "root_dy": root_dy,
         "root_rot": root_rot,

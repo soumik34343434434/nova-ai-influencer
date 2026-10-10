@@ -97,7 +97,7 @@ class BlenderAnimationProvider:
         self.ensure_character_assets(repo_root, character)
         work = output_mp4.parent / (output_mp4.stem + "_blender_work")
         work.mkdir(parents=True, exist_ok=True)
-        voice_performance = prepare_voice_performance(work / "voice", voice_lines, beats, durations)
+        voice_performance = prepare_voice_performance(work / "voice", voice_lines, beats, durations, character=character)
         reaction_tails = (0.48,0.58,0.60,0.82)
         # Keep the same effective clock for Blender, captions and audio: each
         # voice beat owns a small reaction tail after the spoken line.

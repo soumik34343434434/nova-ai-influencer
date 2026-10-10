@@ -123,3 +123,32 @@ def test_subject_exit_frame_flags_bbox_at_frame_edge():
 
 def test_subject_exit_frame_is_silent_without_frame_bboxes():
     assert CartoonMotionQA._subject_exit_frame({"character_bboxes": [[0, 0, 1080, 900]]}) == []
+
+
+def test_pip_shock_head_box_stays_inside_the_frame_margin():
+    """The shock pose's head box once spanned PIP's raised hands to x=0.99,
+    so every frame of that shot failed the subject-exit check."""
+    from app.agents.cartoon_motion_qa import CartoonMotionQA
+    from app.agents.action_packs import action_file
+    from app.providers.cartoon_rig import get_rig
+
+    for action in ("press_button", "shock", "overwhelmed", "deadpan"):
+        rig = get_rig(str(action_file("PIP", action)))
+        metadata = {"width": 1080, "height": 1920, "character_frame_bboxes": [list(rig.head_bbox)]}
+        assert CartoonMotionQA._subject_exit_frame(metadata) == [], action
+
+
+def test_decomposer_rebuilds_layers_when_regions_change(tmp_path):
+    import json
+
+    from app.agents.action_packs import action_file
+    from app.providers import cartoon_decomposer
+
+    path = action_file("PIP", "shock")
+    cartoon_decomposer.ensure_action_decomposed(path, tmp_path)
+    meta = tmp_path / "pip_shock.json"
+    data = json.loads(meta.read_text())
+    data["regions"]["head"] = [0.52, 0.40, 0.99, 0.63]  # the old, too-wide box
+    meta.write_text(json.dumps(data))
+    cartoon_decomposer.ensure_action_decomposed(path, tmp_path)
+    assert json.loads(meta.read_text())["regions"]["head"] == [0.57, 0.43, 0.85, 0.59]

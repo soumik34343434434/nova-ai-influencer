@@ -428,6 +428,12 @@ class CartoonMotionQA:
             suffix = reason.rsplit("_", 1)[-1]
             if suffix.isdigit():
                 repair_shots.add(int(suffix))
+        # Frame-edge failures name frames, not shots: repair the shot that owns them.
+        for reason in self._subject_exit_frame(metadata):
+            suffix = reason.rsplit("_", 1)[-1]
+            shot = self._shot_for_frame(int(suffix), shot_ranges) if suffix.isdigit() else None
+            if shot is not None:
+                repair_shots.add(shot)
 
         global_structural = {
             "wrong_video_dimensions",

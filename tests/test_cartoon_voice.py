@@ -39,3 +39,49 @@ def test_short_exclamation_gets_a_visible_animation_event():
     from app.providers.cartoon_voice import prepare_voice_performance
     # Contract-level check on the normalization helper's policy via a synthetic row.
     assert 0.20 <= max(0.20, min(0.40, 0.116 + 0.10)) <= 0.40
+
+
+def test_espeak_writes_audio_even_for_very_long_output_paths(tmp_path):
+    """espeak-ng silently writes nothing for -w paths of ~200+ characters."""
+    import shutil
+
+    import pytest
+
+    from app.providers.cartoon_voice import _render_espeak
+
+    if not (shutil.which("espeak-ng") or shutil.which("espeak")) or not shutil.which("ffmpeg"):
+        pytest.skip("espeak-ng and ffmpeg are required")
+    deep = tmp_path / ("idea-" + "x" * 90 + "_factory_frames") / ("y" * 60)
+    target = deep / "voice_00_raw.wav"
+    assert len(str(target)) > 220
+    _render_espeak("One tiny test line.", target, BEAT_VOICE_PROFILES["setup"])
+    assert target.exists() and target.stat().st_size > 1000
+
+
+def test_each_character_has_a_distinct_voice_identity():
+    from app.providers.cartoon_voice import character_voice_config, voice_profile
+
+    profiles = {c: voice_profile("setup", c) for c in ("PIP", "MOMO", "BUBU")}
+    assert len({(p.pitch, p.rate, p.espeak_voice) for p in profiles.values()}) == 3
+    assert profiles["MOMO"].rate < profiles["BUBU"].rate  # the sleepy cat speaks slower
+    assert voice_profile("setup", None) == BEAT_VOICE_PROFILES["setup"]
+    assert character_voice_config("PIP")["runway_voice"] == {"type": "runway-preset", "presetId": "Brodie"}
+
+
+def test_runway_backend_receives_the_character_voice(monkeypatch, tmp_path):
+    import app.providers.cartoon_voice as voice
+
+    seen = {}
+
+    class FakeRunway:
+        def synthesize(self, text, beat, path, voice=None):
+            seen["voice"] = voice
+            raise RuntimeError("stop after capturing the request")
+
+    monkeypatch.setenv("NOVA_VOICE_BACKEND", "runway")
+    monkeypatch.setattr(voice, "RunwayVoiceProvider", FakeRunway)
+    import pytest
+
+    with pytest.raises(RuntimeError, match="stop after"):
+        voice.prepare_voice_performance(tmp_path, ["Hello there."], ["setup"], character="MOMO")
+    assert seen["voice"] == {"type": "runway-preset", "presetId": "Brodie"}

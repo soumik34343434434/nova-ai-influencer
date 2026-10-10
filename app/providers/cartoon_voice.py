@@ -6,12 +6,14 @@ animation engine can consume on the same performance clock.
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 import shutil
 import subprocess
+import tempfile
 import wave
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from app.providers.runway_voice import RunwayVoiceProvider, render_runway_script
@@ -27,6 +29,7 @@ class VoiceProfile:
     gain: float
     pre_pause: float
     post_pause: float
+    espeak_voice: str = "en-us"
 
 
 BEAT_VOICE_PROFILES: dict[str, VoiceProfile] = {
@@ -35,6 +38,36 @@ BEAT_VOICE_PROFILES: dict[str, VoiceProfile] = {
     "reaction": VoiceProfile("Eddy (English (US))", 164, 0.995, 0.99, 0.035, 0.085),
     "punchline": VoiceProfile("Eddy (English (US))", 148, 0.955, 0.98, 0.060, 0.180),
 }
+
+
+VOICES_PATH = Path(__file__).resolve().parents[2] / "config" / "character_voices.json"
+
+
+def character_voice_config(character: str | None) -> dict:
+    """Per-character voice identity from config/character_voices.json ({} if unknown)."""
+    if not character:
+        return {}
+    try:
+        data = json.loads(VOICES_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    entry = data.get("characters", {}).get(str(character).upper(), {})
+    return entry if isinstance(entry, dict) else {}
+
+
+def voice_profile(beat: str, character: str | None = None) -> VoiceProfile:
+    """Beat delivery profile shaped by the character's voice identity."""
+    base = BEAT_VOICE_PROFILES.get(beat, BEAT_VOICE_PROFILES["setup"])
+    config = character_voice_config(character)
+    if not config:
+        return base
+    return replace(
+        base,
+        voice=str(config.get("local_voice", base.voice)),
+        rate=int(round(base.rate * float(config.get("rate_scale", 1.0)))),
+        pitch=round(base.pitch * float(config.get("pitch_scale", 1.0)), 4),
+        espeak_voice=str(config.get("espeak_voice", base.espeak_voice)),
+    )
 
 
 def _available_say_voices() -> set[str]:
@@ -173,19 +206,28 @@ def _render_espeak(text: str, path: Path, profile: VoiceProfile, rate_override: 
     # character pitch around that midpoint.
     pitch = max(20, min(80, round(50 + (profile.pitch - 1.0) * 240)))
     amplitude = max(20, min(100, round(profile.gain * 100)))
-    subprocess.run(
-        [exe, "-v", "en-us", "-s", str(rate), "-p", str(pitch), "-a", str(amplitude), "-w", str(path), text],
-        check=True, capture_output=True, text=True,
-    )
+    # eSpeak silently writes nothing (exit 0) when the -w path is ~200+ chars,
+    # which long idea slugs reach. Synthesize to a short temp path, then move.
+    with tempfile.TemporaryDirectory(prefix="nova-tts-") as tmp:
+        raw = Path(tmp) / "voice.wav"
+        subprocess.run(
+            [exe, "-v", profile.espeak_voice or "en-us", "-s", str(rate), "-p", str(pitch), "-a", str(amplitude), "-w", str(raw), text],
+            check=True, capture_output=True, text=True,
+        )
+        if not raw.exists() or raw.stat().st_size <= 44:
+            raise RuntimeError(f"espeak produced no audio for line: {text[:60]!r}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(raw), str(path))
     processed = path.with_suffix(".processed.wav")
     _postprocess_voice(path, processed, profile)
     processed.replace(path)
 
 
-def _render_voice(text: str, path: Path, profile: VoiceProfile, rate_override: int | None = None, beat: str | None = None) -> None:
+def _render_voice(text: str, path: Path, profile: VoiceProfile, rate_override: int | None = None,
+                  beat: str | None = None, runway_voice: dict | None = None) -> None:
     backend = os.getenv("NOVA_VOICE_BACKEND", "local").strip().lower()
     if backend == "runway":
-        RunwayVoiceProvider().synthesize(text, beat or "setup", path)
+        RunwayVoiceProvider().synthesize(text, beat or "setup", path, voice=runway_voice)
         return
     if shutil.which("say"):
         _render_say(text, path, profile, rate_override)
@@ -211,6 +253,7 @@ def prepare_voice_performance(
     voice_lines: list[str],
     beats: list[str],
     target_durations: list[float] | None = None,
+    character: str | None = None,
 ) -> list[dict]:
     """Generate once, measure once, then expose timing telemetry to animation/audio."""
     if len(voice_lines) != len(beats):
@@ -219,11 +262,12 @@ def prepare_voice_performance(
     target_durations = target_durations or [None] * len(beats)
     results: list[dict] = []
     for i, (line, beat, target) in enumerate(zip(voice_lines, beats, target_durations)):
-        profile = BEAT_VOICE_PROFILES.get(beat, BEAT_VOICE_PROFILES["setup"])
+        profile = voice_profile(beat, character)
+        runway_voice = character_voice_config(character).get("runway_voice")
         text = performance_text(line, beat)
         raw = work / f"voice_{i:02d}_raw.wav"
         final = work / f"voice_{i:02d}.wav"
-        _render_voice(text, raw, profile, beat=beat)
+        _render_voice(text, raw, profile, beat=beat, runway_voice=runway_voice)
         natural_duration = _duration(raw)
         available = None
         rate_used = profile.rate
@@ -232,7 +276,7 @@ def prepare_voice_performance(
             if natural_duration > available * 1.05:
                 adjusted = round(profile.rate * natural_duration / available)
                 adjusted = max(135, min(235, adjusted))
-                _render_voice(text, raw, profile, rate_override=adjusted, beat=beat)
+                _render_voice(text, raw, profile, rate_override=adjusted, beat=beat, runway_voice=runway_voice)
                 natural_duration = _duration(raw)
                 rate_used = adjusted
         _add_padding(raw, final, profile.pre_pause, profile.post_pause)

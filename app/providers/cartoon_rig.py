@@ -14,6 +14,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
+from app.agents.action_packs import character_for_file, regions_for_file
+
 W, H = 1080, 1920
 
 
@@ -41,8 +43,11 @@ PIP_ACTION_REGIONS: dict[str, dict[str, tuple[float, float, float, float]]] = {
     },
     "pip_shock.png": {
         "body": (0.46, 0.37, 0.995, 0.77),
-        "head": (0.52, 0.40, 0.99, 0.63),
-        "face": (0.61, 0.43, 0.995, 0.61),
+        # Head/face hug PIP's round screen-head. An earlier box spanned both
+        # raised hands to x=0.99, which made motion QA report the subject
+        # leaving the frame on every frame of this shot.
+        "head": (0.57, 0.43, 0.85, 0.59),
+        "face": (0.60, 0.465, 0.78, 0.545),
     },
     "pip_overwhelmed.png": {
         "body": (0.03, 0.49, 0.62, 0.95),
@@ -95,6 +100,11 @@ def _fraction_bbox(region: tuple[float, float, float, float]) -> tuple[int, int,
 def extract_rig(path: Path, character: str = "PIP") -> CharacterRig:
     base = _cover(Image.open(path))
     manifest = PIP_ACTION_REGIONS.get(path.name) if character == "PIP" else None
+    if manifest is None:
+        # Generated MOMO/BUBU action packs record exact placement regions.
+        manifest = regions_for_file(path.name)
+        if manifest is not None:
+            character = character_for_file(path.name) or character
 
     if manifest:
         bbox = _fraction_bbox(manifest["body"])
@@ -159,5 +169,5 @@ def rig_summary(rig: CharacterRig) -> dict:
         "center": [round(rig.center[0], 2), round(rig.center[1], 2)],
         "layers": ["head", "face", "body_proxy", "backpack_proxy"],
         "mode": "flattened-art-performance-proxy",
-        "manifest": Path(rig.source).name in PIP_ACTION_REGIONS,
+        "manifest": Path(rig.source).name in PIP_ACTION_REGIONS or regions_for_file(Path(rig.source).name) is not None,
     }

@@ -26,7 +26,15 @@ ACTION_MARKERS = {
     "press_button": {"setup"},
     "sees_calendar": {"discovery", "escalation"},
     "reaches_for_coffee": {"setup", "reaction"},
+    "walk_in": {"setup", "hook"},
+    "wave_hello": {"setup", "hook"},
+    "yawn_stretch": {"escalation", "reaction"},
+    "panic_run": {"escalation"},
+    "curl_up": {"reaction"},
+    "worried_close": {"reaction"},
 }
+
+REACTION_ACTIONS = frozenset({"shock", "overwhelmed", "deadpan", "curl_up", "worried_close"})
 
 CONFLICT_MARKERS = (
     "problem", "mistake", "wrong", "but", "then", "instead", "fails", "backfires",
@@ -270,7 +278,7 @@ def _score_surprise(rows: list[dict[str, Any]], candidate: dict[str, Any]) -> St
 def _score_reaction(rows: list[dict[str, Any]]) -> StoryDimension:
     score = 5.0
     evidence: list[str] = []
-    reaction_rows = [row for row in rows if str(row.get("beat", "")).lower() in {"reaction", "punchline"} or str(row.get("asset_action", "")) in {"shock", "overwhelmed", "deadpan"}]
+    reaction_rows = [row for row in rows if str(row.get("beat", "")).lower() in {"reaction", "punchline"} or str(row.get("asset_action", "")) in REACTION_ACTIONS]
     if reaction_rows:
         score += 2.0
         evidence.append("explicit character reaction")
@@ -378,7 +386,7 @@ def _story_analysis(rows: list[dict[str, Any]], candidate: dict[str, Any]) -> di
     fake_escalation = bool(re.search(r"\b(?:more|again|even worse|bigger|another)\b", alltext)) and escalation_count == 0
 
     reaction_idxs = [i for i,r in enumerate(rows) if str(r.get("beat", "")).lower() == "reaction"
-                     or str(r.get("asset_action", "")).lower() in {"shock", "overwhelmed", "deadpan"}]
+                     or str(r.get("asset_action", "")).lower() in REACTION_ACTIONS]
     reaction_after = any(i > 0 and str(rows[i-1].get("beat", "")).lower() in {"escalation", "attempt"}
                          for i in reaction_idxs)
     twist_idx = next((i for i,r in enumerate(rows) if str(r.get("beat", "")).lower() in {"twist", "reversal"}

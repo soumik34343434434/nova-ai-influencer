@@ -29,6 +29,16 @@ _ACTION_EMOTION = {
     "leans_toward_camera": ("neutral", "curious", "deadpan"),
     "deadpan_camera_reaction": ("reactive", "confused", "deadpan"),
     "finish_work": ("tired", "relieved", "deadpan"),
+    "press_button": ("curious", "confident", "surprised"),
+    "shock": ("neutral", "shocked", "stunned"),
+    "overwhelmed": ("worried", "overloaded", "deflated"),
+    "deadpan": ("neutral", "unimpressed", "deadpan"),
+    "walk_in": ("sleepy", "content", "neutral"),
+    "wave_hello": ("eager", "happy", "hopeful"),
+    "yawn_stretch": ("tired", "exasperated", "sleepy"),
+    "panic_run": ("worried", "alarmed", "panicked"),
+    "curl_up": ("tired", "overwhelmed", "hiding"),
+    "worried_close": ("uneasy", "worried", "worried"),
 }
 
 

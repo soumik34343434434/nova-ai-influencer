@@ -579,13 +579,86 @@ def discover_web_social_mentions(timeout: float = 8.0) -> list[dict[str, Any]]:
     return rows
 
 
+DEFAULT_INSTAGRAM_TREND_HASHTAGS = "cartoon,animation,funnycats,catsofinstagram,robot,cutebirds,relatable,pov"
+
+
+def discover_instagram_hashtag_trends(timeout: float = 8.0, http_get: Any = None) -> list[dict[str, Any]]:
+    """Top Reels/posts for chosen hashtags via the Instagram Graph API hashtag search.
+
+    Instagram has no public "trending" endpoint. Hashtag search is the official
+    route: it needs a Business/Creator account (the same token and user id used
+    for publishing) and Meta's Instagram Public Content Access feature, and it
+    is limited to 30 unique hashtags per rolling 7 days.
+    """
+    token = os.getenv("INSTAGRAM_ACCESS_TOKEN", "").strip()
+    user = os.getenv("INSTAGRAM_USER_ID", "").strip()
+    if not token or not user:
+        return []
+    version = os.getenv("INSTAGRAM_GRAPH_VERSION", "v26.0")
+    graph = f"https://graph.facebook.com/{version}"
+    tags = [t.strip().lstrip("#") for t in os.getenv("INSTAGRAM_TREND_HASHTAGS", DEFAULT_INSTAGRAM_TREND_HASHTAGS).split(",") if t.strip()][:10]
+    get = http_get or (lambda url, params: httpx.get(url, params=params, timeout=timeout))
+    rows: list[dict[str, Any]] = []
+    for tag in tags:
+        try:
+            found = get(f"{graph}/ig_hashtag_search", {"user_id": user, "q": tag, "access_token": token})
+            found.raise_for_status()
+            hashtag_id = (found.json().get("data") or [{}])[0].get("id")
+            if not hashtag_id:
+                continue
+            media = get(f"{graph}/{hashtag_id}/top_media", {
+                "user_id": user,
+                "fields": "id,caption,media_type,like_count,comments_count,timestamp,permalink",
+                "limit": 25,
+                "access_token": token,
+            })
+            media.raise_for_status()
+        except Exception:
+            continue
+        for item in media.json().get("data", []):
+            caption = _norm(item.get("caption", ""))
+            rows.append({
+                "title": caption[:140] or f"#{tag}",
+                "description": caption,
+                "source": "instagram",
+                "source_type": "instagram",
+                "category": f"instagram_hashtag_{tag}",
+                "url": item.get("permalink", ""),
+                "published_at": item.get("timestamp", ""),
+                "likes": int(item.get("like_count", 0) or 0),
+                "comments": int(item.get("comments_count", 0) or 0),
+                "hashtags": [tag],
+                "duration_seconds": 0.0,
+            })
+    return rows
+
+
+def trend_source_status() -> dict[str, dict[str, Any]]:
+    """Which trend connectors are configured, and what each missing one needs."""
+    def env(*names: str) -> list[str]:
+        return [n for n in names if not os.getenv(n, "").strip()]
+
+    sources = {
+        "google_news_gdelt": {"needs": [], "note": "public RSS/API, no key"},
+        "reddit": {"needs": [], "note": "public RSS, no key"},
+        "google_trends": {"needs": [], "note": "public RSS, no key"},
+        "youtube": {"needs": env("YOUTUBE_API_KEY"), "note": "YouTube Data API v3 key (mostPopular chart)"},
+        "tiktok": {"needs": env("TIKTOK_RESEARCH_ACCESS_TOKEN"), "note": "TikTok Research API access (approved researcher app)"},
+        "instagram": {"needs": env("INSTAGRAM_ACCESS_TOKEN", "INSTAGRAM_USER_ID"),
+                      "note": "Graph API hashtag search; needs Instagram Public Content Access"},
+    }
+    for row in sources.values():
+        row["active"] = not row["needs"]
+    return sources
+
+
 def discover_social_trends(timeout: float = 8.0) -> tuple[list[dict[str, Any]], dict[str, str]]:
     rows: list[dict[str, Any]] = []
     status = {
         "reddit": "attempted_public_rss",
         "youtube": "skipped_no_api_key",
         "tiktok": "skipped_no_research_token",
-        "instagram": "web_proxy_only_no_public_trend_api",
+        "instagram": "skipped_no_graph_credentials",
     }
     rows.extend(discover_reddit_rss(timeout))
     google_trends = discover_google_trends_rss(timeout=timeout)
@@ -602,8 +675,16 @@ def discover_social_trends(timeout: float = 8.0) -> tuple[list[dict[str, Any]], 
     if tt:
         status["tiktok"] = "direct_research_api"
         rows.extend(tt)
+    ig = discover_instagram_hashtag_trends(timeout=timeout)
+    if ig:
+        status["instagram"] = "graph_api_hashtag_search"
+        rows.extend(ig)
     rows.extend(discover_web_social_mentions(timeout))
     return rows, status
+
+
+if __name__ == "__main__":
+    print(json.dumps(trend_source_status(), indent=2))
 
 
 def signal_to_dict(signal: TrendSignalV2) -> dict[str, Any]:

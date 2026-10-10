@@ -7,6 +7,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.agents.action_packs import action_file
+
 
 ROOT = Path(__file__).resolve().parents[2]
 CHARACTER_DIR = ROOT / "assets" / "cartoon" / "characters"
@@ -169,24 +171,11 @@ def asset_path(character: str) -> Path:
 
 
 def action_asset(character: str, asset_action: str) -> Path | None:
-    names = {
-        "PIP": {
-            "press_button": "pip_press_button.png",
-            "shock": "pip_shock.png",
-            "overwhelmed": "pip_overwhelmed.png",
-            "deadpan": "pip_deadpan.png",
-        }
-    }
-    filename = names.get(character, {}).get(asset_action)
-    if not filename:
-        # Blender can animate a clean compiled master directly; do not require
-        # four pre-rendered flattened action images for MOMO/BUBU. The legacy
-        # Pillow path stays unchanged unless Blender is explicitly selected.
-        if os.environ.get("NOVA_CARTOON_ANIMATION_BACKEND", "pillow").strip().lower() == "blender" and character in {"MOMO", "BUBU"}:
-            return asset_path(character)
-        return None
-    path = ACTION_DIR / filename
-    return path if path.exists() else None
+    # Blender can animate a clean compiled master directly; do not require
+    # pre-rendered flattened action images for MOMO/BUBU on that backend.
+    if os.environ.get("NOVA_CARTOON_ANIMATION_BACKEND", "pillow").strip().lower() == "blender" and character in {"MOMO", "BUBU"}:
+        return asset_path(character)
+    return action_file(character, asset_action)
 
 
 def coverage(spec: EpisodeSpec) -> float:

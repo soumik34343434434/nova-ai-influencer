@@ -379,6 +379,19 @@ def build_next_loop_plan(
     return plan
 
 
+def load_next_loop_plan() -> dict[str, Any]:
+    """Return the latest persisted next-loop plan, or {} before any learning pass."""
+    plan = _load(NEXT_LOOP_FILE, {})
+    return plan if isinstance(plan, dict) else {}
+
+
+def explores(run_id: str, exploration_rate: float) -> bool:
+    """Deterministic per-run exploration draw (epsilon-greedy over runs)."""
+    rate = max(0.0, min(1.0, float(exploration_rate or 0.0)))
+    draw = int(hashlib.sha256(f"explore:{run_id}".encode("utf-8")).hexdigest()[:8], 16) / 0xFFFFFFFF
+    return draw < rate
+
+
 def update_experiment_learning(
     record: dict[str, Any],
     *,

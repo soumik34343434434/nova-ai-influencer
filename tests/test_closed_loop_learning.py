@@ -57,7 +57,9 @@ def test_orchestrator_applies_learning_policy_to_ideas(monkeypatch, tmp_path):
             "preferred_hooks": ["curiosity"],
             "preferred_emotions": ["amusement"],
             "preferred_characters": ["MOMO"],
-            "exploration_rate": 0.22,
+            # Pin exploitation; exploring runs are covered separately in
+            # test_closed_loop_simulation.py.
+            "exploration_rate": 0.0,
         },
     })
     orch.CartoonFactoryOrchestrator().plane.store = store

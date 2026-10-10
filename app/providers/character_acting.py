@@ -16,6 +16,17 @@ _ACTION_BIAS = {
     "glances_at_many_tabs": (-0.25, 0.0, 0.15),
     "leans_toward_camera": (0.05, -0.55, 0.0),
     "deadpan_camera_reaction": (-0.2, 0.3, 0.0),
+    # Cartoon cast action packs (config/cartoon_action_packs.json).
+    "press_button": (0.45, -0.20, -0.30),
+    "shock": (-0.55, 0.45, 0.20),
+    "overwhelmed": (0.10, 0.50, 0.15),
+    "deadpan": (0.0, 0.10, 0.0),
+    "walk_in": (0.50, 0.05, 0.10),
+    "wave_hello": (0.30, -0.15, -0.40),
+    "yawn_stretch": (-0.10, -0.50, 0.30),
+    "panic_run": (0.70, -0.30, 0.25),
+    "curl_up": (0.05, 0.60, 0.20),
+    "worried_close": (-0.10, 0.20, 0.0),
 }
 
 
