@@ -69,6 +69,68 @@ def test_orchestrator_applies_learning_policy_to_ideas(monkeypatch, tmp_path):
     assert ranked[0]["learning_adjustment"] > ranked[1]["learning_adjustment"]
 
 
+def _isolated_orchestrator(monkeypatch, tmp_path):
+    import app.agent_memory as agent_memory
+    import app.cartoon_control as control
+    import app.cartoon_factory_orchestrator as orch
+
+    monkeypatch.setattr(control, "RUNS_DIR", tmp_path / "runs")
+    monkeypatch.setattr(orch, "ARTIFACTS", tmp_path / "artifacts")
+    monkeypatch.setattr(learning, "METRICS_FILE", tmp_path / "metrics.json")
+    monkeypatch.setattr(learning, "METRICS_HISTORY_FILE", tmp_path / "metrics_history.json")
+    monkeypatch.setattr(learning, "STRATEGY_FILE", tmp_path / "strategy.json")
+    monkeypatch.setattr(agent_memory, "NEXT_LOOP_FILE", tmp_path / "next_loop.json")
+    return orch.CartoonFactoryOrchestrator(), control.CartoonRunStore, agent_memory.NEXT_LOOP_FILE
+
+
+_SIGNAL = {
+    "trend_id": "t1", "title": "office coffee meme", "opportunity_score": 0.8, "velocity_score": 0.5,
+    "formats": ("reaction", "story_comedy"), "emotions": ("amusement",), "hook_patterns": ("pov",),
+}
+
+
+def test_fresh_run_applies_persisted_next_loop_plan(monkeypatch, tmp_path):
+    orchestrator, Store, next_loop_file = _isolated_orchestrator(monkeypatch, tmp_path)
+    policy = {"preferred_formats": ["story_comedy"], "preferred_hooks": ["pov"], "exploration_rate": 0.22}
+    next_loop_file.write_text(__import__("json").dumps({"policy": policy}))
+
+    store = Store("fresh-run")
+    run = store.create({"trend_signals_v2": [_SIGNAL]})
+    orchestrator.plane.store = store
+    orchestrator._trend_intelligence(run)
+
+    assert run.payload["learning_policy"] == policy
+    assert run.payload["learning_policy_source"] == "next_loop_plan_file"
+    assert run.payload["format_candidates"][0]["name"] == "story_comedy"
+
+
+def test_fresh_run_without_learning_history_uses_no_policy(monkeypatch, tmp_path):
+    orchestrator, Store, _ = _isolated_orchestrator(monkeypatch, tmp_path)
+    store = Store("first-run")
+    run = store.create({"trend_signals_v2": [_SIGNAL]})
+    orchestrator.plane.store = store
+    orchestrator._trend_intelligence(run)
+
+    assert run.payload["learning_policy"] == {}
+    assert run.payload["learning_policy_source"] == "none"
+    assert run.payload["format_candidates"][0]["name"] == "reaction"
+
+
+def test_idea_generator_only_offers_renderable_ideas(monkeypatch, tmp_path):
+    monkeypatch.setenv("NOVA_CARTOON_ANIMATION_BACKEND", "pillow")
+    orchestrator, Store, _ = _isolated_orchestrator(monkeypatch, tmp_path)
+    store = Store("renderable-ideas")
+    run = store.create({"ranked_signals_v2": [_SIGNAL], "format_candidates": []})
+    orchestrator.plane.store = store
+    orchestrator._idea_generator(run)
+
+    candidates = run.payload["candidates"]
+    assert candidates
+    assert all(candidate["asset_ready"] for candidate in candidates)
+    # Only PIP has flattened action art for the local Pillow renderer.
+    assert {candidate["character"] for candidate in candidates} == {"PIP"}
+
+
 def test_ingest_preserves_metric_history_without_double_counting_strategy_observations(tmp_path, monkeypatch):
     monkeypatch.setattr(learning, "METRICS_FILE", tmp_path / "metrics.json")
     monkeypatch.setattr(learning, "METRICS_HISTORY_FILE", tmp_path / "metrics_history.json")

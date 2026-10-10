@@ -131,6 +131,35 @@ def test_generator_produces_a_large_diverse_pool():
     assert len({x["character"] for x in ideas}) == 3
 
 
+def test_generator_draws_ideas_from_every_trend():
+    topics = ("coffee", "deadline", "printer", "monday", "wifi", "meeting", "laundry", "alarm", "pizza", "homework")
+    trends = [
+        {**_trend(), "trend_id": f"t{i}", "title": f"viral {topic} chaos meme", "opportunity_score": 1 - i * 0.05}
+        for i, topic in enumerate(topics)
+    ]
+    ideas = generate_ideas(trends, count=100)
+    assert len(ideas) == 100
+    assert {x["trend_id"] for x in ideas} == {f"t{i}" for i in range(10)}
+
+
+def test_generator_only_stages_renderable_actions():
+    pip_actions = ("press_button", "shock", "overwhelmed", "deadpan")
+    ideas = generate_ideas([_trend()], count=60, renderable_actions={"PIP": pip_actions, "MOMO": ()})
+    assert ideas
+    # MOMO has no renderable actions and BUBU is absent from the mapping.
+    assert {x["character"] for x in ideas} == {"PIP"}
+    for idea in ideas:
+        actions = [beat["asset_action"] for beat in idea["beats"]]
+        assert set(actions) <= set(pip_actions)
+        assert len(set(actions)) >= 3
+
+
+def test_formats_stage_different_action_sequences():
+    ideas = generate_ideas([_trend()], count=120)
+    sequences = {x["format_name"]: tuple(b["asset_action"] for b in x["beats"]) for x in ideas}
+    assert len(set(sequences.values())) >= 4
+
+
 def test_learning_scores_and_portfolio_are_diversity_aware(tmp_path, monkeypatch):
     import app.learning_v2 as learning
 

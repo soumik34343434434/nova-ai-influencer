@@ -12,15 +12,16 @@ from pathlib import Path
 from typing import Any
 
 from app.agents.cartoon_director import CartoonDirector
-from app.agents.cartoon_factory import action_asset, coverage
+from app.agents.cartoon_factory import action_asset, coverage, renderable_actions
 from app.agents.cartoon_format_intelligence import best_format, format_to_dict
 from app.agents.trend_intelligence_v2 import discover_social_trends, enrich_signals, signal_to_dict
 from app.agents.format_engine_v2 import rank_format_candidates
-from app.agents.idea_generator_v2 import generate_ideas
+from app.agents.idea_generator_v2 import IDEA_ACTIONS, generate_ideas
 from app.learning_v2 import build_strategy_memory, ingest as ingest_learning_metrics, select_portfolio
 from app.agent_memory import (
     build_next_loop_plan,
     ensure_experiment_identity,
+    load_next_loop_plan,
     record_provider_observation,
     summarize_failures,
     summarize_providers,
@@ -172,13 +173,20 @@ class CartoonFactoryOrchestrator:
         trend_rows = list(run.payload.get("trend_signals_v2", []))
         trend_rows.sort(key=lambda x: (float(x.get("opportunity_score", 0.0)), float(x.get("velocity_score", 0.0))), reverse=True)
         memory = build_strategy_memory()
-        policy = dict(run.payload.get("next_loop_plan", {}).get("policy", {}))
+        # A fresh run has no plan in its payload yet; use the plan the last
+        # completed learning stage persisted so learning reaches the next run.
+        if run.payload.get("next_loop_plan"):
+            plan, policy_source = run.payload["next_loop_plan"], "run_payload"
+        else:
+            plan = load_next_loop_plan()
+            policy_source = "next_loop_plan_file" if plan else "none"
+        policy = dict(plan.get("policy", {}))
         formats = rank_format_candidates(trend_rows[:20], memory=memory, limit=40)
         preferred = set(policy.get("preferred_formats", []))
         avoid_errors = set(policy.get("avoid_error_types", []))
         if preferred:
             for item in formats:
-                item["learned_priority"] = 1.0 if item.get("format_name") in preferred else 0.0
+                item["learned_priority"] = 1.0 if item.get("name") in preferred else 0.0
                 item["policy_adjusted_score"] = float(item.get("score", 0.0)) + 0.12 * item["learned_priority"]
             formats.sort(key=lambda x: float(x.get("policy_adjusted_score", x.get("score", 0.0))), reverse=True)
         self.plane.store.set_payload(
@@ -186,6 +194,7 @@ class CartoonFactoryOrchestrator:
             ranked_signals_v2=trend_rows[:20],
             format_candidates=formats,
             learning_policy=policy,
+            learning_policy_source=policy_source,
             avoid_error_types=sorted(avoid_errors),
         )
         return {
@@ -201,7 +210,13 @@ class CartoonFactoryOrchestrator:
     def _idea_generator(self, run: CartoonRun) -> dict[str, Any]:
         trend_rows = list(run.payload.get("ranked_signals_v2", []))
         format_rows = list(run.payload.get("format_candidates", []))
-        raw_ideas = generate_ideas(trend_rows[:20], format_rows[:20], count=100)
+        characters = ("MOMO", "PIP", "BUBU")
+        capabilities = {c: renderable_actions(c, IDEA_ACTIONS) for c in characters}
+        raw_ideas = generate_ideas(trend_rows[:20], format_rows[:20], count=100,
+                                   characters=characters, renderable_actions=capabilities)
+        if not raw_ideas:
+            backend = __import__("os").environ.get("NOVA_CARTOON_ANIMATION_BACKEND", "pillow")
+            raise RuntimeError(f"No character can render the idea actions with the {backend} backend: {capabilities}")
         memory = build_strategy_memory()
         policy = dict(run.payload.get("learning_policy", {}))
         candidates = select_portfolio(raw_ideas, memory=memory, limit=min(60, len(raw_ideas)))
@@ -244,7 +259,7 @@ class CartoonFactoryOrchestrator:
             candidate["asset_ready"] = all(
                 action_asset(candidate["character"], beat["asset_action"]) is not None
                 for beat in candidate["beats"]
-            ) or __import__("os").environ.get("NOVA_CARTOON_ANIMATION_BACKEND", "pillow").strip().lower() == "blender"
+            )
             normalized.append(candidate)
         topic = run.payload.get("topic") or (trend_rows[0].get("title") if trend_rows else "evergreen cartoon")
         self.plane.store.set_payload(run, candidates=normalized, idea_topic=topic)

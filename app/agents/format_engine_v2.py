@@ -148,10 +148,13 @@ def rank_format_candidates(signals: Iterable[dict[str, Any]], memory: dict[str, 
                 "velocity_score": float(signal.get("velocity_score", 0.0) or 0.0),
                 "emotion_candidates": list(signal.get("emotions") or ()),
             })
-    rows.sort(key=lambda x: (
-        0.38 * float(x["detected_score"])
-        + 0.32 * float(x["learned_score"])
-        + 0.18 * float(x["velocity_score"])
-        + 0.12 * (1.0 - float(x["saturation_score"])),
-    ), reverse=True)
+    for row in rows:
+        row["score"] = round(
+            0.38 * float(row["detected_score"])
+            + 0.32 * float(row["learned_score"])
+            + 0.18 * float(row["velocity_score"])
+            + 0.12 * (1.0 - float(row["saturation_score"])),
+            6,
+        )
+    rows.sort(key=lambda x: x["score"], reverse=True)
     return rows[:max(1, limit)]

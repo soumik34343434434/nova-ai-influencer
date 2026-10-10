@@ -6,6 +6,7 @@ import hashlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -187,6 +188,11 @@ def action_asset(character: str, asset_action: str) -> Path | None:
         return None
     path = ACTION_DIR / filename
     return path if path.exists() else None
+
+
+def renderable_actions(character: str, actions: Iterable[str]) -> tuple[str, ...]:
+    """Return the subset of ``actions`` the active backend can render for ``character``."""
+    return tuple(action for action in actions if action_asset(character, action) is not None)
 
 
 def coverage(spec: EpisodeSpec) -> float:

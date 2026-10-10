@@ -160,16 +160,19 @@ def test_full_closed_loop_publish_metrics_learning_changes_next_ideas(monkeypatc
     monkeypatch.setattr(orch, "generate_ideas", lambda *args, **kwargs: candidates)
     monkeypatch.setattr(orch, "select_portfolio", lambda rows, memory=None, limit=60: [dict(x) for x in rows])
 
+    # The next run starts fresh: the learned policy must arrive through the
+    # persisted next-loop plan, not by being copied into its payload.
     next_store = control.CartoonRunStore("sim-next-002")
     next_run = next_store.create(
         {
             "topic": "next experiment",
-            "ranked_signals_v2": [{"title": "test trend", "hook_patterns": ["curiosity"]}],
-            "format_candidates": [],
-            "learning_policy": policy,
+            "trend_signals_v2": [{"title": "test trend", "hook_patterns": ["curiosity"], "opportunity_score": 0.5}],
         }
     )
     orchestrator.plane.store = next_store
+    orchestrator._trend_intelligence(next_run)
+    assert next_run.payload["learning_policy"] == policy
+    assert next_run.payload["learning_policy_source"] == "next_loop_plan_file"
     result = orchestrator._idea_generator(next_run)
     ranked = next_run.payload["candidates"]
 

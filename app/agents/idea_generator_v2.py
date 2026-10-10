@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 import hashlib
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 
 @dataclass(frozen=True)
@@ -91,6 +91,57 @@ FORMAT_RECIPES: dict[str, dict[str, Any]] = {
         "hooks": ("This took 7 seconds to go wrong.", "MOMO had one job."),
     },
 }
+
+
+# Acting actions understood by the story engine and the Blender rig. Each
+# format stages its four beats with its own action plan; when a character
+# cannot render a planned action, the role preferences pick a substitute.
+IDEA_ACTIONS = ("finish_work", "checks_phone", "press_button", "shock", "overwhelmed", "deadpan")
+
+DEFAULT_ACTION_PLAN = ("finish_work", "checks_phone", "shock", "deadpan")
+FORMAT_ACTION_PLANS: dict[str, tuple[str, str, str, str]] = {
+    "dance": ("press_button", "checks_phone", "shock", "deadpan"),
+    "trend_audio": ("checks_phone", "press_button", "shock", "deadpan"),
+    "reaction": ("finish_work", "checks_phone", "shock", "overwhelmed"),
+    "pov": ("finish_work", "checks_phone", "overwhelmed", "deadpan"),
+    "challenge": ("press_button", "finish_work", "shock", "deadpan"),
+    "transformation": ("finish_work", "press_button", "shock", "deadpan"),
+    "cute_animal": ("press_button", "finish_work", "overwhelmed", "deadpan"),
+    "listicle": ("finish_work", "press_button", "shock", "deadpan"),
+}
+
+ROLE_ACTION_PREFERENCES: dict[str, tuple[str, ...]] = {
+    "hook": ("finish_work", "press_button", "checks_phone", "shock"),
+    "setup": ("checks_phone", "press_button", "finish_work", "overwhelmed"),
+    "attempt": ("checks_phone", "press_button", "finish_work", "overwhelmed"),
+    "escalation": ("shock", "overwhelmed", "checks_phone", "press_button"),
+    "punchline": ("deadpan", "overwhelmed", "shock"),
+}
+
+
+def _stage_actions(beats: tuple[dict[str, Any], ...], plan: tuple[str, ...],
+                   available: Iterable[str] | None) -> tuple[dict[str, Any], ...] | None:
+    """Assign renderable actions to beats, or return None if the character cannot stage them."""
+    if available is None:
+        return tuple(dict(beat, asset_action=action) for beat, action in zip(beats, plan))
+    renderable = set(available)
+    used: list[str] = []
+    staged = []
+    for index, (beat, planned) in enumerate(zip(beats, plan)):
+        options = [a for a in (planned, *ROLE_ACTION_PREFERENCES.get(beat["beat"], ()), *IDEA_ACTIONS) if a in renderable]
+        # Keep actions the plan stages later free for those beats.
+        reserved = set(plan[index + 1:])
+        choice = next((a for a in options if a not in used and a not in reserved), None)
+        if choice is None:
+            choice = next((a for a in options if a not in used), None)
+        if choice is None:
+            choice = next((a for a in options if not used or a != used[-1]), None)
+        if choice is None:
+            return None
+        used.append(choice)
+        staged.append(dict(beat, asset_action=choice))
+    # The jury and story gates need visibly changing action across the beats.
+    return tuple(staged) if len(set(used)) >= 3 else None
 
 
 def _slug(text: str) -> str:
@@ -180,69 +231,88 @@ def _make_beats(character: str, recipe: str, angle: str, emotion: str, signal: d
     persona = CHARACTER_PERSONAS[character][0]
     if recipe in {"dance", "trend_audio"}:
         return (
-            {"beat": "hook", "asset_action": "finish_work", "voice": f"{character} hears the sound and commits instantly.", "sfx": "beat"},
-            {"beat": "attempt", "asset_action": "checks_phone", "voice": f"The {persona} version of the trend begins.", "sfx": "motion"},
-            {"beat": "escalation", "asset_action": "shock", "voice": "Then the trend changes.", "sfx": "impact"},
-            {"beat": "punchline", "asset_action": "deadpan", "voice": f"{character}: apparently I missed that part.", "sfx": "punchline"},
+            {"beat": "hook", "voice": f"{character} hears the sound and commits instantly.", "sfx": "beat"},
+            {"beat": "attempt", "voice": f"The {persona} version of the trend begins.", "sfx": "motion"},
+            {"beat": "escalation", "voice": "Then the trend changes.", "sfx": "impact"},
+            {"beat": "punchline", "voice": f"{character}: apparently I missed that part.", "sfx": "punchline"},
         )
     if recipe == "reaction":
         return (
-            {"beat": "hook", "asset_action": "finish_work", "voice": f"{character} gets one normal notification.", "sfx": "notification"},
-            {"beat": "setup", "asset_action": "checks_phone", "voice": f"{character} checks the {prop}.", "sfx": "phone"},
-            {"beat": "escalation", "asset_action": "shock", "voice": f"The {emotion} part appears.", "sfx": "impact"},
-            {"beat": "punchline", "asset_action": "deadpan", "voice": f"{character}: I should have ignored that.", "sfx": "punchline"},
+            {"beat": "hook", "voice": f"{character} gets one normal notification.", "sfx": "notification"},
+            {"beat": "setup", "voice": f"{character} checks the {prop}.", "sfx": "phone"},
+            {"beat": "escalation", "voice": f"The {emotion} part appears.", "sfx": "impact"},
+            {"beat": "punchline", "voice": f"{character}: I should have ignored that.", "sfx": "punchline"},
         )
     if recipe == "pov":
         return (
-            {"beat": "hook", "asset_action": "finish_work", "voice": f"POV: {character} finally gets a quiet minute.", "sfx": "room"},
-            {"beat": "setup", "asset_action": "checks_phone", "voice": f"Then the {prop} lights up.", "sfx": "notification"},
-            {"beat": "escalation", "asset_action": "shock", "voice": "It should have been one small task.", "sfx": "impact"},
-            {"beat": "punchline", "asset_action": "deadpan", "voice": f"{character}: apparently the universe disagrees.", "sfx": "punchline"},
+            {"beat": "hook", "voice": f"POV: {character} finally gets a quiet minute.", "sfx": "room"},
+            {"beat": "setup", "voice": f"Then the {prop} lights up.", "sfx": "notification"},
+            {"beat": "escalation", "voice": "It should have been one small task.", "sfx": "impact"},
+            {"beat": "punchline", "voice": f"{character}: apparently the universe disagrees.", "sfx": "punchline"},
         )
     if recipe == "challenge":
         return (
-            {"beat": "hook", "asset_action": "finish_work", "voice": f"{character} says yes before hearing the rules.", "sfx": "countdown"},
-            {"beat": "attempt", "asset_action": "checks_phone", "voice": "Attempt one is suspiciously easy.", "sfx": "tap"},
-            {"beat": "escalation", "asset_action": "shock", "voice": "Attempt two changes everything.", "sfx": "impact"},
-            {"beat": "punchline", "asset_action": "deadpan", "voice": f"{character}: that was not in the tutorial.", "sfx": "punchline"},
+            {"beat": "hook", "voice": f"{character} says yes before hearing the rules.", "sfx": "countdown"},
+            {"beat": "attempt", "voice": "Attempt one is suspiciously easy.", "sfx": "tap"},
+            {"beat": "escalation", "voice": "Attempt two changes everything.", "sfx": "impact"},
+            {"beat": "punchline", "voice": f"{character}: that was not in the tutorial.", "sfx": "punchline"},
         )
     if recipe == "transformation":
         return (
-            {"beat": "hook", "asset_action": "finish_work", "voice": f"Before: {character} has a perfect plan.", "sfx": "spark"},
-            {"beat": "setup", "asset_action": "checks_phone", "voice": "After: one tiny upgrade.", "sfx": "whoosh"},
-            {"beat": "escalation", "asset_action": "shock", "voice": "The upgrade has opinions.", "sfx": "impact"},
-            {"beat": "punchline", "asset_action": "deadpan", "voice": f"{character}: put it back.", "sfx": "punchline"},
+            {"beat": "hook", "voice": f"Before: {character} has a perfect plan.", "sfx": "spark"},
+            {"beat": "setup", "voice": "After: one tiny upgrade.", "sfx": "whoosh"},
+            {"beat": "escalation", "voice": "The upgrade has opinions.", "sfx": "impact"},
+            {"beat": "punchline", "voice": f"{character}: put it back.", "sfx": "punchline"},
         )
     if recipe == "cute_animal":
         return (
-            {"beat": "hook", "asset_action": "finish_work", "voice": f"{character} is trying very hard to help.", "sfx": "cute"},
-            {"beat": "setup", "asset_action": "checks_phone", "voice": "The tiny plan is adorable.", "sfx": "tap"},
-            {"beat": "escalation", "asset_action": "shock", "voice": "The tiny plan becomes a giant problem.", "sfx": "impact"},
-            {"beat": "punchline", "asset_action": "deadpan", "voice": f"{character}: still counts as helping.", "sfx": "punchline"},
+            {"beat": "hook", "voice": f"{character} is trying very hard to help.", "sfx": "cute"},
+            {"beat": "setup", "voice": "The tiny plan is adorable.", "sfx": "tap"},
+            {"beat": "escalation", "voice": "The tiny plan becomes a giant problem.", "sfx": "impact"},
+            {"beat": "punchline", "voice": f"{character}: still counts as helping.", "sfx": "punchline"},
         )
     if recipe == "listicle":
         return (
-            {"beat": "hook", "asset_action": "finish_work", "voice": f"Three things {character} should never do.", "sfx": "countdown"},
-            {"beat": "setup", "asset_action": "checks_phone", "voice": "Number three starts harmless.", "sfx": "tap"},
-            {"beat": "escalation", "asset_action": "shock", "voice": "Number two is somehow worse.", "sfx": "impact"},
-            {"beat": "punchline", "asset_action": "deadpan", "voice": f"{character}: number one is deleting the app.", "sfx": "punchline"},
+            {"beat": "hook", "voice": f"Three things {character} should never do.", "sfx": "countdown"},
+            {"beat": "setup", "voice": "Number three starts harmless.", "sfx": "tap"},
+            {"beat": "escalation", "voice": "Number two is somehow worse.", "sfx": "impact"},
+            {"beat": "punchline", "voice": f"{character}: number one is deleting the app.", "sfx": "punchline"},
         )
     return (
-        {"beat": "hook", "asset_action": "finish_work", "voice": f"{character}: finally. One normal minute.", "sfx": "room"},
-        {"beat": "setup", "asset_action": "checks_phone", "voice": f"The {prop} buzzes.", "sfx": "notification"},
-        {"beat": "escalation", "asset_action": "shock", "voice": f"The {emotion} part appears.", "sfx": "impact"},
-        {"beat": "punchline", "asset_action": "deadpan", "voice": f"{character}: of course it did.", "sfx": "punchline"},
+        {"beat": "hook", "voice": f"{character}: finally. One normal minute.", "sfx": "room"},
+        {"beat": "setup", "voice": f"The {prop} buzzes.", "sfx": "notification"},
+        {"beat": "escalation", "voice": f"The {emotion} part appears.", "sfx": "impact"},
+        {"beat": "punchline", "voice": f"{character}: of course it did.", "sfx": "punchline"},
     )
 
 
+def _is_near_duplicate(item: dict[str, Any], tokens: set[str],
+                       chosen: list[dict[str, Any]], seen_tokens: list[set[str]]) -> bool:
+    for old, old_tokens in zip(chosen, seen_tokens):
+        union = tokens | old_tokens
+        if union and len(tokens & old_tokens) / len(union) >= 0.72:
+            # Keep diversity even when wording is similar.
+            if item["format_name"] == old["format_name"] and item["character"] == old["character"]:
+                return True
+    return False
+
+
 def generate_ideas(trends: Iterable[dict[str, Any]], formats: Iterable[dict[str, Any]] | None = None,
-                   count: int = 60, characters: tuple[str, ...] = ("MOMO", "PIP", "BUBU")) -> list[dict[str, Any]]:
+                   count: int = 60, characters: tuple[str, ...] = ("MOMO", "PIP", "BUBU"),
+                   renderable_actions: Mapping[str, Iterable[str]] | None = None) -> list[dict[str, Any]]:
+    """Generate a diverse idea pool that spans every supplied trend.
+
+    ``renderable_actions`` maps each character to the actions the active
+    renderer can produce. When given, ideas use only those actions and
+    characters that cannot stage a format are skipped; when omitted, every
+    character is assumed to support all of ``IDEA_ACTIONS``.
+    """
     trend_rows = list(trends)
     format_rows = list(formats or [])
     if not trend_rows:
         trend_rows = [{"trend_id": "evergreen", "title": "evergreen cartoon problem", "emotions": ("amusement",), "formats": ("micro_short",)}]
 
-    candidates: list[dict[str, Any]] = []
+    groups: list[list[dict[str, Any]]] = []
     for trend in trend_rows[:20]:
         trend_formats = list(trend.get("formats") or ())
         if format_rows:
@@ -254,19 +324,24 @@ def generate_ideas(trends: Iterable[dict[str, Any]], formats: Iterable[dict[str,
 
         emotions = list(trend.get("emotions") or ()) or ["amusement", "surprise", "cute"]
         anchor = _anchor_from_signal(str(trend.get("title", "")))
+        group: list[dict[str, Any]] = []
         for fmt in unique_formats[:8]:
             recipe = FORMAT_RECIPES[fmt]
+            plan = FORMAT_ACTION_PLANS.get(fmt, DEFAULT_ACTION_PLAN)
             for character in characters:
+                available = None if renderable_actions is None else tuple(renderable_actions.get(character, ()))
                 for angle in recipe["angles"]:
                     emotion = emotions[_seed(str(trend.get("trend_id")), fmt, character, angle) % len(emotions)]
+                    beats = _stage_actions(_make_beats(character, fmt, angle, emotion, trend), plan, available)
+                    if beats is None:
+                        continue
                     angle_text = _angle_phrase(angle)
                     title = f"{character} + {anchor}: {fmt.replace('_', ' ')} — {angle_text}"
                     base_hook = recipe["hooks"][_seed(title, character) % len(recipe["hooks"])]
                     hook = f"{base_hook} ({angle_text})."
-                    beats = _make_beats(character, fmt, angle, emotion, trend)
                     idea_id = f"idea-{_slug(title)}-{abs(_seed(title, str(trend.get('trend_id')))) % 100000:05d}"
                     cost = 0.25 + 0.08 * len(beats) + 0.06 * (1 if fmt in {"dance", "trend_audio"} else 0)
-                    candidates.append({
+                    group.append({
                         "idea_id": idea_id,
                         "title": title,
                         "hook": hook,
@@ -283,31 +358,31 @@ def generate_ideas(trends: Iterable[dict[str, Any]], formats: Iterable[dict[str,
                         "saturation_score": float(trend.get("saturation_score", 0.0) or 0.0),
                         "velocity_score": float(trend.get("velocity_score", 0.0) or 0.0),
                     })
-    # Deterministic near-duplicate suppression. We prefer different formats,
-    # characters and emotional angles before keeping another semantically similar idea.
-    candidates.sort(key=lambda x: (
-        -x.get("trend_score", 0.0),
-        x["production_cost"],
-        _seed(x["idea_id"]),
-    ))
+        if group:
+            group.sort(key=lambda x: (x["production_cost"], _seed(x["idea_id"])))
+            groups.append(group)
+
+    # Take ideas from each trend in turn, strongest trend first, so one trend's
+    # format x character x angle grid cannot fill the whole pool. Near-duplicates
+    # are suppressed: we prefer different formats, characters and emotional angles
+    # before keeping another semantically similar idea.
+    groups.sort(key=lambda g: -g[0]["trend_score"])
+    queues = [iter(group) for group in groups]
     chosen: list[dict[str, Any]] = []
     seen_tokens: list[set[str]] = []
-    for item in candidates:
-        toks = set(re.findall(r"[a-z0-9]+", (item["title"] + " " + item["hook"]).lower()))
-        duplicate = False
-        for old, old_tokens in zip(chosen, seen_tokens):
-            union = toks | old_tokens
-            if union and len(toks & old_tokens) / len(union) >= 0.72:
-                # Keep diversity even when wording is similar.
-                if item["format_name"] == old["format_name"] and item["character"] == old["character"]:
-                    duplicate = True
+    while queues and len(chosen) < count:
+        active = []
+        for queue in queues:
+            for item in queue:
+                toks = set(re.findall(r"[a-z0-9]+", (item["title"] + " " + item["hook"]).lower()))
+                if not _is_near_duplicate(item, toks, chosen, seen_tokens):
+                    chosen.append(item)
+                    seen_tokens.append(toks)
+                    active.append(queue)
                     break
-        if duplicate:
-            continue
-        chosen.append(item)
-        seen_tokens.append(toks)
-        if len(chosen) >= count:
-            break
+            if len(chosen) >= count:
+                break
+        queues = active
     return chosen
 
 

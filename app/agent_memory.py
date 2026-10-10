@@ -379,6 +379,12 @@ def build_next_loop_plan(
     return plan
 
 
+def load_next_loop_plan() -> dict[str, Any]:
+    """Return the most recent persisted next-loop plan, or an empty plan."""
+    plan = _load(NEXT_LOOP_FILE, {})
+    return plan if isinstance(plan, dict) else {}
+
+
 def update_experiment_learning(
     record: dict[str, Any],
     *,
