@@ -43,8 +43,11 @@ PIP_ACTION_REGIONS: dict[str, dict[str, tuple[float, float, float, float]]] = {
     },
     "pip_shock.png": {
         "body": (0.46, 0.37, 0.995, 0.77),
-        "head": (0.52, 0.40, 0.99, 0.63),
-        "face": (0.61, 0.43, 0.995, 0.61),
+        # Head/face hug PIP's round screen-head. An earlier box spanned both
+        # raised hands to x=0.99, which made motion QA report the subject
+        # leaving the frame on every frame of this shot.
+        "head": (0.57, 0.43, 0.85, 0.59),
+        "face": (0.60, 0.465, 0.78, 0.545),
     },
     "pip_overwhelmed.png": {
         "body": (0.03, 0.49, 0.62, 0.95),

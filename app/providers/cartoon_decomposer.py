@@ -34,7 +34,7 @@ REGIONS = {
         (0.11, 0.45, 0.31, 0.71),
     ),
     "pip_shock.png": ActionRegions(
-        (0.46, 0.37, 0.995, 0.78), (0.58, 0.45, 0.985, 0.65),
+        (0.46, 0.37, 0.995, 0.78), (0.57, 0.43, 0.85, 0.59),
         (0.48, 0.55, 0.67, 0.73), (0.86, 0.50, 0.995, 0.69),
         (0.83, 0.57, 0.995, 0.78),
     ),
@@ -244,7 +244,16 @@ def decompose_pip_actions(action_dir: Path, output_dir: Path) -> list[dict]:
 def ensure_action_decomposed(path: Path, output_dir: Path) -> Path:
     stem = path.stem
     required = output_dir / f"{stem}_torso.png"
-    if not required.exists():
+    cached_regions = None
+    try:
+        cached_regions = json.loads((output_dir / f"{stem}.json").read_text(encoding="utf-8")).get("regions")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        pass
+    current = REGIONS.get(path.name)
+    # Rebuild when the cache predates a region change, so stale layers never
+    # disagree with the rig's cover mask.
+    stale = current is not None and json.loads(json.dumps(current.__dict__)) != cached_regions
+    if not required.exists() or stale:
         decompose_action(path, output_dir)
     return output_dir
 
