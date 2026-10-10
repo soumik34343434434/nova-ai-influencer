@@ -160,6 +160,28 @@ def test_formats_stage_different_action_sequences():
     assert len(set(sequences.values())) >= 4
 
 
+def test_every_format_produces_ideas_that_pass_preproduction_gates():
+    from app.agents.cartoon_jury import CartoonIdeaJury
+    from app.agents.cartoon_quality import CartoonQuality
+    from app.agents.idea_generator_v2 import FORMAT_RECIPES
+    from app.agents.script_engine import ScriptEngine
+    from app.agents.story_engine import StoryEngine
+
+    # A trend offers at most eight formats, so give each format its own trend.
+    trends = [{**_trend(), "trend_id": f"t-{fmt}", "formats": (fmt,)} for fmt in FORMAT_RECIPES]
+    pip_only = {"PIP": ("press_button", "shock", "overwhelmed", "deadpan")}
+    ideas = generate_ideas(trends, count=1000) + generate_ideas(trends, count=1000, renderable_actions=pip_only)
+    assert {x["format_name"] for x in ideas} == set(FORMAT_RECIPES)
+    quality, jury, story_engine, script_engine = CartoonQuality(), CartoonIdeaJury(), StoryEngine(), ScriptEngine()
+    for idea in ideas:
+        assert quality.evaluate(idea).passed, (idea["format_name"], quality.evaluate(idea).reasons)
+        assert jury.judge(idea).passed, (idea["format_name"], jury.judge(idea).reasons)
+        story = story_engine.evaluate(idea)
+        assert story.passed, (idea["format_name"], story.blockers)
+        # The script stage consumes the story contract; it must build too.
+        script_engine.build(story_engine.build(idea).to_dict())
+
+
 def test_learning_scores_and_portfolio_are_diversity_aware(tmp_path, monkeypatch):
     import app.learning_v2 as learning
 

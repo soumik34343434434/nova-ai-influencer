@@ -28,67 +28,50 @@ class IdeaCandidateV2:
     source_evidence: tuple[str, ...] = ()
 
 
-CHARACTER_PERSONAS = {
-    "MOMO": ("sleepy", "sarcastic", "cute"),
-    "PIP": ("mischievous", "curious", "chaotic"),
-    "BUBU": ("innocent", "eager", "overconfident"),
-}
-
 FORMAT_RECIPES: dict[str, dict[str, Any]] = {
     "dance": {
         "duration": 7.0,
         "angles": ("adorable_commitment", "wrong_move", "sudden_mood_change", "beat_drop_surprise", "overconfident_start"),
-        "hooks": ("MOMO heard the song once. That was enough.", "Nobody told MOMO this was a dance challenge."),
     },
     "trend_audio": {
         "duration": 8.0,
         "angles": ("audio_mismatch", "cute_reveal", "deadpan_switch", "beat_misread", "unexpected_pause"),
-        "hooks": ("MOMO understood the trend completely wrong.", "The sound says cute. MOMO has other plans."),
     },
     "reaction": {
         "duration": 8.0,
         "angles": ("shock", "overconfidence", "deadpan", "tiny_detail_big_reaction", "wrong_notification"),
-        "hooks": ("MOMO saw it. MOMO instantly regretted it.", "The notification looked harmless. It wasn't."),
     },
     "pov": {
         "duration": 9.0,
         "angles": ("relatable_work", "social_anxiety", "small_problem_big_reaction", "monday_mood", "quiet_minute"),
-        "hooks": ("POV: MOMO finally gets one quiet minute.", "POV: everything was under control for 3 seconds."),
     },
     "story_comedy": {
         "duration": 10.0,
         "angles": ("escalation", "misunderstanding", "reverse_expectation", "false_win", "loop_back"),
-        "hooks": ("MOMO thought today was easy. Cute.", "It started as a tiny problem."),
     },
     "challenge": {
         "duration": 10.0,
         "angles": ("attempts", "countdown", "cheat_then_fail", "almost_win", "rules_change"),
-        "hooks": ("MOMO said yes before hearing the rules.", "One simple challenge. One very tired cat."),
     },
     "transformation": {
         "duration": 8.0,
         "angles": ("upgrade_backfire", "before_after", "expectation_reality", "wrong_upgrade", "side_effect"),
-        "hooks": ("MOMO upgraded one thing. Big mistake.", "Before: perfect. After: MOMO."),
     },
     "cute_animal": {
         "duration": 7.0,
         "angles": ("tiny_hero", "adorable_failure", "comfort", "protective", "tiny_solution_big_effect"),
-        "hooks": ("MOMO is trying to help. It's adorable.", "Nobody asked MOMO to do this."),
     },
     "absurdist": {
         "duration": 8.0,
         "angles": ("logic_break", "escalation", "deadpan_acceptance", "reality_glitch", "nonsense_rule"),
-        "hooks": ("MOMO accepted this way too quickly.", "This should not be possible. MOMO doesn't care."),
     },
     "listicle": {
         "duration": 9.0,
         "angles": ("three_failures", "three_reactions", "countdown", "top_bad_choices", "one_more"),
-        "hooks": ("Three things MOMO absolutely should not have done.", "MOMO's top 3 bad decisions today."),
     },
     "micro_short": {
         "duration": 7.0,
         "angles": ("single_gag", "instant_reversal", "reaction_loop", "setup_payoff_echo", "micro_twist"),
-        "hooks": ("This took 7 seconds to go wrong.", "MOMO had one job."),
     },
 }
 
@@ -98,23 +81,85 @@ FORMAT_RECIPES: dict[str, dict[str, Any]] = {
 # cannot render a planned action, the role preferences pick a substitute.
 IDEA_ACTIONS = ("finish_work", "checks_phone", "press_button", "shock", "overwhelmed", "deadpan")
 
+# Every idea is four beats: a hook that states the goal, an escalation that
+# reverses it, a reaction, and a character-owned punchline that calls back to
+# the opening so the clip loops. The hook line is also the idea's hook, which
+# the script engine speaks on the first beat. Placeholders: {c} character,
+# {prop} the prop suggested by the trend.
+BEAT_ROLES = ("hook", "escalation", "reaction", "punchline")
+DEFAULT_BEATS = (
+    ("{c} had one job. Then the {prop} started talking!", "notification"),
+    ("Turns out the {prop} had other plans!", "impact"),
+    ("Wait, what?", "reaction_hit"),
+    ("{c}: of course. Same job, again.", "punchline"),
+)
+FORMAT_BEATS: dict[str, tuple[tuple[str, str], ...]] = {
+    "dance": (
+        ("{c} heard one song. Then the dance took over!", "beat"),
+        ("Instead, {c} invents a brand new move!", "impact"),
+        ("Wait, is that allowed?", "reaction_hit"),
+        ("{c}: still counts as dancing.", "punchline"),
+    ),
+    "trend_audio": (
+        ("{c} tried one trending sound. Then it backfired!", "beat"),
+        ("Turns out the sound was an alarm!", "impact"),
+        ("Why is it so loud?", "reaction_hit"),
+        ("{c}: still dancing to it, apparently.", "punchline"),
+    ),
+    "reaction": (
+        ("{c} got one normal notification. Big mistake!", "notification"),
+        ("Instead of one message, there are forty-seven!", "impact"),
+        ("Wait. Forty-seven?", "reaction_hit"),
+        ("{c}: of course. Back to silent mode.", "punchline"),
+    ),
+    "pov": (
+        ("POV: {c} finally gets one quiet minute!", "room"),
+        ("Then the {prop} lights up instead!", "notification"),
+        ("Why now?", "reaction_hit"),
+        ("{c}: one quiet minute. Apparently too much to ask.", "punchline"),
+    ),
+    "challenge": (
+        ("{c} said yes before hearing the rules. Big mistake!", "countdown"),
+        ("Turns out the challenge has three more rounds!", "impact"),
+        ("Three more?!", "reaction_hit"),
+        ("{c}: still not reading the rules.", "punchline"),
+    ),
+    "transformation": (
+        ("{c} upgraded one tiny thing. Big mistake!", "spark"),
+        ("Instead of faster, everything is upside down!", "impact"),
+        ("Oops. Wait, what?", "reaction_hit"),
+        ("{c}: put it back the way it was.", "punchline"),
+    ),
+    "cute_animal": (
+        ("{c} is trying to help. Nobody asked!", "cute"),
+        ("Instead, the tiny plan becomes a giant problem!", "impact"),
+        ("Oops.", "reaction_hit"),
+        ("{c}: still counts as helping.", "punchline"),
+    ),
+    "listicle": (
+        ("Three things {c} should not do. Number one?", "countdown"),
+        ("Turns out number two is pressing every button!", "impact"),
+        ("Why so many buttons?", "reaction_hit"),
+        ("{c}: number one is still deleting the app.", "punchline"),
+    ),
+}
+
 DEFAULT_ACTION_PLAN = ("finish_work", "checks_phone", "shock", "deadpan")
 FORMAT_ACTION_PLANS: dict[str, tuple[str, str, str, str]] = {
-    "dance": ("press_button", "checks_phone", "shock", "deadpan"),
+    "dance": ("press_button", "shock", "overwhelmed", "deadpan"),
     "trend_audio": ("checks_phone", "press_button", "shock", "deadpan"),
-    "reaction": ("finish_work", "checks_phone", "shock", "overwhelmed"),
+    "reaction": ("checks_phone", "shock", "overwhelmed", "deadpan"),
     "pov": ("finish_work", "checks_phone", "overwhelmed", "deadpan"),
-    "challenge": ("press_button", "finish_work", "shock", "deadpan"),
-    "transformation": ("finish_work", "press_button", "shock", "deadpan"),
-    "cute_animal": ("press_button", "finish_work", "overwhelmed", "deadpan"),
+    "challenge": ("press_button", "checks_phone", "shock", "deadpan"),
+    "transformation": ("press_button", "overwhelmed", "shock", "deadpan"),
+    "cute_animal": ("finish_work", "overwhelmed", "shock", "deadpan"),
     "listicle": ("finish_work", "press_button", "shock", "deadpan"),
 }
 
 ROLE_ACTION_PREFERENCES: dict[str, tuple[str, ...]] = {
     "hook": ("finish_work", "press_button", "checks_phone", "shock"),
-    "setup": ("checks_phone", "press_button", "finish_work", "overwhelmed"),
-    "attempt": ("checks_phone", "press_button", "finish_work", "overwhelmed"),
     "escalation": ("shock", "overwhelmed", "checks_phone", "press_button"),
+    "reaction": ("overwhelmed", "shock", "deadpan"),
     "punchline": ("deadpan", "overwhelmed", "shock"),
 }
 
@@ -226,63 +271,11 @@ def _angle_phrase(angle: str) -> str:
     }.get(angle, angle.replace("_", " "))
 
 
-def _make_beats(character: str, recipe: str, angle: str, emotion: str, signal: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+def _make_beats(character: str, recipe: str, signal: dict[str, Any]) -> tuple[dict[str, Any], ...]:
     prop = _prop_from_signal(str(signal.get("title", "")))
-    persona = CHARACTER_PERSONAS[character][0]
-    if recipe in {"dance", "trend_audio"}:
-        return (
-            {"beat": "hook", "voice": f"{character} hears the sound and commits instantly.", "sfx": "beat"},
-            {"beat": "attempt", "voice": f"The {persona} version of the trend begins.", "sfx": "motion"},
-            {"beat": "escalation", "voice": "Then the trend changes.", "sfx": "impact"},
-            {"beat": "punchline", "voice": f"{character}: apparently I missed that part.", "sfx": "punchline"},
-        )
-    if recipe == "reaction":
-        return (
-            {"beat": "hook", "voice": f"{character} gets one normal notification.", "sfx": "notification"},
-            {"beat": "setup", "voice": f"{character} checks the {prop}.", "sfx": "phone"},
-            {"beat": "escalation", "voice": f"The {emotion} part appears.", "sfx": "impact"},
-            {"beat": "punchline", "voice": f"{character}: I should have ignored that.", "sfx": "punchline"},
-        )
-    if recipe == "pov":
-        return (
-            {"beat": "hook", "voice": f"POV: {character} finally gets a quiet minute.", "sfx": "room"},
-            {"beat": "setup", "voice": f"Then the {prop} lights up.", "sfx": "notification"},
-            {"beat": "escalation", "voice": "It should have been one small task.", "sfx": "impact"},
-            {"beat": "punchline", "voice": f"{character}: apparently the universe disagrees.", "sfx": "punchline"},
-        )
-    if recipe == "challenge":
-        return (
-            {"beat": "hook", "voice": f"{character} says yes before hearing the rules.", "sfx": "countdown"},
-            {"beat": "attempt", "voice": "Attempt one is suspiciously easy.", "sfx": "tap"},
-            {"beat": "escalation", "voice": "Attempt two changes everything.", "sfx": "impact"},
-            {"beat": "punchline", "voice": f"{character}: that was not in the tutorial.", "sfx": "punchline"},
-        )
-    if recipe == "transformation":
-        return (
-            {"beat": "hook", "voice": f"Before: {character} has a perfect plan.", "sfx": "spark"},
-            {"beat": "setup", "voice": "After: one tiny upgrade.", "sfx": "whoosh"},
-            {"beat": "escalation", "voice": "The upgrade has opinions.", "sfx": "impact"},
-            {"beat": "punchline", "voice": f"{character}: put it back.", "sfx": "punchline"},
-        )
-    if recipe == "cute_animal":
-        return (
-            {"beat": "hook", "voice": f"{character} is trying very hard to help.", "sfx": "cute"},
-            {"beat": "setup", "voice": "The tiny plan is adorable.", "sfx": "tap"},
-            {"beat": "escalation", "voice": "The tiny plan becomes a giant problem.", "sfx": "impact"},
-            {"beat": "punchline", "voice": f"{character}: still counts as helping.", "sfx": "punchline"},
-        )
-    if recipe == "listicle":
-        return (
-            {"beat": "hook", "voice": f"Three things {character} should never do.", "sfx": "countdown"},
-            {"beat": "setup", "voice": "Number three starts harmless.", "sfx": "tap"},
-            {"beat": "escalation", "voice": "Number two is somehow worse.", "sfx": "impact"},
-            {"beat": "punchline", "voice": f"{character}: number one is deleting the app.", "sfx": "punchline"},
-        )
-    return (
-        {"beat": "hook", "voice": f"{character}: finally. One normal minute.", "sfx": "room"},
-        {"beat": "setup", "voice": f"The {prop} buzzes.", "sfx": "notification"},
-        {"beat": "escalation", "voice": f"The {emotion} part appears.", "sfx": "impact"},
-        {"beat": "punchline", "voice": f"{character}: of course it did.", "sfx": "punchline"},
+    return tuple(
+        {"beat": role, "voice": voice.format(c=character, prop=prop), "sfx": sfx}
+        for role, (voice, sfx) in zip(BEAT_ROLES, FORMAT_BEATS.get(recipe, DEFAULT_BEATS))
     )
 
 
@@ -332,13 +325,11 @@ def generate_ideas(trends: Iterable[dict[str, Any]], formats: Iterable[dict[str,
                 available = None if renderable_actions is None else tuple(renderable_actions.get(character, ()))
                 for angle in recipe["angles"]:
                     emotion = emotions[_seed(str(trend.get("trend_id")), fmt, character, angle) % len(emotions)]
-                    beats = _stage_actions(_make_beats(character, fmt, angle, emotion, trend), plan, available)
+                    beats = _stage_actions(_make_beats(character, fmt, trend), plan, available)
                     if beats is None:
                         continue
-                    angle_text = _angle_phrase(angle)
-                    title = f"{character} + {anchor}: {fmt.replace('_', ' ')} — {angle_text}"
-                    base_hook = recipe["hooks"][_seed(title, character) % len(recipe["hooks"])]
-                    hook = f"{base_hook} ({angle_text})."
+                    title = f"{character} + {anchor}: {fmt.replace('_', ' ')} — {_angle_phrase(angle)}"
+                    hook = beats[0]["voice"]
                     idea_id = f"idea-{_slug(title)}-{abs(_seed(title, str(trend.get('trend_id')))) % 100000:05d}"
                     cost = 0.25 + 0.08 * len(beats) + 0.06 * (1 if fmt in {"dance", "trend_audio"} else 0)
                     group.append({
