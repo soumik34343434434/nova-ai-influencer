@@ -1066,3 +1066,5 @@ class CartoonFactoryOrchestrator:
 if __name__ == "__main__":
     run = CartoonFactoryOrchestrator().run()
     print(json.dumps({"run_id": run.run_id, "status": run.status, "current_stage": run.current_stage}, indent=2))
+    # Non-zero when a stage failed, so schedulers (GitHub Actions, cron) see it.
+    raise SystemExit(0 if run.status == "completed" else 1)

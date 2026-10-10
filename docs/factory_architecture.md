@@ -33,6 +33,15 @@ that a reviewable 1080×1920 episode with audio comes out.
 | 18 | Analytics | `15_analytics` | `providers/platform_analytics.py`, `experiment_system.py` |
 | 19 | Learning AI | `16_learning` | `learning_v2.py`, `agent_memory.py` |
 
+## Running it without anyone in the loop
+
+`python3 -m app.cartoon_factory_orchestrator` runs all 16 stages and exits
+non-zero if a stage fails. `.github/workflows/cartoon-factory.yml` does the
+same on GitHub's runners every day (and on demand from the Actions tab),
+carries the learning files between runs, and uploads the episode, its run
+record and the publish queue as the run's artifacts. It uses only free
+sources and local rendering, and posts nothing: episodes wait for approval.
+
 ## How the stages connect
 
 - **Ideas are always renderable.** Each character's action pack lists the

@@ -1,0 +1,88 @@
+name: NOVA cartoon factory
+
+# Runs all 16 factory stages on GitHub's machines: research, ideas, jury,
+# story, script, storyboard, assets, animation, audio, captions, editor,
+# video QA + repair, publish queue, analytics and learning. Uses only free
+# sources and local rendering; nothing is posted and no paid API is called.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "47 3 * * *"  # daily, 09:17 IST
+  push:
+    paths:
+      - .github/workflows/cartoon-factory.yml
+
+concurrency:
+  group: nova-cartoon-factory
+  cancel-in-progress: false
+
+jobs:
+  episode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Ensure media tools
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v espeak-ng >/dev/null 2>&1; then
+            if ! timeout 120s sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng; then
+              timeout 120s sudo apt-get update -y
+              timeout 120s sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng
+            fi
+          fi
+      - run: pip install --prefer-binary -r requirements.txt
+      # Learning, trend history and experiments carry over between runs.
+      - name: Restore factory memory
+        uses: actions/cache/restore@v4
+        with:
+          path: artifacts/cartoon/*.json
+          key: nova-factory-memory-${{ github.run_id }}
+          restore-keys: nova-factory-memory-
+      - name: Run all 16 stages
+        run: python -m app.cartoon_factory_orchestrator
+      - name: Save factory memory
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: artifacts/cartoon/*.json
+          key: nova-factory-memory-${{ github.run_id }}
+      - name: Summarise the episode
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          runs = sorted(pathlib.Path("artifacts/cartoon/runs").glob("*/run.json"), key=lambda p: p.stat().st_mtime)
+          if not runs:
+              print("No run was created."); raise SystemExit
+          run = json.loads(runs[-1].read_text())
+          payload = run.get("payload", {})
+          winner = payload.get("winner", {}).get("candidate", {})
+          print(f"## {run['status']}: {payload.get('title') or winner.get('title', '')}")
+          print(f"Character **{winner.get('character', '?')}**, hook: {winner.get('hook', '')}\n")
+          print("| Stage | Status | Attempts |\n|---|---|---|")
+          for name, stage in run.get("stages", {}).items():
+              print(f"| {name} | {stage['status']} | {stage.get('attempts', '')} |")
+              if stage.get("error"):
+                  print(f"\n> {name}: {stage['error'][:500]}\n")
+          final = payload.get("final_qa", {})
+          if final:
+              print(f"\nFinal QA: **{final.get('status')}**")
+          print(f"\nVideo: `{pathlib.Path(payload.get('video', '')).name}` (download it from this run's artifacts)")
+          PY
+      - name: Upload episode
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nova-episode-${{ github.run_id }}
+          path: |
+            artifacts/cartoon/*_factory.mp4
+            artifacts/cartoon/*_factory.edit_plan.json
+            artifacts/cartoon/runs/*/run.json
+            artifacts/cartoon/publish_queue.json
+          if-no-files-found: warn
+          retention-days: 14
