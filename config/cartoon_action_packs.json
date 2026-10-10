@@ -1,0 +1,516 @@
+{
+  "version": 1,
+  "canvas": [
+    768,
+    1376
+  ],
+  "role_order": [
+    "hook",
+    "escalation",
+    "reaction",
+    "punchline"
+  ],
+  "characters": {
+    "PIP": {
+      "source": null,
+      "actions": {
+        "press_button": {
+          "file": "pip_press_button.png",
+          "roles": [
+            "hook",
+            "setup"
+          ],
+          "framing": "medium",
+          "emotion": "curious",
+          "visual": "PIP presses one big glowing button with total confidence.",
+          "visible_props": [
+            "orange backpack"
+          ]
+        },
+        "shock": {
+          "file": "pip_shock.png",
+          "roles": [
+            "escalation"
+          ],
+          "framing": "wide",
+          "emotion": "shocked",
+          "visual": "PIP jumps back as a giant pile of results appears.",
+          "visible_props": [
+            "orange backpack"
+          ]
+        },
+        "overwhelmed": {
+          "file": "pip_overwhelmed.png",
+          "roles": [
+            "reaction"
+          ],
+          "framing": "medium",
+          "emotion": "overwhelmed",
+          "visual": "PIP is buried under the pile, eyes wide, processing it.",
+          "visible_props": [
+            "orange backpack"
+          ]
+        },
+        "deadpan": {
+          "file": "pip_deadpan.png",
+          "roles": [
+            "punchline",
+            "reaction"
+          ],
+          "framing": "medium",
+          "emotion": "deadpan",
+          "visual": "PIP stares flatly at the camera beside the leftover pile.",
+          "visible_props": [
+            "orange backpack"
+          ]
+        }
+      }
+    },
+    "MOMO": {
+      "source": "characters/momo.png",
+      "backdrop": {
+        "top": [
+          247,
+          243,
+          232
+        ],
+        "floor": [
+          229,
+          221,
+          205
+        ],
+        "horizon": 0.62
+      },
+      "actions": {
+        "walk_in": {
+          "file": "momo_walk_in.png",
+          "roles": [
+            "hook",
+            "setup"
+          ],
+          "framing": "wide",
+          "emotion": "sleepy",
+          "crop": [
+            499,
+            713,
+            714,
+            942
+          ],
+          "placement": "full_body",
+          "head_rel": [
+            0.0,
+            0.0,
+            0.62,
+            0.52
+          ],
+          "face_rel": [
+            0.02,
+            0.12,
+            0.42,
+            0.44
+          ],
+          "visual": "MOMO pads in slowly, scarf trailing, chasing one quiet minute.",
+          "regions": {
+            "body": [
+              0.1797,
+              0.4136,
+              0.8203,
+              0.8025
+            ],
+            "head": [
+              0.1797,
+              0.4136,
+              0.5769,
+              0.6158
+            ],
+            "face": [
+              0.1925,
+              0.4602,
+              0.4487,
+              0.5847
+            ]
+          },
+          "visible_props": [
+            "tiny teal scarf"
+          ]
+        },
+        "yawn_stretch": {
+          "file": "momo_yawn_stretch.png",
+          "roles": [
+            "escalation"
+          ],
+          "framing": "wide",
+          "emotion": "exasperated",
+          "crop": [
+            480,
+            68,
+            697,
+            351
+          ],
+          "placement": "full_body",
+          "head_rel": [
+            0.18,
+            0.0,
+            0.82,
+            0.46
+          ],
+          "face_rel": [
+            0.28,
+            0.08,
+            0.72,
+            0.42
+          ],
+          "visual": "MOMO throws both paws up in a giant yawn as the pile grows.",
+          "regions": {
+            "body": [
+              0.2096,
+              0.3792,
+              0.7904,
+              0.8025
+            ],
+            "head": [
+              0.3142,
+              0.3792,
+              0.6858,
+              0.5739
+            ],
+            "face": [
+              0.3722,
+              0.413,
+              0.6278,
+              0.557
+            ]
+          },
+          "visible_props": [
+            "tiny teal scarf"
+          ]
+        },
+        "curl_up": {
+          "file": "momo_curl_up.png",
+          "roles": [
+            "reaction"
+          ],
+          "framing": "medium",
+          "emotion": "overwhelmed",
+          "crop": [
+            490,
+            441,
+            705,
+            638
+          ],
+          "placement": "full_body",
+          "head_rel": [
+            0.0,
+            0.12,
+            0.46,
+            0.78
+          ],
+          "face_rel": [
+            0.02,
+            0.24,
+            0.4,
+            0.7
+          ],
+          "visual": "MOMO curls into a tight ball and hides from the problem.",
+          "regions": {
+            "body": [
+              0.1784,
+              0.4692,
+              0.8216,
+              0.8025
+            ],
+            "head": [
+              0.1784,
+              0.5092,
+              0.4743,
+              0.7292
+            ],
+            "face": [
+              0.1912,
+              0.5492,
+              0.4357,
+              0.7025
+            ]
+          },
+          "visible_props": [
+            "tiny teal scarf"
+          ]
+        },
+        "deadpan": {
+          "file": "momo_deadpan.png",
+          "roles": [
+            "punchline",
+            "reaction"
+          ],
+          "framing": "medium",
+          "emotion": "deadpan",
+          "crop": [
+            43,
+            296,
+            389,
+            780
+          ],
+          "placement": "full_body",
+          "head_rel": [
+            0.14,
+            0.0,
+            0.94,
+            0.44
+          ],
+          "face_rel": [
+            0.3,
+            0.14,
+            0.88,
+            0.42
+          ],
+          "visual": "MOMO sits heavily and gives the camera a flat, unimpressed stare.",
+          "regions": {
+            "body": [
+              0.2344,
+              0.3792,
+              0.7669,
+              0.8025
+            ],
+            "head": [
+              0.3089,
+              0.3792,
+              0.735,
+              0.5654
+            ],
+            "face": [
+              0.3941,
+              0.4384,
+              0.703,
+              0.557
+            ]
+          },
+          "visible_props": [
+            "tiny teal scarf"
+          ]
+        }
+      }
+    },
+    "BUBU": {
+      "source": "characters/bubu.png",
+      "backdrop": {
+        "top": [
+          232,
+          232,
+          234
+        ],
+        "floor": [
+          214,
+          214,
+          218
+        ],
+        "horizon": 0.62
+      },
+      "actions": {
+        "wave_hello": {
+          "file": "bubu_wave_hello.png",
+          "roles": [
+            "hook",
+            "setup"
+          ],
+          "framing": "wide",
+          "emotion": "eager",
+          "crop": [
+            27,
+            112,
+            254,
+            370
+          ],
+          "placement": "full_body",
+          "head_rel": [
+            0.2,
+            0.0,
+            0.96,
+            0.72
+          ],
+          "face_rel": [
+            0.32,
+            0.18,
+            0.88,
+            0.56
+          ],
+          "visual": "BUBU waves one wing and bounces in, ready to help.",
+          "regions": {
+            "body": [
+              0.1693,
+              0.3792,
+              0.832,
+              0.8025
+            ],
+            "head": [
+              0.3018,
+              0.3792,
+              0.8055,
+              0.684
+            ],
+            "face": [
+              0.3814,
+              0.4554,
+              0.7525,
+              0.6162
+            ]
+          },
+          "visible_props": [
+            "tiny yellow backpack"
+          ]
+        },
+        "panic_run": {
+          "file": "bubu_panic_run.png",
+          "roles": [
+            "escalation"
+          ],
+          "framing": "wide",
+          "emotion": "alarmed",
+          "crop": [
+            423,
+            947,
+            732,
+            1249
+          ],
+          "placement": "full_body",
+          "head_rel": [
+            0.14,
+            0.0,
+            0.86,
+            0.66
+          ],
+          "face_rel": [
+            0.2,
+            0.14,
+            0.74,
+            0.5
+          ],
+          "visual": "BUBU sprints sideways, wings flapping, as the pile chases behind.",
+          "regions": {
+            "body": [
+              0.1146,
+              0.3792,
+              0.8841,
+              0.8025
+            ],
+            "head": [
+              0.2223,
+              0.3792,
+              0.7764,
+              0.6586
+            ],
+            "face": [
+              0.2685,
+              0.4384,
+              0.684,
+              0.5908
+            ]
+          },
+          "visible_props": [
+            "tiny yellow backpack"
+          ]
+        },
+        "worried_close": {
+          "file": "bubu_worried_close.png",
+          "roles": [
+            "reaction"
+          ],
+          "framing": "close_up",
+          "emotion": "worried",
+          "crop": [
+            45,
+            1111,
+            187,
+            1277
+          ],
+          "placement": "close_up",
+          "head_rel": [
+            0.0,
+            0.0,
+            1.0,
+            1.0
+          ],
+          "face_rel": [
+            0.12,
+            0.22,
+            0.88,
+            0.86
+          ],
+          "visual": "Close-up: BUBU's face crumples into a tiny worried look.",
+          "regions": {
+            "body": [
+              0.1693,
+              0.2422,
+              0.8294,
+              0.6772
+            ],
+            "head": [
+              0.1693,
+              0.2422,
+              0.8294,
+              0.6772
+            ],
+            "face": [
+              0.2485,
+              0.3379,
+              0.7502,
+              0.6163
+            ]
+          },
+          "visible_props": []
+        },
+        "deadpan": {
+          "file": "bubu_deadpan.png",
+          "roles": [
+            "punchline",
+            "reaction"
+          ],
+          "framing": "medium",
+          "emotion": "deadpan",
+          "crop": [
+            259,
+            263,
+            511,
+            580
+          ],
+          "placement": "full_body",
+          "head_rel": [
+            0.1,
+            0.0,
+            0.9,
+            0.7
+          ],
+          "face_rel": [
+            0.24,
+            0.16,
+            0.8,
+            0.52
+          ],
+          "visual": "BUBU stands still, backpack on, staring straight at the camera.",
+          "regions": {
+            "body": [
+              0.2031,
+              0.3792,
+              0.7982,
+              0.8025
+            ],
+            "head": [
+              0.2626,
+              0.3792,
+              0.7387,
+              0.6755
+            ],
+            "face": [
+              0.3459,
+              0.4469,
+              0.6792,
+              0.5993
+            ]
+          },
+          "visible_props": [
+            "tiny yellow backpack"
+          ]
+        }
+      }
+    }
+  }
+}

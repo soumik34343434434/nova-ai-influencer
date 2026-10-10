@@ -98,6 +98,12 @@ ACTION_CUE = {
     "sees_calendar": "look toward the calendar before the realization",
     "reaches_for_coffee": "reach first, then let the relief line land",
     "glances_at_many_tabs": "scan the scene before the overload line",
+    "walk_in": "walk in first, then deliver the opening line",
+    "wave_hello": "wave before speaking so the greeting reads",
+    "yawn_stretch": "peak the yawn before the key word",
+    "panic_run": "start running before the line lands",
+    "curl_up": "curl up during the line and hold it",
+    "worried_close": "hold the worried close-up long enough to read",
 }
 
 
@@ -111,8 +117,9 @@ def _word_count(text: str) -> int:
 
 def _clean_text(text: str) -> str:
     text = " ".join(str(text or "").replace("\r", " ").split())
-    text = re.sub(r"^([A-Z][A-Z0-9_ -]{1,15}):\s*", "", text)
-    return text.strip()
+    text = re.sub(r"^([A-Z][A-Z0-9_ -]{1,15}):\s*", "", text).strip()
+    # Removing a "PIP:" speaker label can leave a lowercase sentence start.
+    return text[:1].upper() + text[1:]
 
 
 def _sentence(text: str, role: str) -> str:

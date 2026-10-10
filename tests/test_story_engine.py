@@ -150,7 +150,30 @@ def test_control_plane_migrates_legacy_stage_numbers(tmp_path):
     assert loaded.current_stage == "10_audio_engine"
     assert "5_script_engine" not in loaded.stages
     assert "6_script_engine" in loaded.stages
-    assert "15_learning" in loaded.stages
+    assert "16_learning" in loaded.stages
+
+
+def test_control_plane_migrates_runs_saved_before_the_editor_stage(tmp_path):
+    import json
+    from app.cartoon_control import CartoonRunStore
+
+    store = CartoonRunStore("pre-editor-run")
+    store.path = tmp_path / "run.json"
+    names = (
+        "1_research", "2_trend_intelligence", "3_idea_generator", "4_idea_evaluator",
+        "5_story_engine", "6_script_engine", "7_storyboard_engine", "8_asset_engine",
+        "9_animation_engine", "10_audio_engine", "11_caption_engine", "12_video_qa",
+        "13_publish", "14_analytics", "15_learning",
+    )
+    stages = {n: {"stage": n, "status": "passed", "started_at": "", "finished_at": "", "attempts": 1,
+                  "artifact": {}, "error": ""} for n in names}
+    store.path.write_text(json.dumps({"run_id": "pre-editor-run", "created_at": "", "current_stage": "14_analytics",
+                                      "status": "failed", "payload": {}, "stages": stages}))
+    loaded = store.load()
+    assert loaded.current_stage == "15_analytics"
+    assert "13_video_qa" in loaded.stages and "12_video_qa" not in loaded.stages
+    assert "16_learning" in loaded.stages
+    assert "12_editor_engine" not in loaded.stages
 
 
 def test_orchestrator_story_stage_persists_locked_contract(tmp_path, monkeypatch):

@@ -54,6 +54,18 @@ def make_sfx(kind: str, duration: float, output: Path) -> Path:
         samples = _tone(620, part, 0.15) + _tone(500, part, 0.15) + _tone(390, part, 0.15)
     elif kind == "punchline":
         samples = _tone(260, min(duration, 0.18), 0.20, -120)
+    elif kind == "notification":
+        samples = _tone(880, min(duration, 0.08), 0.16) + [0.0] * int(0.05 * RATE) + _tone(1175, min(duration, 0.10), 0.16)
+    elif kind in {"impact", "reaction_hit"}:
+        samples = _tone(140, min(duration, 0.22), 0.26, -60)
+    elif kind == "whoosh":
+        samples = _tone(300, min(duration, 0.28), 0.12, 700)
+    elif kind in {"pop", "cute", "spark"}:
+        samples = _tone(990, min(duration, 0.07), 0.16, 400)
+    elif kind in {"countdown", "tap"}:
+        samples = _tone(660, min(duration, 0.06), 0.16) + [0.0] * int(0.08 * RATE) + _tone(660, min(duration, 0.06), 0.16)
+    elif kind == "beat":
+        samples = (_tone(110, 0.10, 0.24, -40) + [0.0] * int(0.15 * RATE)) * 2
     else:
         samples = [0.0] * n
     return _wav(output, (samples + [0.0] * n)[:n])

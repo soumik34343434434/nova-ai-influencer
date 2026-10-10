@@ -932,6 +932,8 @@ def render_cartoon_motion(
     sfx_kinds: list[str] | None = None,
     fps: int = 24,
     render_tuning: dict | None = None,
+    shot_specs: list[dict | None] | None = None,
+    character: str | None = None,
 ) -> Path:
     if not images or len(images) != len(captions) or len(images) != len(durations) or len(images) != len(beats):
         raise ValueError("images, captions, durations and beats must have equal non-zero lengths")
@@ -968,7 +970,15 @@ def render_cartoon_motion(
 
     # Voice performance is generated before frames so visual acting can lock to
     # real speech onset/energy/peak rather than an assumed beat fraction.
-    voice_performance = prepare_voice_performance(work, voice_lines, beats, durations)
+    voice_performance = prepare_voice_performance(work, voice_lines, beats, durations, character=character)
+    # Director AI's per-shot acting plan (anticipation, eye lead, head follow,
+    # impact...) rides on each shot's performance entry. It is persisted with the
+    # motion metadata, so a targeted rerender reuses the same plan.
+    director_specs = 0
+    for perf, spec in zip(voice_performance, shot_specs or []):
+        if isinstance(perf, dict) and isinstance(spec, dict) and spec:
+            perf["shot_spec"] = spec
+            director_specs += 1
     effective_durations = _performance_durations(voice_performance, durations, beats)
 
     # Render at the requested delivery cadence directly. The old implementation

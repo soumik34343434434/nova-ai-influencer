@@ -166,7 +166,9 @@ def test_full_closed_loop_publish_metrics_learning_changes_next_ideas(monkeypatc
             "topic": "next experiment",
             "ranked_signals_v2": [{"title": "test trend", "hook_patterns": ["curiosity"]}],
             "format_candidates": [],
-            "learning_policy": policy,
+            # Pin exploitation: this assertion is about consuming the policy,
+            # and exploration is covered by its own test below.
+            "learning_policy": {**policy, "exploration_rate": 0.0},
         }
     )
     orchestrator.plane.store = next_store
@@ -179,3 +181,89 @@ def test_full_closed_loop_publish_metrics_learning_changes_next_ideas(monkeypatc
     assert ranked[0]["learning_adjustment"] == 0.10
     assert ranked[1]["learning_adjustment"] == 0.0
     assert ranked[1]["learning_adjustment"] == 0.0
+
+
+def _isolate(monkeypatch, tmp_path):
+    monkeypatch.setattr(control, "RUNS_DIR", tmp_path / "runs")
+    monkeypatch.setattr(orch, "OUTBOX", tmp_path / "publish_queue.json")
+    monkeypatch.setattr(orch, "ARTIFACTS", tmp_path / "artifacts")
+    monkeypatch.setattr(learning, "METRICS_FILE", tmp_path / "metrics.json")
+    monkeypatch.setattr(learning, "STRATEGY_FILE", tmp_path / "strategy.json")
+    monkeypatch.setattr(agent_memory, "ARTIFACTS", tmp_path / "artifacts")
+    monkeypatch.setattr(agent_memory, "EXPERIMENTS_FILE", tmp_path / "experiments.json")
+    monkeypatch.setattr(agent_memory, "FAILURES_FILE", tmp_path / "failures.json")
+    monkeypatch.setattr(agent_memory, "PROVIDERS_FILE", tmp_path / "providers.json")
+    monkeypatch.setattr(agent_memory, "NEXT_LOOP_FILE", tmp_path / "next_loop.json")
+
+
+def _two_candidates():
+    return [
+        {"idea_id": "story-next", "title": "Learned Story", "format_name": "story_comedy", "hook_pattern": "curiosity",
+         "emotion": "amusement", "character": "MOMO", "beats": [], "trend_score": 0.5},
+        {"idea_id": "dance-next", "title": "Old Dance", "format_name": "dance", "hook_pattern": "challenge",
+         "emotion": "cute", "character": "PIP", "beats": [], "trend_score": 0.5},
+    ]
+
+
+def test_new_run_loads_persisted_policy_without_manual_injection(monkeypatch, tmp_path):
+    """Run N's learning pass must steer run N+1 through the real stage path."""
+    _isolate(monkeypatch, tmp_path)
+    agent_memory._write(agent_memory.NEXT_LOOP_FILE, {"policy": {
+        "preferred_formats": ["story_comedy"], "preferred_hooks": ["curiosity"],
+        "preferred_emotions": [], "preferred_characters": [], "exploration_rate": 0.0,
+    }})
+    monkeypatch.setattr(orch, "generate_ideas", lambda *args, **kwargs: _two_candidates())
+    monkeypatch.setattr(orch, "select_portfolio", lambda rows, memory=None, limit=60: [dict(x) for x in rows])
+
+    orchestrator = orch.CartoonFactoryOrchestrator()
+    run = orchestrator.create_run("next experiment")
+    orchestrator.plane.store = control.CartoonRunStore(run.run_id)
+    assert run.payload["next_loop_plan"]["policy"]["preferred_formats"] == ["story_comedy"]
+
+    run.payload["trend_signals_v2"] = [{"title": "test trend", "hook_patterns": ["curiosity"], "opportunity_score": 0.5}]
+    orchestrator._trend_intelligence(run)
+    assert run.payload["learning_policy"]["preferred_formats"] == ["story_comedy"]
+    result = orchestrator._idea_generator(run)
+
+    ranked = run.payload["candidates"]
+    assert result["selection_mode"] == "exploit"
+    assert ranked[0]["format_name"] == "story_comedy"
+    assert ranked[0]["learning_adjustment"] == 0.16  # format + hook
+    assert ranked[1]["learning_adjustment"] == 0.0
+
+
+def test_exploring_run_favours_formats_the_policy_is_not_reinforcing(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    monkeypatch.setattr(orch, "generate_ideas", lambda *args, **kwargs: _two_candidates())
+    monkeypatch.setattr(orch, "select_portfolio", lambda rows, memory=None, limit=60: [dict(x) for x in rows])
+    orchestrator = orch.CartoonFactoryOrchestrator()
+    store = control.CartoonRunStore("always-explore")
+    run = store.create({
+        "topic": "explore",
+        "ranked_signals_v2": [{"title": "test trend"}],
+        "format_candidates": [],
+        "learning_policy": {"preferred_formats": ["story_comedy"], "exploration_rate": 1.0},
+    })
+    orchestrator.plane.store = store
+    result = orchestrator._idea_generator(run)
+    ranked = run.payload["candidates"]
+    assert result["selection_mode"] == "explore"
+    assert ranked[0]["format_name"] == "dance"
+    assert ranked[0]["learning_adjustment"] > ranked[1]["learning_adjustment"]
+
+
+def test_learned_format_boost_applies_to_format_candidates(monkeypatch, tmp_path):
+    """Format candidates use the key "name"; the policy boost must still match."""
+    _isolate(monkeypatch, tmp_path)
+    monkeypatch.setattr(orch, "rank_format_candidates", lambda rows, memory=None, limit=40: [
+        {"name": "dance", "score": 0.80}, {"name": "story_comedy", "score": 0.75},
+    ])
+    orchestrator = orch.CartoonFactoryOrchestrator()
+    store = control.CartoonRunStore("format-boost")
+    run = store.create({"topic": "boost", "trend_signals_v2": [{"title": "t"}],
+                        "next_loop_plan": {"policy": {"preferred_formats": ["story_comedy"]}}})
+    orchestrator.plane.store = store
+    orchestrator._trend_intelligence(run)
+    formats = run.payload["format_candidates"]
+    assert formats[0]["name"] == "story_comedy"
+    assert formats[0]["learned_priority"] == 1.0

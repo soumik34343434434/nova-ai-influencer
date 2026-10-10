@@ -59,6 +59,16 @@ ACTIONS = {
     "glances_at_many_tabs": ("neutral","overloaded","deadpan","scan tabs then freeze","left -> right -> camera","small side-to-side follow","anticipate -> scan -> recoil -> settle","hands remain stable"),
     "leans_toward_camera": ("neutral","curious","deadpan","lean toward camera","camera","controlled forward tilt","anticipate -> lean -> settle","hands remain stable"),
     "deadpan_camera_reaction": ("reactive","confused","deadpan","small recoil then freeze","camera","tiny recoil then stillness","anticipate -> impact -> recoil -> settle","hands stay planted"),
+    "press_button": ("curious","surprised","deadpan","press one button","button -> result -> camera","press then recoil from the result","anticipate -> press -> recoil -> settle","one hand presses; other stays stable"),
+    "shock": ("neutral","shocked","stunned","jump back from the problem","problem -> camera","big recoil with arms up","anticipate -> impact -> recoil -> settle","arms rise together and return coherently"),
+    "overwhelmed": ("worried","overloaded","deflated","sink under the problem","problem -> camera","slow sag then small shake","anticipate -> sag -> settle","hands stay connected to the body"),
+    "deadpan": ("neutral","unimpressed","deadpan","hold a flat stare","camera","tiny head tilt then stillness","anticipate -> hold -> settle","hands stay planted"),
+    "walk_in": ("sleepy","content","neutral","walk slowly into frame","path -> camera","small step bounce","anticipate -> step -> settle","paws alternate; scarf trails"),
+    "wave_hello": ("eager","happy","hopeful","wave one wing","camera","bouncy wave with follow-through","anticipate -> wave -> settle","one wing waves; other stays close"),
+    "yawn_stretch": ("tired","exasperated","sleepy","huge yawn with paws up","camera -> sky","stretch up then droop","anticipate -> stretch -> recoil -> settle","both paws rise together then drop"),
+    "panic_run": ("worried","alarmed","panicked","sprint across frame","threat -> escape route","fast bounce with flapping wings","anticipate -> run -> recoil -> settle","wings flap symmetrically; feet alternate"),
+    "curl_up": ("tired","overwhelmed","hiding","curl into a ball","floor","slow squash into a ball","anticipate -> squash -> settle","paws tuck under the body"),
+    "worried_close": ("uneasy","worried","worried","close-up worried look","camera","tiny wobble then hold","anticipate -> react -> settle","face only; keep features stable"),
 }
 DEFAULT = ("neutral","reactive","deadpan","small reaction","scene -> camera","small reaction then settle","anticipate -> action -> recoil -> settle","keep hands stable and coherent")
 

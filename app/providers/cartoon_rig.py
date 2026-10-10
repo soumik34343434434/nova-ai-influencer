@@ -14,6 +14,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
+from app.agents.action_packs import character_for_file, regions_for_file
+
 W, H = 1080, 1920
 
 
@@ -95,6 +97,11 @@ def _fraction_bbox(region: tuple[float, float, float, float]) -> tuple[int, int,
 def extract_rig(path: Path, character: str = "PIP") -> CharacterRig:
     base = _cover(Image.open(path))
     manifest = PIP_ACTION_REGIONS.get(path.name) if character == "PIP" else None
+    if manifest is None:
+        # Generated MOMO/BUBU action packs record exact placement regions.
+        manifest = regions_for_file(path.name)
+        if manifest is not None:
+            character = character_for_file(path.name) or character
 
     if manifest:
         bbox = _fraction_bbox(manifest["body"])
@@ -159,5 +166,5 @@ def rig_summary(rig: CharacterRig) -> dict:
         "center": [round(rig.center[0], 2), round(rig.center[1], 2)],
         "layers": ["head", "face", "body_proxy", "backpack_proxy"],
         "mode": "flattened-art-performance-proxy",
-        "manifest": Path(rig.source).name in PIP_ACTION_REGIONS,
+        "manifest": Path(rig.source).name in PIP_ACTION_REGIONS or regions_for_file(Path(rig.source).name) is not None,
     }
