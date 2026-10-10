@@ -600,7 +600,12 @@ class CartoonFactoryOrchestrator:
             if not plan_path:
                 raise RuntimeError("Runway backend needs one storyboard shot per beat to build a plan")
             plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
-            hosted = runway_video.execute_plan(plan, ARTIFACTS / f"{slug}_runway", run_id=run.run_id, kind="generate")
+            clips_dir = os.environ.get("NOVA_RUNWAY_CLIPS_DIR", "").strip()
+            if clips_dir:
+                # Clips made in the Runway web app / connector for this plan.
+                hosted = runway_video.import_clips(plan, Path(clips_dir))
+            else:
+                hosted = runway_video.execute_plan(plan, ARTIFACTS / f"{slug}_runway", run_id=run.run_id, kind="generate")
             clips = [hosted["clips"][index] for index in sorted(hosted["clips"])]
             self.plane.store.set_payload(run, shot_clips=clips, runway_execution={
                 k: v for k, v in hosted.items() if k != "clips"

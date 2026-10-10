@@ -57,7 +57,8 @@ def test_verify_flags_a_reel_that_drifts_from_the_plan(tmp_path):
     assert "cut_off_plan" in joined
 
 
-def test_runway_backend_runs_hosted_shots_through_the_editor(monkeypatch, tmp_path):
+@pytest.mark.parametrize("source", ["api", "imported"])
+def test_runway_backend_runs_hosted_shots_through_the_editor(monkeypatch, tmp_path, source):
     import json as _json
 
     import app.agent_memory as agent_memory
@@ -108,9 +109,17 @@ def test_runway_backend_runs_hosted_shots_through_the_editor(monkeypatch, tmp_pa
 
     monkeypatch.setattr(orch, "render_cartoon_motion", fake_local_render)
     monkeypatch.setattr(orch.runway_video, "execute_plan", fake_execute)
+    if source == "imported":
+        # Clips made in the Runway web app are imported by shot; the API is never called.
+        made = tmp_path / "web_clips"
+        made.mkdir()
+        for i in range(4):
+            _clip(made / f"shot_{i:02d}.mp4", 5)
+        monkeypatch.setenv("NOVA_RUNWAY_CLIPS_DIR", str(made))
 
     animation = factory._animation_engine(run)
-    assert animation["hosted_shots"] == 4 and executed["shots"] == 4
+    assert animation["hosted_shots"] == 4
+    assert executed.get("shots") == (4 if source == "api" else None)
     factory._audio_engine(run)
     edited = factory._editor_engine(run)
 

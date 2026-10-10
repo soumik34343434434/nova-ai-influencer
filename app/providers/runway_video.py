@@ -420,6 +420,28 @@ def execute_plan(
     }
 
 
+def import_clips(plan: dict[str, Any], clips_dir: Path) -> dict[str, Any]:
+    """Use clips already made outside the factory, one per shot, spending nothing.
+
+    Runway's web app (and Claude's Runway connector) bill the workspace's plan
+    credits, which the API key cannot use. Clips made there are matched to the
+    plan by file name: ``shot_00*.mp4``, ``shot_01*.mp4``, ...
+    """
+    clips: dict[int, str] = {}
+    problems = []
+    for position, request in enumerate(plan.get("shots", [])):
+        shot = int(request.get("shot_index", position))
+        found = sorted(Path(clips_dir).glob(f"shot_{shot:02d}*.mp4"))
+        if len(found) == 1:
+            clips[shot] = str(found[0])
+        else:
+            problems.append(f"shot {shot}: expected one shot_{shot:02d}*.mp4, found {len(found)}")
+    if problems:
+        raise RunwayExecutionBlocked(f"Cannot import clips from {clips_dir}: " + "; ".join(problems))
+    return {"provider": "runway", "clips": clips, "tasks": [], "estimated_credits": 0.0, "budget": 0.0,
+            "source": "imported"}
+
+
 def required_credits_note(plan: dict[str, Any]) -> str:
     return f"~{math.ceil(billed_credits(plan))} credits for {len(plan.get('shots', []))} shots"
 

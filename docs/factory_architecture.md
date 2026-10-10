@@ -108,3 +108,10 @@ episode would cost, and whether it could succeed, without spending anything:
 ```bash
 python3 -m app.providers.runway_video quote artifacts/cartoon/<episode>.runway_plan.json --run-id <run_id>
 ```
+
+Runway bills the API and the web app from separate credit pools: credits on a
+Standard/Pro web plan cannot be spent with an API key. To use web-app credits,
+make one clip per planned shot there (same start image and prompt), save them
+as `shot_00*.mp4`, `shot_01*.mp4`, ... and set `NOVA_RUNWAY_CLIPS_DIR` to that
+folder. The animation stage then imports them, spending nothing, and the
+Editor and video QA run as usual.

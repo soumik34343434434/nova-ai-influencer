@@ -198,3 +198,17 @@ def test_quote_reports_cost_and_problems_without_spending(monkeypatch, tmp_path)
     assert [row["billed_seconds"] for row in result["shots"]] == [5, 5]
     assert any("cannot reach" in problem for problem in result["problems"])
     assert runway_video.credits_spent() == 0
+
+
+def test_clips_made_elsewhere_are_imported_by_shot_without_spending(monkeypatch, tmp_path):
+    """Web-app/connector clips use plan credits the API key cannot, so the factory just imports them."""
+    plan = _plan(tmp_path)
+    clips = tmp_path / "clips"
+    clips.mkdir()
+    (clips / "shot_00.mp4").write_bytes(b"a")
+    with pytest.raises(RunwayExecutionBlocked, match="shot 1: expected one shot_01"):
+        runway_video.import_clips(plan, clips)
+    (clips / "shot_01_web.mp4").write_bytes(b"b")
+    result = runway_video.import_clips(plan, clips)
+    assert result["clips"] == {0: str(clips / "shot_00.mp4"), 1: str(clips / "shot_01_web.mp4")}
+    assert result["estimated_credits"] == 0 and runway_video.credits_spent() == 0
