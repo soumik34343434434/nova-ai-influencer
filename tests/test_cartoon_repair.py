@@ -209,3 +209,26 @@ def test_technical_failure_gets_a_full_rerender(monkeypatch, tmp_path: Path):
     assert result["repair"]["strategy"] == "full_rerender"
     assert rerendered == [True]
     assert run.payload["video_repair_attempts"] == 1
+
+
+def test_technical_failure_on_a_hosted_reel_recuts_without_new_credits(monkeypatch, tmp_path: Path):
+    quality = ScriptedQuality([({"passed": False, "reasons": ["missing_audio"]}, None), (OK_MEDIA, GOOD_MOTION)])
+    orchestrator = CartoonFactoryOrchestrator(quality=quality)
+    run = _repair_run(orchestrator, tmp_path)
+    orchestrator.plane.store.set_payload(run, shot_clips=["s0.mp4", "s1.mp4", "s2.mp4", "s3.mp4"])
+    recut = []
+
+    def no_render(target_run):
+        raise AssertionError("a hosted reel must not be re-rendered or regenerated")
+
+    def fake_editor(target_run):
+        recut.append(True)
+        orchestrator.plane.store.set_payload(target_run, video=str(tmp_path / "recut.mp4"))
+        return {"mode": "assembled"}
+
+    monkeypatch.setattr(orchestrator, "_animation_engine", no_render)
+    monkeypatch.setattr(orchestrator, "_editor_engine", fake_editor)
+    result = orchestrator._video_qa(run)
+
+    assert result["passed"] and result["repair"]["strategy"] == "reassemble_hosted_clips"
+    assert recut == [True]

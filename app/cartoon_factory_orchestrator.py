@@ -240,7 +240,8 @@ class CartoonFactoryOrchestrator:
         preferred_hooks = set(policy.get("preferred_hooks", []))
         preferred_emotions = set(policy.get("preferred_emotions", []))
         preferred_characters = set(policy.get("preferred_characters", []))
-        exploration_rate = float(policy.get("exploration_rate", 0.30) if "exploration_rate" in policy else 0.30)
+        raw_rate = policy.get("exploration_rate")
+        exploration_rate = 0.30 if raw_rate is None else float(raw_rate)
         # Epsilon-greedy over runs: an exploring run deliberately favours
         # formats the policy is not already reinforcing, so under-tested
         # options keep receiving evidence instead of being starved.
@@ -815,13 +816,23 @@ class CartoonFactoryOrchestrator:
             return DEFAULT_MAX_REPAIR_ATTEMPTS
 
     def _rerender_full_for_video_qa(self, run: CartoonRun, media: dict[str, Any]) -> dict[str, Any]:
-        """Re-run the whole render after a technical failure (bad file, codec, missing audio)."""
+        """Rebuild the reel after a technical failure (bad file, codec, missing audio).
+
+        A hosted reel is re-cut from the clips already downloaded, so a broken
+        assembly never spends Runway credits again; a local reel is re-rendered.
+        """
         attempt = int(run.payload.get("video_repair_attempts", 0)) + 1
-        self._animation_engine(run)
+        if run.payload.get("shot_clips"):
+            self._editor_engine(run)
+            strategy = "reassemble_hosted_clips"
+        else:
+            self._animation_engine(run)
+            strategy = "full_rerender"
         history = list(run.payload.get("video_repair_history", []))
-        history.append({"attempt": attempt, "reasons": list(media.get("reasons", [])), "video": run.payload["video"]})
+        history.append({"attempt": attempt, "strategy": strategy, "reasons": list(media.get("reasons", [])),
+                        "video": run.payload["video"]})
         self.plane.store.set_payload(run, video_repair_attempts=attempt, video_repair_history=history)
-        return {"attempt": attempt, "strategy": "full_rerender", "reasons": list(media.get("reasons", [])),
+        return {"attempt": attempt, "strategy": strategy, "reasons": list(media.get("reasons", [])),
                 "video": run.payload["video"]}
 
     def _video_qa(self, run: CartoonRun) -> dict[str, Any]:
