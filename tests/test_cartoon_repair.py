@@ -232,3 +232,22 @@ def test_technical_failure_on_a_hosted_reel_recuts_without_new_credits(monkeypat
 
     assert result["passed"] and result["repair"]["strategy"] == "reassemble_hosted_clips"
     assert recut == [True]
+
+
+
+def test_hosted_reel_qa_failure_spends_nothing_unless_paid_repairs_are_on(monkeypatch, tmp_path: Path):
+    import app.cartoon_factory_orchestrator as factory_module
+
+    monkeypatch.delenv("NOVA_RUNWAY_PAID_REPAIRS", raising=False)
+    quality = ScriptedQuality([(OK_MEDIA, BAD_MOTION)])
+    orchestrator = CartoonFactoryOrchestrator(quality=quality)
+    run = _repair_run(orchestrator, tmp_path)
+    orchestrator.plane.store.set_payload(run, shot_clips=["s0.mp4", "s1.mp4", "s2.mp4", "s3.mp4"])
+
+    def no_spend(*args, **kwargs):
+        raise AssertionError("Runway must not be called when paid repairs are off")
+
+    monkeypatch.setattr(factory_module.runway_video, "execute_plan", no_spend)
+    monkeypatch.setattr(factory_module, "rerender_cartoon_shots", no_spend)
+    with pytest.raises(RuntimeError, match="paid repairs are off"):
+        orchestrator._video_qa(run)

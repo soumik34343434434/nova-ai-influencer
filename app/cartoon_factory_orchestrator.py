@@ -600,7 +600,7 @@ class CartoonFactoryOrchestrator:
             if not plan_path:
                 raise RuntimeError("Runway backend needs one storyboard shot per beat to build a plan")
             plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
-            hosted = runway_video.execute_plan(plan, ARTIFACTS / f"{slug}_runway")
+            hosted = runway_video.execute_plan(plan, ARTIFACTS / f"{slug}_runway", run_id=run.run_id, kind="generate")
             clips = [hosted["clips"][index] for index in sorted(hosted["clips"])]
             self.plane.store.set_payload(run, shot_clips=clips, runway_execution={
                 k: v for k, v in hosted.items() if k != "clips"
@@ -677,7 +677,16 @@ class CartoonFactoryOrchestrator:
             except (OSError, json.JSONDecodeError, TypeError, ValueError):
                 runway_repair_path = None
 
-        if run.payload.get("shot_clips") and runway_repair_path:
+        if run.payload.get("shot_clips"):
+            # A hosted reel is never silently re-rendered locally, and a paid
+            # regeneration only happens when the owner has opted in.
+            if os.environ.get("NOVA_RUNWAY_PAID_REPAIRS", "false").strip().lower() != "true":
+                raise RuntimeError(
+                    "Runway reel failed video QA (" + ", ".join(reasons) + "); paid repairs are off "
+                    "(NOVA_RUNWAY_PAID_REPAIRS=false), so no credits were spent"
+                )
+            if not runway_repair_path:
+                raise RuntimeError("Runway reel failed video QA but no repair plan could be built")
             return self._repair_hosted_shots(run, attempt, reasons, target_shots, plan, Path(runway_repair_path))
 
         tuning = {
@@ -728,7 +737,8 @@ class CartoonFactoryOrchestrator:
         """Targeted hosted repair: regenerate only failing shots, then re-cut the reel."""
         candidate = run.payload["winner"]["candidate"]
         repair_plan = json.loads(repair_plan_path.read_text(encoding="utf-8"))
-        result = runway_video.execute_plan(repair_plan, ARTIFACTS / f"{candidate['premise_slug']}_runway_repair_{attempt}")
+        result = runway_video.execute_plan(repair_plan, ARTIFACTS / f"{candidate['premise_slug']}_runway_repair_{attempt}",
+                                           run_id=run.run_id, kind="repair")
         clips = list(run.payload["shot_clips"])
         for shot, clip in result["clips"].items():
             clips[int(shot)] = clip

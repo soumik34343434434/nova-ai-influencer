@@ -8,6 +8,14 @@ from app.providers import runway_video
 from app.providers.runway_video import RunwayExecutionBlocked, RunwayVideoClient, execute_plan
 
 
+@pytest.fixture(autouse=True)
+def _isolated_ledger(monkeypatch, tmp_path):
+    """Every test gets its own credit ledger and a reachable network by default."""
+    monkeypatch.setattr(runway_video, "LEDGER_FILE", tmp_path / "ledger.json")
+    monkeypatch.setattr(runway_video, "host_reachable", lambda host, timeout=8.0: True)
+    monkeypatch.delenv("NOVA_RUNWAY_DAILY_CREDITS", raising=False)
+
+
 def _plan(tmp_path, durations=(2.4, 3.1)):
     image = tmp_path / "shot.png"
     image.write_bytes(b"\x89PNG\r\n\x1a\nfake")
@@ -130,3 +138,63 @@ def test_long_director_prompts_are_compacted_not_cut_mid_sentence():
     repair = build_runway_repair_request({"prompt": full}, {"reasons": ["possible_pose_popping"], "repair_shots": [1]})
     assert "Targeted repair:" in compact_prompt(repair["prompt"])
     assert compact_prompt("Short prompt.") == "Short prompt."
+
+
+
+def _client():
+    fake = FakeRunway()
+    return fake, RunwayVideoClient("test-secret", transport=fake.transport, downloader=fake.download)
+
+
+def test_episode_cap_counts_what_the_episode_already_spent(monkeypatch, tmp_path):
+    _enable(monkeypatch, budget="60")
+    fake, client = _client()
+    plan = _plan(tmp_path, durations=(2.0,))  # 25 credits
+    execute_plan(plan, tmp_path / "a", client=client, poll_seconds=0, run_id="ep-1")
+    execute_plan(plan, tmp_path / "b", client=client, poll_seconds=0, run_id="ep-1")  # 50 total
+    with pytest.raises(RunwayExecutionBlocked, match="already spent 50"):
+        execute_plan(plan, tmp_path / "c", client=client, poll_seconds=0, run_id="ep-1", kind="repair")
+    assert len(fake.posts) == 2
+    assert runway_video.credits_spent(run_id="ep-1") == 50
+
+
+def test_daily_cap_spans_episodes(monkeypatch, tmp_path):
+    _enable(monkeypatch, budget="100")
+    monkeypatch.setenv("NOVA_RUNWAY_DAILY_CREDITS", "30")
+    fake, client = _client()
+    plan = _plan(tmp_path, durations=(2.0,))
+    execute_plan(plan, tmp_path / "a", client=client, poll_seconds=0, run_id="ep-1")
+    with pytest.raises(RunwayExecutionBlocked, match="NOVA_RUNWAY_DAILY_CREDITS is 30"):
+        execute_plan(plan, tmp_path / "b", client=client, poll_seconds=0, run_id="ep-2")
+    assert len(fake.posts) == 1
+
+
+def test_unreachable_download_host_blocks_before_any_spend(monkeypatch, tmp_path):
+    """A clip that cannot be downloaded is wasted credits, so nothing is submitted."""
+    _enable(monkeypatch)
+    fake, client = _client()
+    blocked = runway_video.DEFAULT_DOWNLOAD_HOSTS[0]
+    with pytest.raises(RunwayExecutionBlocked, match=f"no credits spent.*{blocked}"):
+        execute_plan(_plan(tmp_path), tmp_path, client=client, poll_seconds=0,
+                     reachable=lambda host: host != blocked)
+    assert fake.posts == []
+    assert runway_video.credits_spent() == 0
+
+
+def test_missing_start_image_blocks_before_any_spend(monkeypatch, tmp_path):
+    _enable(monkeypatch)
+    fake, client = _client()
+    plan = _plan(tmp_path)
+    plan["shots"][1]["image"] = str(tmp_path / "missing.png")
+    with pytest.raises(RunwayExecutionBlocked, match="shot 1: start image missing"):
+        execute_plan(plan, tmp_path, client=client, poll_seconds=0)
+    assert fake.posts == []
+
+
+def test_quote_reports_cost_and_problems_without_spending(monkeypatch, tmp_path):
+    monkeypatch.setenv("NOVA_RUNWAY_MAX_CREDITS", "100")
+    result = runway_video.quote(_plan(tmp_path), run_id="ep-9", reachable=lambda host: False)
+    assert result["total_credits"] == 50
+    assert [row["billed_seconds"] for row in result["shots"]] == [5, 5]
+    assert any("cannot reach" in problem for problem in result["problems"])
+    assert runway_video.credits_spent() == 0

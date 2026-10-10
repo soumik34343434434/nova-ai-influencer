@@ -82,9 +82,29 @@ that a reviewable 1080×1920 episode with audio comes out.
 
 | Service | Switch | Needs |
 |---|---|---|
-| Runway video | `NOVA_CARTOON_ANIMATION_BACKEND=runway`, `NOVA_RUNWAY_EXECUTE=true` | `RUNWAYML_API_SECRET`, `NOVA_RUNWAY_MAX_CREDITS` ≥ the plan's billed estimate |
+| Runway video | `NOVA_CARTOON_ANIMATION_BACKEND=runway`, `NOVA_RUNWAY_EXECUTE=true` | `RUNWAYML_API_SECRET`; `NOVA_RUNWAY_MAX_CREDITS` (per episode, repairs included) and `NOVA_RUNWAY_DAILY_CREDITS` |
 | Runway voice | `NOVA_VOICE_BACKEND=runway` | `RUNWAYML_API_SECRET`, `RUNWAY_AUDIO_CONFIG_ID`; voices in `config/character_voices.json` |
 | YouTube / Instagram / TikTok posting | `NOVA_ENABLE_REAL_PUBLISH=true` + `--approve` + `--made-for-kids` | `YOUTUBE_ACCESS_TOKEN`; `INSTAGRAM_ACCESS_TOKEN` + `INSTAGRAM_USER_ID`; `TIKTOK_ACCESS_TOKEN` |
 | YouTube / TikTok / Instagram trends | key present | `YOUTUBE_API_KEY`; `TIKTOK_RESEARCH_ACCESS_TOKEN`; Instagram Graph credentials + Public Content Access |
 
 Check which trend sources are live with `python3 -m app.agents.trend_intelligence_v2`.
+
+## Runway credit safeguards
+
+Runway credits are spent only when every check passes, in this order:
+
+1. Execution is enabled and the API key is set.
+2. The request fits the episode cap including what the episode already spent
+   (repairs count) and the daily cap including everything spent today.
+3. A no-cost preflight passes: every start image exists, every model maps to a
+   Runway API id, every prompt fits Runway's limit, and the API and clip
+   download hosts are reachable, so no clip is generated that can't be used.
+
+Every submitted shot is recorded in `artifacts/cartoon/runway_credit_ledger.json`.
+A Runway-made reel that fails video QA stops and reports instead of
+regenerating shots, unless `NOVA_RUNWAY_PAID_REPAIRS=true`. To see what an
+episode would cost, and whether it could succeed, without spending anything:
+
+```bash
+python3 -m app.providers.runway_video quote artifacts/cartoon/<episode>.runway_plan.json --run-id <run_id>
+```
