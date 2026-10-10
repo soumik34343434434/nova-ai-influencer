@@ -23,6 +23,7 @@ import json
 import math
 import mimetypes
 import os
+import re
 import time
 import urllib.request
 from pathlib import Path
@@ -176,6 +177,57 @@ class RunwayVideoClient:
         return path
 
 
+# Runway rejects promptText longer than this; the Director's full prompt is ~3.5k.
+PROMPT_LIMIT = 1000
+_PROMPT_LABELS = (
+    "Targeted repair", "Performance arc", "Action chain", "Action", "Gaze", "Head", "Body", "Hands",
+    "Face", "Secondary motion", "Root lock", "Overshoot mode", "Facial performance", "Pose accents",
+    "Orientation lock", "Motion priority", "Timeline", "Camera", "Preserve", "Avoid",
+)
+# Most important first: what to fix, what happens, then what must not change.
+_PROMPT_PRIORITY = (
+    "Targeted repair", "Performance arc", "Action", "Gaze", "Head", "Hands", "Avoid", "Preserve",
+    "Root lock", "Orientation lock", "Body", "Camera", "Face",
+)
+
+
+def compact_prompt(prompt: str, limit: int = PROMPT_LIMIT) -> str:
+    """Fit a Director prompt into Runway's limit without cutting a sentence in half.
+
+    The full prompt is a run of "Label: content." sections. Keep the opening
+    instruction, then whole sections in priority order; long Preserve/Avoid
+    lists are added clause by clause.
+    """
+    text = " ".join(str(prompt).split())
+    if len(text) <= limit:
+        return text
+    labels = "|".join(re.escape(label) for label in _PROMPT_LABELS)
+    parts = re.split(rf"(?:^|(?<=\.) )({labels})(?: v[\d.]+)?: ", text)
+    intro = parts[0].strip()
+    sections: dict[str, str] = {}
+    for label, content in zip(parts[1::2], parts[2::2]):
+        sections.setdefault(label, content.strip().rstrip("."))
+    out = intro if len(intro) <= limit else intro[: limit - 1].rsplit(" ", 1)[0] + "."
+    for label in _PROMPT_PRIORITY:
+        content = sections.get(label)
+        if not content:
+            continue
+        piece = f" {label}: {content}."
+        if len(out) + len(piece) <= limit:
+            out += piece
+            continue
+        clauses = [c.strip() for c in content.split(";") if c.strip()]
+        kept: list[str] = []
+        for clause in clauses:
+            candidate = f" {label}: {'; '.join(kept + [clause])}."
+            if len(out) + len(candidate) > limit:
+                break
+            kept.append(clause)
+        if kept:
+            out += f" {label}: {'; '.join(kept)}."
+    return out.strip()
+
+
 def shot_payload(request: dict[str, Any], mapping: dict[str, str] | None = None) -> dict[str, Any]:
     mapping = mapping or model_ids()
     model = str(request.get("model", ""))
@@ -188,7 +240,7 @@ def shot_payload(request: dict[str, Any], mapping: dict[str, str] | None = None)
     return {
         "model": api_model,
         "promptImage": _data_uri(Path(request["image"])),
-        "promptText": str(request.get("prompt", ""))[:1000],
+        "promptText": compact_prompt(str(request.get("prompt", ""))),
         "ratio": ratio,
         "duration": billed_seconds(float(request.get("duration", 5.0))),
     }

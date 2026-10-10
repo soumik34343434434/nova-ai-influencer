@@ -112,3 +112,21 @@ def test_failed_task_surfaces_the_failure(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="moderation"):
         client.wait("t", poll_seconds=0)
     assert runway_video.billed_seconds(5.0) == 5 and runway_video.billed_seconds(5.1) == 10
+
+
+def test_long_director_prompts_are_compacted_not_cut_mid_sentence():
+    """Runway rejects ~1000+ char prompts; the Director's full prompt is ~3.5k."""
+    from app.agents.shot_performance import build_shot_performance_spec, performance_prompt
+    from app.providers.ai_performance import build_runway_repair_request
+    from app.providers.runway_video import PROMPT_LIMIT, compact_prompt
+
+    spec = build_shot_performance_spec(action="shock", dialogue="Then twelve sandwiches appear!", duration=3.3, camera="wide")
+    full = performance_prompt(spec)
+    assert len(full) > PROMPT_LIMIT
+    short = compact_prompt(full)
+    assert len(short) <= PROMPT_LIMIT and short.endswith(".")
+    for label in ("Performance arc:", "Action:", "Gaze:", "Avoid:", "Preserve:"):
+        assert label in short
+    repair = build_runway_repair_request({"prompt": full}, {"reasons": ["possible_pose_popping"], "repair_shots": [1]})
+    assert "Targeted repair:" in compact_prompt(repair["prompt"])
+    assert compact_prompt("Short prompt.") == "Short prompt."
