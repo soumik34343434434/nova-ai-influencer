@@ -173,10 +173,13 @@ def _render_espeak(text: str, path: Path, profile: VoiceProfile, rate_override: 
     # character pitch around that midpoint.
     pitch = max(20, min(80, round(50 + (profile.pitch - 1.0) * 240)))
     amplitude = max(20, min(100, round(profile.gain * 100)))
-    subprocess.run(
-        [exe, "-v", "en-us", "-s", str(rate), "-p", str(pitch), "-a", str(amplitude), "-w", str(path), text],
-        check=True, capture_output=True, text=True,
+    # Stream the WAV through stdout: eSpeak's -w option silently truncates
+    # output paths longer than 199 characters and writes to the wrong file.
+    result = subprocess.run(
+        [exe, "-v", "en-us", "-s", str(rate), "-p", str(pitch), "-a", str(amplitude), "--stdout", text],
+        check=True, capture_output=True,
     )
+    path.write_bytes(result.stdout)
     processed = path.with_suffix(".processed.wav")
     _postprocess_voice(path, processed, profile)
     processed.replace(path)

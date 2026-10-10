@@ -39,3 +39,18 @@ def test_short_exclamation_gets_a_visible_animation_event():
     from app.providers.cartoon_voice import prepare_voice_performance
     # Contract-level check on the normalization helper's policy via a synthetic row.
     assert 0.20 <= max(0.20, min(0.40, 0.116 + 0.10)) <= 0.40
+
+
+def test_espeak_renders_to_paths_longer_than_its_filename_limit(tmp_path):
+    import shutil
+    import pytest
+    from app.providers import cartoon_voice
+
+    if not (shutil.which("espeak-ng") or shutil.which("espeak")) or not shutil.which("ffmpeg"):
+        pytest.skip("espeak and ffmpeg are required")
+    deep = tmp_path / ("d" * 120) / ("e" * 120)
+    deep.mkdir(parents=True)
+    path = deep / "voice_00_raw.wav"
+    assert len(str(path)) > 200
+    cartoon_voice._render_espeak("One quick line.", path, BEAT_VOICE_PROFILES["setup"])
+    assert cartoon_voice._duration(path) > 0.3
