@@ -39,7 +39,7 @@ PAD_Y = round(H * (OVERSCAN - 1.0) / 2.0)
 SAFE_ZONE = (0.06, 0.12, 0.84, 0.76)
 REACTION_MOTION_GAIN = 2.0  # extra movement on reaction beats (close-up shots read as static otherwise)
 IDLE_BREATH_PX = 12.0  # whole-character rise/fall (px) so holds keep changing frame to frame
-IDLE_BREATH_HZ = 1.2
+IDLE_BREATH_HZ = 2.0
 
 
 def _idle_bob(progress: float, shot_seconds: float) -> float:
