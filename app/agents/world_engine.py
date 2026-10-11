@@ -51,7 +51,10 @@ class WorldEngine:
         names = list(scenes)
         return names[shot_index % len(names)]
 
-    def wardrobe(self, scene: str) -> str:
+    def wardrobe(self, scene: str, character: str = "") -> str:
+        # The recurring cartoon cast is drawn as animals and robots: they wear no human clothes.
+        if character and character.upper() in self.bible.get("characters", {}):
+            return "none: cartoon character, no clothing"
         return self.data["wardrobes"].get(f"{scene}_default", self.data["wardrobes"]["office_default"])
 
     def prop(self, scene: str, text: str, shot_index: int = 0) -> str:
@@ -72,7 +75,7 @@ class WorldEngine:
                 return prop
         return props[shot_index % len(props)]
 
-    def plan_shot(self, text: str, shot_index: int = 0) -> dict:
+    def plan_shot(self, text: str, shot_index: int = 0, character: str = "") -> dict:
         scene = self.choose_scene(text, shot_index)
         prop = self.prop(scene, text, shot_index)
         action = str({
@@ -84,7 +87,7 @@ class WorldEngine:
             "scene": scene,
             "scene_label": self.data["scenes"][scene]["label"],
             "setting": self.data["scenes"][scene]["setting"],
-            "wardrobe": self.wardrobe(scene),
+            "wardrobe": self.wardrobe(scene, character),
             "prop": prop,
             "mood": self.data["scenes"][scene]["mood"],
             "depth_plan": plan_world_depth(scene, prop, action).to_dict(),

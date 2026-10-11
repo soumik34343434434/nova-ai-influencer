@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.agents.cartoon_safety import contains_term
+
 CHARACTER_FIT_KEYWORDS = {
     "MOMO": ("cat", "cute", "office", "work", "awkward", "sleepy", "relatable", "meme", "reaction", "frustrat"),
     "PIP": ("robot", "tech", "ai", "future", "challenge", "gaming", "science", "glitch", "absurd"),
@@ -102,7 +104,7 @@ def score_content_opportunity(signal: Any) -> dict[str, Any]:
     trend_strength = _clamp(.35 * float(_get(signal, "velocity_score", 0)) + .25 * float(_get(signal, "freshness_score", 0)) + .20 * float(_get(signal, "cross_platform_score", 0)) + .20 * float(_get(signal, "novelty_score", 0)))
     character_fit = {}
     for character, keywords in CHARACTER_FIT_KEYWORDS.items():
-        hits = sum(1 for keyword in keywords if keyword in text)
+        hits = sum(1 for keyword in keywords if contains_term(text, keyword))
         character_fit[character] = _clamp(.30 + .10 * min(5, hits) + .12 * emotion_fit)
     best_character = max(character_fit, key=character_fit.get)
     content_opportunity = _clamp(.30 * trend_strength + .20 * production_feasibility + .18 * hook_strength + .14 * emotion_fit + .10 * originality + .08 * character_fit[best_character])

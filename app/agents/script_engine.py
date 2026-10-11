@@ -129,7 +129,10 @@ def _sentence(text: str, role: str) -> str:
     if role == "escalation":
         return clean.rstrip(".!?") + "!"
     if role == "reaction":
-        return clean.rstrip(".!?") + ("?" if "?" in clean else ".")
+        # Only the final sentence sets the terminal mark. An internal question
+        # ("Wait, why? Turns out...") must not turn a statement into a question.
+        last_sentence = re.split(r"(?<=[.!?])\s+", clean)[-1]
+        return clean.rstrip(".!?") + ("?" if last_sentence.endswith("?") else ".")
     if role == "payoff":
         return clean.rstrip(".!?") + "."
     return clean.rstrip(".!?") + "."
