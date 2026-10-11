@@ -37,7 +37,8 @@ PAD_Y = round(H * (OVERSCAN - 1.0) / 2.0)
 # Platform UI covers the outer frame; all text must stay inside this box
 # (x0, y0, x1, y1) as fractions of the 1080x1920 frame.
 SAFE_ZONE = (0.06, 0.12, 0.84, 0.76)
-CAPTION_TOP = 1181  # ~0.615 H: the caption block sits in the lower-middle safe area
+CAPTION_TOP = 260  # top band above the characters' heads and clear of platform UI
+CAPTION_ZONE = (90, 240, 990, 640)  # reserved text area that must not touch a character
 CAPTION_MAX_WIDTH = 720  # centred on W/2, so the block stays inside SAFE_ZONE
 CAPTION_SIZES = (64, 58, 52, 46)
 DISCLOSURE_TOP = int(H * SAFE_ZONE[1]) + 12
@@ -1307,7 +1308,7 @@ def _render_tuning(render_tuning: dict | None) -> dict:
         "transition_style": style,
         "transition_seconds": float(raw.get("transition_seconds", 0.20)),
         "caption_y": int(raw.get("caption_y", CAPTION_TOP)),
-        "caption_zone": list(raw.get("caption_zone", [180, CAPTION_TOP, 900, int(H * SAFE_ZONE[3])])),
+        "caption_zone": list(raw.get("caption_zone", CAPTION_ZONE)),
         "crf": int(raw.get("crf", 18)),
         "repair_attempt": int(raw.get("repair_attempt", 0)),
         "repair_reasons": list(raw.get("repair_reasons", [])),
