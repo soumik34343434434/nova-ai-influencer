@@ -116,6 +116,14 @@ def test_runway_backend_runs_hosted_shots_through_the_editor(monkeypatch, tmp_pa
         for i in range(4):
             _clip(made / f"shot_{i:02d}.mp4", 5)
         monkeypatch.setenv("NOVA_RUNWAY_CLIPS_DIR", str(made))
+        real_import = orch.runway_video.import_clips
+
+        def import_for_this_plan(plan, clips_dir):
+            # Operators run `handoff` for the plan the stage built; it pins the clips to that plan's hash.
+            orch.runway_video.write_handoff(plan, clips_dir)
+            return real_import(plan, clips_dir)
+
+        monkeypatch.setattr(orch.runway_video, "import_clips", import_for_this_plan)
 
     animation = factory._animation_engine(run)
     assert animation["hosted_shots"] == 4
