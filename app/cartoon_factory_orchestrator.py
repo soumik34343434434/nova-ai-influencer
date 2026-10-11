@@ -38,6 +38,7 @@ from app.agents.cartoon_animatic_judge import AnimaticJudge
 from app.agents.cartoon_motion_qa import CartoonMotionQA
 from app.agents.cartoon_quality import CartoonQuality
 from app.agents.final_qa import FinalQAAggregator
+from app.agents.media_qa import MediaQA
 from app.agents.cartoon_research import discover, rank, ResearchSignal
 from app.agents.storyboard import build_storyboard
 from app.agents.story_engine import StoryEngine
@@ -84,6 +85,7 @@ class CartoonFactoryOrchestrator:
         self.story_engine = StoryEngine()
         self.script_engine = ScriptEngine()
         self.final_qa = FinalQAAggregator(self.quality, self.story_engine)
+        self.media_qa = MediaQA()
         self.plane = CartoonControlPlane(max_retries=1)
         self._register()
 
@@ -903,6 +905,9 @@ class CartoonFactoryOrchestrator:
             repairs.append(repair)
             video = Path(repair["video"])
 
+        # Measured mp4 checks (loudness, silence, edges, freezes, cuts, captions)
+        # run once the rerender loop settles; their failures block at publish.
+        media = MediaQA.combine(media, self.media_qa.evaluate(video))
         final_qa = self._final_qa(run, media, motion)
         record_provider_observation(
             provider=str(run.payload.get("animation_backend", "pillow")),
