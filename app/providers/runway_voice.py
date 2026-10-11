@@ -10,7 +10,7 @@ import os
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 API_URL = "https://api.dev.runwayml.com/v1/generate/audio"
@@ -117,6 +117,7 @@ class RunwayVoiceProvider:
         duration: float | None = None,
         poll_seconds: float = 2.0,
         timeout_seconds: float = 300.0,
+        on_submit: Callable[[str], None] | None = None,
     ) -> dict[str, Any]:
         payload = self.request_payload(text, beat, voice, duration)
         started = time.monotonic()
@@ -124,6 +125,9 @@ class RunwayVoiceProvider:
         task_id = str(task.get("id", ""))
         if not task_id:
             raise RuntimeError("Runway did not return a task id")
+        if on_submit is not None:
+            # Called as soon as Runway accepts the task, so credit spend is recorded even if polling fails.
+            on_submit(task_id)
         while time.monotonic() - started < timeout_seconds:
             status = self._request(TASK_URL.format(task_id=task_id))
             state = str(status.get("status", "")).upper()

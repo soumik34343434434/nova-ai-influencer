@@ -21,6 +21,8 @@ from typing import Any
 
 from PIL import Image, ImageDraw
 
+from app.providers.cartoon_audio import loudness_normalize
+
 W, H = 1080, 1920
 DISCLOSURE = "AI-generated • fictional cartoon"
 
@@ -100,6 +102,11 @@ def assemble_reel(
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="nova-editor-") as tmp:
         work = Path(tmp)
+        if audio is not None:
+            # The local voice track gets the same -14 LUFS / -1.5 dBTP target as local episodes.
+            normalized = work / "voice_loudness.wav"
+            loudness_normalize(audio, normalized)
+            audio = normalized
         segments = []
         for index, (clip, shot) in enumerate(zip(clips, shots)):
             duration = max(0.25, float(shot["duration_seconds"]))
