@@ -1,19 +1,35 @@
-name: NOVA daily content cycle
+name: NOVA daily content cycle (legacy)
 
+# Legacy persona content job, superseded by cartoon-factory.yml. Its schedule is
+# disabled; it runs only when started by hand from the Actions tab.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 4 * * *"  # 09:30 IST
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nova-legacy-daily-content
+  cancel-in-progress: false
 
 jobs:
   generate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out the repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - run: pip install -r requirements.txt
+
+      - name: Install Python dependencies
+        run: python -m pip install --prefer-binary -r requirements.txt
+
       - name: Generate daily content
         env:
           MOCK_LLM: "true"

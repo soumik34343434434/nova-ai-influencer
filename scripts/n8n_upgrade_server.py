@@ -1,5 +1,6 @@
 from __future__ import annotations
 import fnmatch
+import hashlib
 import hmac
 import json
 import os
@@ -20,11 +21,27 @@ TOKEN = os.getenv("NOVA_API_TOKEN", "").strip()
 LOCK = REPO / ".n8n_upgrade.lock"
 MAX_READ = 120_000
 ALLOWED_TEST_PREFIX = ".venv/bin/python -m pytest "
-CODEX_BIN = shutil.which("codex") or "/Users/sante/.nvm/versions/node/v24.21.0/bin/codex"
+CODEX_BIN = os.getenv("CODEX_BIN", "").strip() or "codex"
 CODEX_TIMEOUT = 660
 CODEX_MAX_PROMPT = 30_000
 CODEX_ALLOWED_PREFIXES = ("app/", "tests/", "docs/", "tools/blender/")
 CODEX_ALLOWED_FILES = {"pyproject.toml", "pytest.ini", "requirements.txt", "requirements-dev.txt", "config/cartoon_blender_profiles.json"}
+# Paths Codex may never change: the approval gate, the platform publishers, the
+# Runway spend gate, and the automation itself. Checked before the allow-list.
+PROTECTED_PATHS = (
+    "app/providers/publisher.py",
+    "app/providers/platform_publishers.py",
+    "app/publish_approved.py",
+    "app/providers/runway_video.py",
+    ".github/",
+    ".gitignore",
+    "scripts/n8n_",
+    "workflows/n8n/",
+)
+# Ignored output that a build or test run legitimately creates. Any other newly
+# ignored path (for example a credentials or database file) counts as a violation.
+GENERATED_IGNORED_PARTS = (".venv", "artifacts", "__pycache__", ".pytest_cache")
+SECRET_FILES = (".env", ".env.local")
 BLOCKED_NAMES = {".env", ".env.local", ".git"}
 
 app = FastAPI(title="NOVA n8n Upgrade Executor", version="1.0")
@@ -137,22 +154,69 @@ def current_state() -> dict:
 
 
 
-def _changed_paths() -> list[str]:
-    proc = subprocess.run(["git", "status", "--porcelain=v1"], cwd=REPO, text=True, capture_output=True, timeout=30)
+def _repo_status() -> tuple[list[str], set[str]]:
+    """Return (changed tracked or untracked paths, ignored paths).
+
+    Ignored files are listed too: a plain ``git status`` never shows them, so an
+    edit to an ignored secret file would otherwise go unnoticed.
+    """
+    # --untracked-files=all lists each new file; by default git collapses a new
+    # directory to "app/providers/", which would slip past the protected-path check.
+    proc = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--ignored=matching", "--untracked-files=all"],
+        cwd=REPO,
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
     if proc.returncode:
         raise RuntimeError((proc.stdout + proc.stderr).strip()[-4000:] or "git status failed")
-    paths: list[str] = []
+    changed: list[str] = []
+    ignored: set[str] = set()
     for line in proc.stdout.splitlines():
         if not line:
             continue
         entry = line[3:] if len(line) >= 4 else line
+        if line.startswith("!! "):
+            ignored.add(entry.rstrip("/"))
+            continue
         if " -> " in entry:
             entry = entry.split(" -> ", 1)[1]
-        paths.append(entry)
-    return paths
+        changed.append(entry)
+    return changed, ignored
 
-def _ensure_codex_changes_safe() -> list[str]:
-    paths = _changed_paths()
+def _changed_paths() -> list[str]:
+    return _repo_status()[0]
+
+def _secret_fingerprint() -> dict[str, str]:
+    fingerprint = {}
+    for name in SECRET_FILES:
+        path = REPO / name
+        fingerprint[name] = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+    return fingerprint
+
+def _is_protected(path: str) -> bool:
+    return any(path == item or path.startswith(item) for item in PROTECTED_PATHS)
+
+def _is_generated_ignored(path: str) -> bool:
+    return any(part in GENERATED_IGNORED_PARTS for part in path.split("/"))
+
+def _ensure_codex_changes_safe(
+    ignored_before: set[str] | None = None,
+    secrets_before: dict[str, str] | None = None,
+) -> list[str]:
+    if secrets_before is not None:
+        touched = [name for name, digest in _secret_fingerprint().items() if digest != secrets_before.get(name)]
+        if touched:
+            raise RuntimeError("Codex modified secret files: " + ", ".join(touched))
+    paths, ignored = _repo_status()
+    if ignored_before is not None:
+        new_ignored = sorted(p for p in ignored - ignored_before if not _is_generated_ignored(p))
+        if new_ignored:
+            raise RuntimeError("Codex created ignored, non-generated files: " + ", ".join(new_ignored))
+    protected = [p for p in paths if _is_protected(p)]
+    if protected:
+        raise RuntimeError("Codex changed protected paths: " + ", ".join(protected))
     unexpected = [p for p in paths if p not in CODEX_ALLOWED_FILES and not p.startswith(CODEX_ALLOWED_PREFIXES)]
     if unexpected:
         raise RuntimeError("Codex changed protected/unexpected paths: " + ", ".join(unexpected))
@@ -163,7 +227,7 @@ def _codex_exec(prompt: str) -> dict:
         raise HTTPException(status_code=400, detail="prompt required")
     if len(prompt) > CODEX_MAX_PROMPT:
         raise HTTPException(status_code=400, detail="prompt too large")
-    if not shutil.which("codex") and not Path(CODEX_BIN).exists():
+    if shutil.which(CODEX_BIN) is None:
         raise HTTPException(status_code=503, detail="Codex CLI not installed")
     lock_path = REPO / ".codex_n8n.lock"
     try:
@@ -252,9 +316,10 @@ def _codex_cycle() -> dict:
     if pr:
         green, checks = _pr_checks(int(pr["number"]))
         if green:
-            merged = run(["gh", "pr", "merge", str(pr["number"]), "--squash", "--delete-branch"])
+            # Never merge from here: a person reviews and merges the PR. Switching
+            # back to main keeps the agent blocked until that happens.
             run(["git", "switch", "main"])
-            return {"ok": True, "status": "merged", "pr": pr, "checks": checks, "merge": merged, "branch": "main"}
+            return {"ok": True, "status": "ready_for_review", "pr": pr, "checks": checks, "branch": "main"}
         lowered = checks.lower()
         if any(word in lowered for word in ("pending", "queued", "in progress", "running")):
             return {"ok": True, "status": "ci_pending", "pr": pr, "checks": checks, "branch": branch}
@@ -312,11 +377,13 @@ At the end, report: active engine, exact quality area improved, concrete changes
     if pr:
         prompt += "\n\nThe existing PR had failed required checks. Repair only the active engine. Failed-check output:\n" + _pr_checks(int(pr["number"]))[1][-8000:]
 
+    ignored_before = _repo_status()[1]
+    secrets_before = _secret_fingerprint()
     codex = _codex_exec(prompt)
     if not codex["ok"]:
         return {"ok": False, "status": "codex_failed", "branch": branch, "codex": codex}
     try:
-        changed = _ensure_codex_changes_safe()
+        changed = _ensure_codex_changes_safe(ignored_before, secrets_before)
     except RuntimeError as exc:
         return {"ok": False, "status": "protected_path_violation", "branch": branch, "codex": codex, "error": str(exc)}
     if not changed:
@@ -362,6 +429,8 @@ def action(req: Action, x_nova_api_key: str | None = Header(default=None, alias=
         return {"path": req.path, "content": p.read_text(encoding="utf-8")[:MAX_READ]}
     if a == "write_file":
         p = safe_path(req.path)
+        if _is_protected(req.path.strip()):
+            raise HTTPException(status_code=403, detail="protected path: edit it by hand and review the change")
         if not req.path or not p.parent.exists():
             raise HTTPException(status_code=400, detail="invalid file path")
         if len(req.content) > MAX_READ:
@@ -389,6 +458,8 @@ def action(req: Action, x_nova_api_key: str | None = Header(default=None, alias=
     if a == "commit_push":
         if not req.message.strip():
             raise HTTPException(status_code=400, detail="commit message required")
+        if run(["git", "branch", "--show-current"]) == "main":
+            raise HTTPException(status_code=409, detail="refusing to commit on main; use a codex/ branch and open a PR")
         run(["git", "add", "-A"])
         diff = run(["git", "status", "--porcelain"])
         if not diff:
@@ -412,11 +483,10 @@ def action(req: Action, x_nova_api_key: str | None = Header(default=None, alias=
     if a == "codex_cycle":
         return _codex_cycle()
     if a == "merge_pr":
-        if req.pr_number is None:
-            raise HTTPException(status_code=400, detail="pr_number required")
-        checks = run(["gh", "pr", "checks", str(req.pr_number), "--required"])
-        merged = run(["gh", "pr", "merge", str(req.pr_number), "--squash", "--delete-branch"])
-        return {"ok": True, "checks": checks, "merge": merged}
+        # Disabled on purpose: the agent opens PRs, and a person merges them after
+        # review. Branch protection on main (required 'NOVA CI' check, no force
+        # push, required review) is set in the repository settings by the owner.
+        raise HTTPException(status_code=403, detail="merging is disabled; review and merge the PR on GitHub")
     raise HTTPException(status_code=400, detail=f"unknown action: {a}")
 
 if __name__ == "__main__":

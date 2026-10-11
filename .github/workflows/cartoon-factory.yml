@@ -1,88 +1,169 @@
 name: NOVA cartoon factory
 
-# Runs all 16 factory stages on GitHub's machines: research, ideas, jury,
-# story, script, storyboard, assets, animation, audio, captions, editor,
-# video QA + repair, publish queue, analytics and learning. Uses only free
-# sources and local rendering; nothing is posted and no paid API is called.
+# Daily episode run on GitHub-hosted runners: all 16 factory stages, using free
+# sources and local rendering. Nothing is posted here.
+#
+# Durable state: learning memory and run records live on the factory-state
+# branch (scripts/state_sync.py), not in a cache. The finished episode is attached
+# to a DRAFT release (visible only to repository writers) and a review issue with
+# no episode title is opened. Publishing is a separate workflow, gated by the
+# "publish" environment (publish-episode.yml).
+#
+# Schedules run only from the default branch, so this schedule is live after this
+# file is merged to main. Start a run by hand from the Actions tab at any time.
 on:
   workflow_dispatch:
   schedule:
-    - cron: "47 3 * * *"  # daily, 09:17 IST
-  push:
-    paths:
-      - .github/workflows/cartoon-factory.yml
+    - cron: "47 3 * * *"  # daily, about 09:17 IST
+
+permissions:
+  contents: read
 
 concurrency:
-  group: nova-cartoon-factory
+  group: nova-factory-state
   cancel-in-progress: false
 
 jobs:
   episode:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write  # push factory-state and create the draft release
+      issues: write    # open the review issue
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out the repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
           cache-dependency-path: requirements.txt
-      - name: Ensure media tools
+
+      - name: Ensure the factory-state branch exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/state_sync.py ensure-branch
+
+      - name: Check out factory state
+        uses: actions/checkout@v6
+        with:
+          ref: factory-state
+          path: state-branch
+          fetch-depth: 1
+          persist-credentials: true  # the only step that pushes state
+
+      - name: Install media tools
         run: |
           if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v espeak-ng >/dev/null 2>&1; then
-            if ! timeout 120s sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng; then
-              timeout 120s sudo apt-get update -y
-              timeout 120s sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng
+            if ! timeout 180s sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng fonts-noto-color-emoji; then
+              timeout 180s sudo apt-get update -y
+              timeout 180s sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng fonts-noto-color-emoji
             fi
           fi
-      - run: pip install --prefer-binary -r requirements.txt
-      # Learning, trend history and experiments carry over between runs.
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --prefer-binary -r requirements.txt
+          if [ -f requirements-voice.txt ]; then
+            python -m pip install --prefer-binary -r requirements-voice.txt
+          fi
+
+      - name: Cache voice models
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/nova/models
+          key: nova-voice-models-${{ runner.os }}-${{ hashFiles('requirements-voice.txt') }}
+
       - name: Restore factory memory
-        uses: actions/cache/restore@v4
-        with:
-          path: artifacts/cartoon/*.json
-          key: nova-factory-memory-${{ github.run_id }}
-          restore-keys: nova-factory-memory-
+        run: python scripts/state_sync.py pull --state-dir state-branch
+
+      - name: Pass optional repository variables
+        env:
+          NOVA_VOICE_BACKEND: ${{ vars.NOVA_VOICE_BACKEND }}
+          NOVA_CARTOON_ANIMATION_BACKEND: ${{ vars.NOVA_CARTOON_ANIMATION_BACKEND }}
+          NOVA_MAX_REPAIR_ATTEMPTS: ${{ vars.NOVA_MAX_REPAIR_ATTEMPTS }}
+        run: |
+          # Only non-empty values are exported, so code defaults apply otherwise.
+          # Runway is deliberately absent: the factory never spends Runway credits.
+          for name in NOVA_VOICE_BACKEND NOVA_CARTOON_ANIMATION_BACKEND NOVA_MAX_REPAIR_ATTEMPTS; do
+            value="${!name}"
+            if [ -n "$value" ]; then
+              echo "$name=$value" >> "$GITHUB_ENV"
+            fi
+          done
+
       - name: Run all 16 stages
-        run: python -m app.cartoon_factory_orchestrator
-      - name: Save factory memory
+        id: run
+        env:
+          # Keyed research sources. Instagram and TikTok research credentials are
+          # not passed here: this job only reads public trend data.
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: python -m app.cartoon_factory_orchestrator run
+
+      - name: Store factory memory and run records
         if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: artifacts/cartoon/*.json
-          key: nova-factory-memory-${{ github.run_id }}
-      - name: Summarise the episode
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/state_sync.py push --state-dir state-branch \
+            --message "Factory state after run ${GITHUB_RUN_ID}"
+          git -C state-branch push origin HEAD:factory-state
+
+      - name: Summarise the run
         if: always()
         run: |
           python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json, pathlib
           runs = sorted(pathlib.Path("artifacts/cartoon/runs").glob("*/run.json"), key=lambda p: p.stat().st_mtime)
           if not runs:
-              print("No run was created."); raise SystemExit
+              print("No run was created.")
+              raise SystemExit
           run = json.loads(runs[-1].read_text())
           payload = run.get("payload", {})
-          winner = payload.get("winner", {}).get("candidate", {})
-          print(f"## {run['status']}: {payload.get('title') or winner.get('title', '')}")
-          print(f"Character **{winner.get('character', '?')}**, hook: {winner.get('hook', '')}\n")
+          print(f"## Factory run {runs[-1].parent.name}: {run.get('status', 'unknown')}")
+          print("Episode details stay out of the public summary; open the draft release or the review issue.\n")
           print("| Stage | Status | Attempts |\n|---|---|---|")
           for name, stage in run.get("stages", {}).items():
-              print(f"| {name} | {stage['status']} | {stage.get('attempts', '')} |")
-              if stage.get("error"):
-                  print(f"\n> {name}: {stage['error'][:500]}\n")
+              print(f"| {name} | {stage.get('status', '')} | {stage.get('attempts', '')} |")
           final = payload.get("final_qa", {})
           if final:
               print(f"\nFinal QA: **{final.get('status')}**")
-          print(f"\nVideo: `{pathlib.Path(payload.get('video', '')).name}` (download it from this run's artifacts)")
           PY
-      - name: Upload episode
+
+      - name: Locate the finished episode
+        id: episode
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: nova-episode-${{ github.run_id }}
-          path: |
-            artifacts/cartoon/*_factory.mp4
-            artifacts/cartoon/*_factory.edit_plan.json
-            artifacts/cartoon/runs/*/run.json
-            artifacts/cartoon/publish_queue.json
-          if-no-files-found: warn
-          retention-days: 14
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, pathlib
+          runs = sorted(pathlib.Path("artifacts/cartoon/runs").glob("*/run.json"), key=lambda p: p.stat().st_mtime)
+          if not runs:
+              raise SystemExit
+          run = json.loads(runs[-1].read_text())
+          video = pathlib.Path(run.get("payload", {}).get("video", "")).name
+          has_video = bool(video) and (pathlib.Path("artifacts/cartoon") / video).is_file()
+          print(f"run_id={runs[-1].parent.name}")
+          print(f"status={run.get('status', 'unknown')}")
+          print(f"has_video={'true' if has_video else 'false'}")
+          PY
+
+      - name: Attach the episode to a draft release and open a review issue
+        if: always() && steps.episode.outputs.has_video == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.episode.outputs.run_id }}
+          RUN_STATUS: ${{ steps.episode.outputs.status }}
+        run: |
+          video="$(python scripts/state_sync.py episode-video --state-dir state-branch --run-id "$RUN_ID")"
+          record="state-branch/state/cartoon/runs/$RUN_ID/run.json"
+          tag="episode-$RUN_ID"
+          gh release create "$tag" "$video" "$record" --draft --target "$GITHUB_SHA" \
+            --title "Episode $RUN_ID" \
+            --notes "Draft episode from factory run $RUN_ID (status: $RUN_STATUS). Drafts are visible to repository writers only."
+          url="$(gh release view "$tag" --json url --jq .url)"
+          gh issue create --title "Review episode $RUN_ID" \
+            --body "Factory run $RUN_ID finished with status $RUN_STATUS. Draft release: $url. To publish, start the NOVA publish episode workflow with this run id."

@@ -1,7 +1,5 @@
 [
   {
-    "updatedAt": "2026-10-08T04:37:36.000Z",
-    "createdAt": "2026-10-08T03:44:28.600Z",
     "id": "nova-overnight-upgrade-agent",
     "name": "NOVA Overnight Upgrade Agent",
     "description": null,
@@ -79,32 +77,8 @@
     "meta": null,
     "nodeGroups": [],
     "pinData": {},
-    "versionId": "ae2be7be-8248-4728-b9e3-7dbe46be7d96",
-    "activeVersionId": "ae2be7be-8248-4728-b9e3-7dbe46be7d96",
-    "versionCounter": 3,
-    "triggerCount": 1,
     "sourceWorkflowId": null,
     "tags": [],
-    "shared": [
-      {
-        "updatedAt": "2026-10-08T03:44:28.603Z",
-        "createdAt": "2026-10-08T03:44:28.603Z",
-        "role": "workflow:owner",
-        "workflowId": "nova-overnight-upgrade-agent",
-        "projectId": "wpj75ezIYGE6CkeF",
-        "project": {
-          "updatedAt": "2026-10-08T02:08:00.882Z",
-          "createdAt": "2026-10-08T02:05:41.228Z",
-          "id": "wpj75ezIYGE6CkeF",
-          "name": "Soumik Paul <soumikp922@gmail.com>",
-          "type": "personal",
-          "icon": null,
-          "description": null,
-          "customTelemetryTags": [],
-          "creatorId": "7b3061ff-8172-4165-bb59-c41215606fec"
-        }
-      }
-    ],
     "versionMetadata": {
       "name": null,
       "description": null
