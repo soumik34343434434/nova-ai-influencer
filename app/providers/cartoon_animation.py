@@ -866,6 +866,10 @@ def _apply_rig_performance(
     dy = (root["root_dy"] + dy) * motion_gain
     scale = 1.0 + ((root["root_scale"] * scale) - 1.0) * motion_gain
     rotation = (root["root_rot"] + rotation) * motion_gain
+    # Idle breath: a slow 1.4 px rise and fall of the head through every shot.
+    # Holds were near-identical frames (failing the duplicate-frame check) and
+    # this keeps them alive without faking a pose change.
+    dy += 1.4 * math.sin(math.tau * 0.6 * progress * duration)
     cover = frame.filter(ImageFilter.GaussianBlur(11))
     base = Image.composite(cover, frame, rig.cover_mask).convert("RGB")
     rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
