@@ -610,6 +610,10 @@ class CartoonFactoryOrchestrator:
             self.plane.store.set_payload(run, shot_clips=clips, runway_execution={
                 k: v for k, v in hosted.items() if k != "clips"
             }, animation_backend="runway")
+        else:
+            # A local render replaces any hosted clips from an earlier attempt;
+            # keeping them would assemble the old Runway shots and block the free repair.
+            self.plane.store.set_payload(run, shot_clips=None, runway_execution=None, animation_backend=backend)
         return {
             "video": str(output),
             "renderer": "blender-cutout-performance-rig-v5" if backend == "blender" and candidate.get("character") in {"PIP", "MOMO", "BUBU"} else "cartoon-motion-3.6",
@@ -621,7 +625,10 @@ class CartoonFactoryOrchestrator:
 
     def _rerender_for_motion_qa(self, run: CartoonRun, motion_result: dict[str, Any]) -> dict[str, Any]:
         """Surgically rerender failed shots plus their dependent outgoing bridges."""
-        attempt = int(run.payload.get("motion_repair_attempts", 0)) + 1
+        # A paid repair that was interrupted keeps its attempt number, so the retry
+        # resumes the same Runway manifest instead of paying for the shots again.
+        pending = run.payload.get("motion_repair_pending") or {}
+        attempt = int(pending.get("attempt") or int(run.payload.get("motion_repair_attempts", 0)) + 1)
         if attempt > self._max_repair_attempts():
             raise RuntimeError(f"Motion QA repair budget exhausted after {attempt - 1} attempt(s)")
 
@@ -739,24 +746,38 @@ class CartoonFactoryOrchestrator:
 
     def _repair_hosted_shots(self, run: CartoonRun, attempt: int, reasons: list[str], target_shots: list[int],
                              plan: dict[str, Any], repair_plan_path: Path) -> dict[str, Any]:
-        """Targeted hosted repair: regenerate only failing shots, then re-cut the reel."""
+        """Targeted hosted repair: regenerate only failing shots, then re-cut the reel.
+
+        The paid clips are stored in ``shot_clips`` before the re-cut, so a failed
+        assembly is retried without paying again. A reel that fails the editor's
+        checks is never adopted as the episode video.
+        """
         candidate = run.payload["winner"]["candidate"]
         repair_plan = json.loads(repair_plan_path.read_text(encoding="utf-8"))
+        runway_plan = json.loads(Path(run.payload["runway_plan"]).read_text(encoding="utf-8"))
+        pending = {"attempt": attempt, "reasons": reasons, "target_shots": target_shots,
+                   "repair_plan": str(repair_plan_path)}
+        self.plane.store.set_payload(run, motion_repair_pending=pending)
         result = runway_video.execute_plan(repair_plan, ARTIFACTS / f"{candidate['premise_slug']}_runway_repair_{attempt}",
                                            run_id=run.run_id, kind="repair")
+        # shot_clips is ordered by shot number; map each replacement to its slot.
+        order = sorted(int(shot.get("shot_index", position)) for position, shot in enumerate(runway_plan.get("shots", [])))
         clips = list(run.payload["shot_clips"])
         for shot, clip in result["clips"].items():
-            clips[int(shot)] = clip
+            clips[order.index(int(shot))] = clip
+        self.plane.store.set_payload(run, shot_clips=clips, motion_repair_pending=pending)
         audio = run.payload.get("audio_metadata", {}).get("audio_source")
         output = ARTIFACTS / f"{candidate['premise_slug']}_edited_r{attempt}.mp4"
         report = assemble_reel([Path(c) for c in clips], run.payload["edit_plan"], output,
                                audio=Path(audio) if audio else None)
+        if not report["passed"]:
+            raise RuntimeError("Hosted repair: reel does not match the edit plan: " + ", ".join(report["reasons"]))
         history = list(run.payload.get("motion_repair_history", []))
         history.append({"attempt": attempt, "reasons": reasons, "target_shots": target_shots, "plan": plan,
                         "video": str(output), "strategy": "hosted-targeted-regeneration"})
-        self.plane.store.set_payload(run, shot_clips=clips, video=str(output), editor=report,
+        self.plane.store.set_payload(run, video=str(output), editor=report,
                                      motion_repair_attempts=attempt, motion_repair_target_shots=target_shots,
-                                     motion_repair_history=history)
+                                     motion_repair_history=history, motion_repair_pending=None)
         return {"attempt": attempt, "plan": plan, "target_shots": target_shots, "video": str(output),
                 "strategy": "hosted-targeted-regeneration"}
 

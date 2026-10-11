@@ -109,18 +109,48 @@ Runway credits are spent only when every check passes, in this order:
    Runway API id, every prompt fits Runway's limit, and the API and clip
    download hosts are reachable, so no clip is generated that can't be used.
 
-Every submitted shot is recorded in `artifacts/cartoon/runway_credit_ledger.json`.
-A Runway-made reel that fails video QA stops and reports instead of
-regenerating shots, unless `NOVA_RUNWAY_PAID_REPAIRS=true`. To see what an
-episode would cost, and whether it could succeed, without spending anything:
+Every submitted shot is reserved in, then recorded in,
+`artifacts/cartoon/runway_credit_ledger.json` under a file lock, and every
+write is atomic. A ledger that cannot be read blocks spending instead of
+counting as zero. A stage retry is safe: each plan's task ids and downloaded
+clips are kept in `artifacts/cartoon/<slug>_runway/plan_<hash>/manifest.json`,
+so retries reuse clips and poll submitted tasks rather than paying again. A
+Runway-made reel that fails video QA stops and reports instead of
+regenerating shots, unless `NOVA_RUNWAY_PAID_REPAIRS=true`; a paid repair
+counts against the episode cap and is only adopted when the Editor passes it.
+To see what an episode would cost and every reason it would be refused,
+without spending anything (exit code 2 means execution would be refused):
 
 ```bash
 python3 -m app.providers.runway_video quote artifacts/cartoon/<episode>.runway_plan.json --run-id <run_id>
 ```
 
+Quote the plan's `total_credits`, not the `estimated_total_credits` stored in
+the plan file: Runway bills every clip in 5 s or 10 s units.
+
 Runway bills the API and the web app from separate credit pools: credits on a
-Standard/Pro web plan cannot be spent with an API key. To use web-app credits,
-make one clip per planned shot there (same start image and prompt), save them
-as `shot_00*.mp4`, `shot_01*.mp4`, ... and set `NOVA_RUNWAY_CLIPS_DIR` to that
-folder. The animation stage then imports them, spending nothing, and the
-Editor and video QA run as usual.
+Standard/Pro web plan cannot be spent with an API key. To use web-app credits:
+
+1. Run the factory once with the default `pillow` backend, or otherwise
+   produce the episode's `*.runway_plan.json`. Storyboard shots are planned
+   per run, so a plan only exists after its animation stage has run.
+2. Write the handoff for that plan. It records the expected file names, the
+   compacted prompts and start images, and the plan's hash:
+
+   ```bash
+   python3 -m app.providers.runway_video handoff artifacts/cartoon/<slug>.runway_plan.json artifacts/cartoon/web_clips/<run_id>
+   ```
+
+3. In the web app, make one clip per shot from that handoff and save it as
+   `shot_00.mp4`, `shot_01.mp4`, ... in that folder. Each clip must be portrait
+   at the plan's aspect ratio and at least as long as the planned shot.
+4. Re-run the animation stage with `NOVA_CARTOON_ANIMATION_BACKEND=runway` and
+   `NOVA_RUNWAY_CLIPS_DIR` set to that folder, for example
+   `python3 -m app.cartoon_factory_orchestrator repair <run_id> animation_engine`.
+   The folder is refused unless its handoff matches this plan, and each clip is
+   probed with ffprobe. Nothing is spent, and the Editor and video QA then run
+   as usual.
+
+Each shot's Runway clip is 5 s or 10 s. The prompt tells the model where the
+action completes in that clip and to hold the final pose, and the Editor trims
+from the start, so the planned action is always inside the kept footage.
