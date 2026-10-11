@@ -5,17 +5,12 @@ The API is intentionally localhost-friendly and uses a shared header token.
 """
 from __future__ import annotations
 
-import hmac
-import os
 from dataclasses import asdict
-from enum import Enum
 
-from fastapi import APIRouter, Header, HTTPException, status
-from dotenv import load_dotenv
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-load_dotenv()
-
+from app.api.auth import check_token
 from app.cartoon_control import CartoonRun, CartoonRunStore, CartoonStage, stage_status
 from app.cartoon_factory_orchestrator import CartoonFactoryOrchestrator
 
@@ -28,17 +23,7 @@ class CreateRunRequest(BaseModel):
 
 
 def _require_token(x_nova_api_key: str | None) -> None:
-    expected = os.getenv("NOVA_API_TOKEN", "").strip()
-    if not expected:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="NOVA_API_TOKEN is not configured",
-        )
-    if not x_nova_api_key or not hmac.compare_digest(x_nova_api_key, expected):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid NOVA API token",
-        )
+    check_token(x_nova_api_key)
 
 
 def _snapshot(run: CartoonRun) -> dict:

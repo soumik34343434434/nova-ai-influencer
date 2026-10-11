@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.env import load_env
 from app.db.init import init_db
 from app.api.routes import router
 from app.api.automation_routes import router as automation_router
@@ -10,6 +11,8 @@ app = FastAPI(title="NOVA AI Influencer", version="0.2.0")
 
 @app.on_event("startup")
 def startup():
+    # The API is a long-running entry point, so it reads .env here (never at import time).
+    load_env()
     init_db()
 
 app.include_router(router, prefix="/api")
