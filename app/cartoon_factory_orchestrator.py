@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -31,14 +32,15 @@ from app.agent_memory import (
     upsert_experiment,
 )
 from app.providers.platform_analytics import collect_platform_metrics, metric_to_record
-from app.trend_history import snapshot as snapshot_trends, attach_historical_signals
+from app.trend_history import snapshot as snapshot_trends, attach_historical_signals, recent_rows as recent_trend_rows
 from app.agents.cartoon_jury import CartoonIdeaJury, jury_to_dict
 from app.agents.cartoon_animatic import render_animatic
 from app.agents.cartoon_animatic_judge import AnimaticJudge
 from app.agents.cartoon_motion_qa import CartoonMotionQA
 from app.agents.cartoon_quality import CartoonQuality
 from app.agents.final_qa import FinalQAAggregator
-from app.agents.cartoon_research import discover, rank, ResearchSignal
+from app.agents.cartoon_research import EVERGREEN_TITLES, ResearchSignal, discover_report, evergreen_signals
+from app.agents.cartoon_safety import public_text_problems, sanitize_topic
 from app.agents.storyboard import build_storyboard
 from app.agents.story_engine import StoryEngine
 from app.agents.script_engine import ScriptEngine
@@ -56,6 +58,10 @@ from app.providers.reel_editor import assemble_reel, verify_reel
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = ROOT / "artifacts" / "cartoon"
 OUTBOX = ARTIFACTS / "publish_queue.json"
+# Enough recent history to keep a month of daily episodes out of today's pool.
+RECENT_MEMORY_LIMIT = 200
+# Trend rows that must remain after removing recently used trends before the filter applies.
+MIN_FRESH_TREND_ROWS = 5
 
 
 # Visual QA -> Repair AI loop budget (override with NOVA_MAX_REPAIR_ATTEMPTS).
@@ -70,6 +76,48 @@ RENDER_BEATS = {"hook": "setup", "attempt": "setup", "payoff": "punchline"}
 def _save(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False))
+
+
+def _guard_public_text(candidate: dict[str, Any]) -> None:
+    """Fail closed: unsafe viewer-facing text never reaches the publish queue or a platform title."""
+    problems = public_text_problems(str(candidate.get("title", "")), str(candidate.get("caption", "")))
+    if problems:
+        raise RuntimeError("Publish blocked: viewer-facing text failed the family-safety filter: " + ", ".join(problems))
+
+
+def _recent_episode_memory(limit: int = RECENT_MEMORY_LIMIT) -> tuple[list[str], list[str], list[str]]:
+    """Titles and trend ids of queued episodes, plus recent research topics from trend history."""
+    titles: list[str] = []
+    trend_ids: list[str] = []
+    queue: Any = []
+    if OUTBOX.exists():
+        try:
+            queue = json.loads(OUTBOX.read_text())
+        except (OSError, json.JSONDecodeError):
+            queue = []
+    for item in (queue[-limit:] if isinstance(queue, list) else []):
+        if not isinstance(item, dict):
+            continue
+        if item.get("title"):
+            titles.append(str(item["title"]))
+        trend = str((item.get("experiment_metadata") or {}).get("trend_id", ""))
+        if trend:
+            trend_ids.append(trend)
+    topics = [str(row.get("title", "")) for row in recent_trend_rows(limit) if row.get("title")]
+    return titles, trend_ids, topics
+
+
+def _screen_social_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Replace unsafe or real-person titles from social connectors with evergreen premises."""
+    replaced = 0
+    for row in rows:
+        title, status = sanitize_topic(str(row.get("title", "")), EVERGREEN_TITLES,
+                                       f"social|{row.get('source_type', '')}|{row.get('url', '')}")
+        if status != "ok":
+            replaced += 1
+            row["title"] = title
+            row["safety_status"] = status
+    return rows, replaced
 
 
 class CartoonFactoryOrchestrator:
@@ -178,29 +226,61 @@ class CartoonFactoryOrchestrator:
         return [ResearchSignal(**row) for row in run.payload.get("research_signals", [])]
 
     def _research(self, run: CartoonRun) -> dict[str, Any]:
-        signals = discover(limit=30)
+        recent_titles, recent_trend_ids, recent_topics = _recent_episode_memory()
+        signals, source_status = discover_report(limit=30, recent_topics=recent_topics)
         base_rows = [asdict(x) for x in signals]
         social_rows, connector_status = discover_social_trends()
+        social_rows, social_replaced = _screen_social_rows(social_rows)
+        if base_rows:
+            mode = "live"
+        elif social_rows:
+            mode = "social_only"
+        else:
+            mode = "degraded_evergreen"
+        if mode == "degraded_evergreen":
+            # No live signal at all: a varied, date-rotated safe pool instead of one fixed idea.
+            base_rows = [asdict(x) for x in evergreen_signals(recent_titles=recent_topics + recent_titles, count=8)]
+        if mode != "live":
+            print(f"[research] degraded mode={mode}: sources={source_status} social={connector_status}", file=sys.stderr)
         combined = base_rows + social_rows
         trend_v2 = [signal_to_dict(x) for x in enrich_signals(combined)]
         trend_v2 = attach_historical_signals(trend_v2)
         snapshot_trends(trend_v2)
+        research_status = {
+            "mode": mode,
+            "sources": source_status,
+            "social_connectors": connector_status,
+            "social_topics_replaced": social_replaced,
+        }
         self.plane.store.set_payload(
             run,
             research_signals=base_rows,
             trend_signals_v2=trend_v2,
             social_connector_status=connector_status,
+            research_status=research_status,
+            recent_titles=recent_titles,
+            recent_trend_ids=recent_trend_ids,
         )
         return {
             "count": len(signals),
             "social_records": len(social_rows),
+            "evergreen_records": len(base_rows) if mode == "degraded_evergreen" else 0,
             "trend_signals_v2": len(trend_v2),
-            "source": "google_news+gdelt+optional_social_connectors",
+            "mode": mode,
+            "degraded": mode != "live",
+            "sources_ok": sorted(label for label, value in source_status.items() if value.startswith("ok")),
+            "sources": source_status,
+            "social_connectors": connector_status,
         }
 
     def _trend_intelligence(self, run: CartoonRun) -> dict[str, Any]:
         trend_rows = list(run.payload.get("trend_signals_v2", []))
         trend_rows.sort(key=lambda x: (float(x.get("opportunity_score", 0.0)), float(x.get("velocity_score", 0.0))), reverse=True)
+        # Do not re-make an episode from a trend that already produced one, unless that leaves too little.
+        recent_ids = set(run.payload.get("recent_trend_ids", []))
+        fresh_rows = [row for row in trend_rows if row.get("trend_id") not in recent_ids]
+        if len(fresh_rows) >= MIN_FRESH_TREND_ROWS:
+            trend_rows = fresh_rows
         memory = build_strategy_memory()
         policy = dict(run.payload.get("next_loop_plan", {}).get("policy", {}))
         formats = rank_format_candidates(trend_rows[:20], memory=memory, limit=40)
@@ -267,7 +347,7 @@ class CartoonFactoryOrchestrator:
         for idea in candidates:
             candidate = dict(idea)
             candidate["premise_slug"] = candidate.get("idea_id", "idea")
-            candidate["caption"] = f"{candidate.get('title','')} — original cartoon short."
+            candidate["caption"] = f"{candidate.get('hook', '')} An original cartoon short."
             candidate["hook_pattern"] = str(candidate.get("hook_pattern") or "")
             if not candidate["hook_pattern"]:
                 candidate["hook_pattern"] = str((candidate.get("hook_patterns") or [""])[0])
@@ -915,6 +995,7 @@ class CartoonFactoryOrchestrator:
         if not isinstance(gate, dict) or gate.get("publish_gate", {}).get("decision") != "allow":
             raise RuntimeError("Publish blocked: final QA publish-gate evidence is missing or failed")
         candidate = run.payload["winner"]["candidate"]
+        _guard_public_text(candidate)
         experiment = ensure_experiment_identity(run.payload, run.run_id)
         item = {
             "run_id": run.run_id,

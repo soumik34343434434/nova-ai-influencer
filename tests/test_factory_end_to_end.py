@@ -58,8 +58,8 @@ def _offline_research(monkeypatch):
         ResearchSignal("Cats refusing to get up on Monday mornings", "fixture", "pets", score=0.7,
                        published_at="2026-10-09T10:00:00+00:00"),
     ]
-    monkeypatch.setattr(orch, "discover", lambda limit=30: signals)
-    monkeypatch.setattr(orch, "discover_social_trends", lambda: ([], {"fixture": "offline"}))
+    monkeypatch.setattr(orch, "discover_report", lambda **kwargs: (signals, {"fixture": "ok:2"}))
+    monkeypatch.setattr(orch, "discover_social_trends", lambda timeout=8.0: ([], {"fixture": "offline"}))
 
 
 def _probe(path):

@@ -10,6 +10,15 @@ from pathlib import Path
 
 from app.agents.cartoon_motion_qa import CartoonMotionQA
 from app.agents.cartoon_runtime_qa import CartoonRuntimeQA
+from app.agents.cartoon_safety import public_text_problems
+
+
+def public_texts(draft: dict) -> list[str]:
+    """Viewer-facing text only: what a viewer reads or hears (not research or internal keys)."""
+    beats = draft.get("beats") if isinstance(draft.get("beats"), list) else []
+    texts = [str(draft.get(key, "")) for key in ("title", "hook", "caption")]
+    texts.extend(str(beat.get(key, "")) for beat in beats if isinstance(beat, dict) for key in ("voice", "visual"))
+    return texts
 
 
 @dataclass(frozen=True)
@@ -25,11 +34,6 @@ class CartoonEvaluation:
 
 
 class CartoonQuality:
-    FORBIDDEN = (
-        "celebrity", "lookalike", "private person", "real child", "minor",
-        "repost", "face swap", "weapon", "self harm", "sexual", "hate",
-    )
-
     def evaluate(self, draft: dict, recent_titles: list[str] | None = None) -> CartoonEvaluation:
         recent_titles = recent_titles or []
         text = json.dumps(draft, ensure_ascii=False).lower()
@@ -39,20 +43,23 @@ class CartoonQuality:
         hook = 1.0 if 3 <= len(hook_text.split()) <= 12 else 0.55
         comedy_markers = sum(x in text for x in ("why", "?!", "apparently", "oops", "wait", "one", "too many"))
         comedy = min(1.0, 0.55 + comedy_markers * 0.08 + (0.12 if len(beats) == 4 else 0.0))
+        # Title against title: adding hook words to one side hides a repeated episode.
         title = str(draft.get("title", ""))
-        tokens = set(re.findall(r"[a-z0-9']+", (title + " " + hook_text).lower()))
+        tokens = set(re.findall(r"[a-z0-9']+", title.lower()))
         novelty = 1.0
         for old in recent_titles:
-            other = set(re.findall(r"[a-z0-9']+", old.lower()))
+            other = set(re.findall(r"[a-z0-9']+", str(old).lower()))
             union = tokens | other
             if union and len(tokens & other) / len(union) > 0.65:
                 novelty = 0.35
                 reasons.append("too_similar_to_recent_title")
                 break
         visual = 1.0 if len(beats) == 4 and all(isinstance(b, dict) and b.get("asset_action") for b in beats) else 0.55
-        safety = 0.0 if any(term in text for term in self.FORBIDDEN) else 1.0
-        if safety == 0.0:
+        unsafe = public_text_problems(*public_texts(draft))
+        safety = 0.0 if unsafe else 1.0
+        if unsafe:
             reasons.append("forbidden_or_unsafe_signal")
+            reasons.extend(f"unsafe_topic:{category}" for category in unsafe)
         if hook < 0.9:
             reasons.append("weak_hook")
         if comedy < 0.75:
