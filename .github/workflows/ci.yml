@@ -99,7 +99,7 @@ jobs:
 
       - name: Install speech engine and Python dependencies
         run: |
-          sudo apt-get install -y --no-install-recommends espeak-ng || (sudo apt-get update -y && sudo apt-get install -y --no-install-recommends espeak-ng)
+          sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng || (sudo apt-get update -y && sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng)
           python -m pip install --prefer-binary -r requirements.txt
 
       - name: Run the persona backtest
