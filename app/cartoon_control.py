@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.agent_memory import ensure_experiment_identity, record_failure
+from app.paths import ROOT, portable_paths, resolve_stored_paths
 
 
-ROOT = Path(__file__).resolve().parents[1]
 RUNS_DIR = ROOT / "artifacts" / "cartoon" / "runs"
 
 
@@ -90,6 +90,13 @@ class CartoonRunStore:
         self.run_id = run_id or uuid.uuid4().hex
         self.path = RUNS_DIR / self.run_id / "run.json"
 
+    @staticmethod
+    def run_ids() -> list[str]:
+        """Every run that has a checkpoint on disk, oldest id first."""
+        if not RUNS_DIR.is_dir():
+            return []
+        return sorted(path.parent.name for path in RUNS_DIR.glob("*/run.json"))
+
     def create(self, payload: dict[str, Any] | None = None) -> CartoonRun:
         run_payload = dict(payload or {})
         ensure_experiment_identity(run_payload, self.run_id)
@@ -117,6 +124,7 @@ class CartoonRunStore:
             new_key = migrate_stage_key(key)
             row = dict(value)
             row["stage"] = new_key
+            row["artifact"] = resolve_stored_paths(row.get("artifact"))
             migrated[new_key] = row
         raw_stages = migrated
         raw["current_stage"] = migrate_stage_key(raw["current_stage"])
@@ -125,7 +133,8 @@ class CartoonRunStore:
             created_at=raw["created_at"],
             current_stage=raw["current_stage"],
             status=raw["status"],
-            payload=raw.get("payload", {}),
+            # Stored paths are repo-relative (or legacy absolute); readers get concrete paths.
+            payload=resolve_stored_paths(raw.get("payload", {})),
             stages={
                 key: StageRecord(**value)
                 for key, value in raw_stages.items()
@@ -135,7 +144,9 @@ class CartoonRunStore:
     def _write(self, run: CartoonRun) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(asdict(run), indent=2, ensure_ascii=False))
+        # Paths inside the repo are written repo-relative so the run survives a move
+        # to another checkout (for example, an episode made on a GitHub runner).
+        tmp.write_text(json.dumps(portable_paths(asdict(run)), indent=2, ensure_ascii=False))
         tmp.replace(self.path)
 
     def save(self, run: CartoonRun) -> None:

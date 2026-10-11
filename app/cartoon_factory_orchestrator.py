@@ -6,8 +6,10 @@ outbox entry; a platform adapter can consume it without changing upstream work.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -30,7 +32,13 @@ from app.agent_memory import (
     update_experiment_learning,
     upsert_experiment,
 )
-from app.providers.platform_analytics import collect_platform_metrics, metric_to_record
+from app.providers.platform_analytics import (
+    InstagramInsightsClient,
+    TikTokClient,
+    YouTubeClient,
+    collect_platform_metrics,
+    metric_to_record,
+)
 from app.trend_history import snapshot as snapshot_trends, attach_historical_signals
 from app.agents.cartoon_jury import CartoonIdeaJury, jury_to_dict
 from app.agents.cartoon_animatic import render_animatic
@@ -42,7 +50,8 @@ from app.agents.cartoon_research import discover, rank, ResearchSignal
 from app.agents.storyboard import build_storyboard
 from app.agents.story_engine import StoryEngine
 from app.agents.script_engine import ScriptEngine
-from app.cartoon_control import CartoonControlPlane, CartoonRun, CartoonRunStore, CartoonStage
+from app.cartoon_control import CartoonControlPlane, CartoonRun, CartoonRunStore, CartoonStage, stage_status
+from app.env import load_env
 from app.providers.cartoon_animation import render_cartoon_motion, rerender_cartoon_shots
 from app.providers.blender_animation import BlenderAnimationProvider
 from app.providers.ai_performance import (
@@ -1063,8 +1072,105 @@ class CartoonFactoryOrchestrator:
         return result
 
 
-if __name__ == "__main__":
-    run = CartoonFactoryOrchestrator().run()
+def published_run_ids() -> list[str]:
+    """Runs with at least one bound platform content id, i.e. episodes that have metrics to learn from."""
+    found = []
+    for run_id in CartoonRunStore.run_ids():
+        try:
+            run = CartoonRunStore(run_id).load()
+        except (OSError, ValueError, KeyError):
+            continue  # an unreadable checkpoint is reported by its own run, not here
+        if run.payload.get("published_content_map"):
+            found.append(run_id)
+    return found
+
+
+def refresh_all_metrics(run_ids: list[str] | None = None) -> dict[str, Any]:
+    """Refresh platform metrics and learning for every published run (or the given runs).
+
+    Without analytics credentials nothing is fabricated: each published run
+    records ``metrics_unavailable`` and learning is left as it was. One failing
+    run does not stop the others.
+    """
+    connectors = [InstagramInsightsClient().status(), YouTubeClient().status(), TikTokClient().status()]
+    configured = any(status.enabled for status in connectors)
+    rows: list[dict[str, Any]] = []
+    engine: CartoonFactoryOrchestrator | None = None
+    for run_id in published_run_ids() if run_ids is None else run_ids:
+        if not configured:
+            store = CartoonRunStore(run_id)
+            run = store.load()
+            store.set_payload(run, platform_metrics_status={
+                "status": "metrics_unavailable",
+                "detail": "no analytics credentials configured",
+                "connectors": [asdict(status) for status in connectors],
+            }, metrics_pending=True)
+            rows.append({"run_id": run_id, "status": "metrics_unavailable"})
+            continue
+        try:
+            engine = engine or CartoonFactoryOrchestrator()
+            run = engine.refresh_metrics_and_learning(run_id)
+            rows.append({"run_id": run_id, "status": run.status,
+                         "metrics": run.payload.get("platform_metrics_status", {}).get("status", "")})
+        except Exception as exc:  # isolate: one bad run must not block the rest
+            rows.append({"run_id": run_id, "status": "error", "error": f"{type(exc).__name__}: {exc}"})
+    return {"configured": configured, "connectors": [asdict(status) for status in connectors], "runs": rows}
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m app.cartoon_factory_orchestrator",
+        description="Run, resume, repair, inspect or measure the cartoon factory. No command means run.",
+        epilog="Exit codes: 0 completed or success, 1 run failed or metrics error, 2 unknown run or usage error.",
+    )
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND")
+    commands.add_parser("run", help="start a new episode (the default)")
+    resume = commands.add_parser("resume", help="continue a failed or interrupted run")
+    resume.add_argument("run_id")
+    repair = commands.add_parser("repair", help="re-run one stage and every stage after it")
+    repair.add_argument("run_id")
+    repair.add_argument("stage", choices=[stage.value for stage in CartoonStage])
+    status = commands.add_parser("status", help="print a run's stage status as JSON")
+    status.add_argument("run_id")
+    metrics = commands.add_parser("metrics", help="refresh platform metrics and learning for published runs")
+    metrics.add_argument("--run-id", help="refresh only this run")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)  # --help exits here, before any run starts
+    load_env()
+    command = args.command or "run"
+    try:
+        if command == "metrics":
+            run_ids = None
+            if args.run_id:
+                if args.run_id not in published_run_ids():
+                    print(f"cartoon factory: run {args.run_id} has no bound platform content", file=sys.stderr)
+                    return 2
+                run_ids = [args.run_id]
+            report = refresh_all_metrics(run_ids)
+            print(json.dumps(report, indent=2))
+            return 1 if any(row["status"] in {"error", "failed"} for row in report["runs"]) else 0
+        if command == "status":
+            run = CartoonRunStore(args.run_id).load()
+            print(json.dumps({"run_id": run.run_id, "status": run.status, "current_stage": run.current_stage,
+                              "stage_status": stage_status(run)}, indent=2))
+            return 0
+        factory = CartoonFactoryOrchestrator()
+        if command == "run":
+            run = factory.run()
+        elif command == "resume":
+            run = factory.resume(args.run_id)
+        else:
+            run = factory.repair(args.run_id, CartoonStage(args.stage))
+    except FileNotFoundError as exc:
+        print(f"cartoon factory: {exc}", file=sys.stderr)
+        return 2
     print(json.dumps({"run_id": run.run_id, "status": run.status, "current_stage": run.current_stage}, indent=2))
-    # Non-zero when a stage failed, so schedulers (GitHub Actions, cron) see it.
-    raise SystemExit(0 if run.status == "completed" else 1)
+    # Non-zero unless the run completed, so schedulers (GitHub Actions, cron) see failures.
+    return 0 if run.status == "completed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

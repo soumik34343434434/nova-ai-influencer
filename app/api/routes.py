@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
+
+from app.api.auth import require_token
 from sqlalchemy.orm import Session
 
 from app.db.models import ContentItem, Metric
@@ -18,16 +20,16 @@ def db_dep():
 def health():
     return {"ok": True, "service": "nova", "version": "0.2.0"}
 
-@router.post("/content/generate")
+@router.post("/content/generate", dependencies=[Depends(require_token)])
 def generate(trend_context: str = "", db: Session = Depends(db_dep)):
     return create_draft(db, trend_context).__dict__
 
-@router.get("/content/queue")
+@router.get("/content/queue", dependencies=[Depends(require_token)])
 def queue(db: Session = Depends(db_dep)):
     rows = db.query(ContentItem).order_by(ContentItem.id.desc()).all()
     return [r.__dict__ for r in rows]
 
-@router.post("/content/{content_id}/approve")
+@router.post("/content/{content_id}/approve", dependencies=[Depends(require_token)])
 def approve(content_id: int, db: Session = Depends(db_dep)):
     row = db.get(ContentItem, content_id)
     if not row:
@@ -36,7 +38,7 @@ def approve(content_id: int, db: Session = Depends(db_dep)):
     db.commit()
     return {"id": row.id, "status": row.status}
 
-@router.post("/metrics")
+@router.post("/metrics", dependencies=[Depends(require_token)])
 def add_metrics(payload: dict, db: Session = Depends(db_dep)):
     metric = Metric(**payload)
     db.add(metric)

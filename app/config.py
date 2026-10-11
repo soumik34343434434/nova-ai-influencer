@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.paths import ROOT
+
 class Settings(BaseSettings):
     app_env: str = "development"
     database_url: str = "sqlite:///./nova.db"
@@ -9,6 +11,7 @@ class Settings(BaseSettings):
     approval_required: bool = True
     character_image: str = "assets/character/nova.png"
     output_dir: str = "artifacts/videos"
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Absolute, so the repo's .env applies no matter which directory the process starts in.
+    model_config = SettingsConfigDict(env_file=str(ROOT / ".env"), extra="ignore")
 
 settings = Settings()

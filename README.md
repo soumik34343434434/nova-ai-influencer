@@ -28,6 +28,8 @@ This is deliberately a motion/compositing engine, not a claim of full skeletal c
 
 ## Run the cartoon factory
 
+Setup: Python 3.13, `pip install -r requirements.txt`, and FFmpeg (`brew install ffmpeg` on macOS, `sudo apt-get install ffmpeg espeak-ng` on Linux). macOS uses the built-in `say` voice.
+
 ```bash
 python3 -m app.cartoon_pipeline
 ```
@@ -38,19 +40,29 @@ Run the autonomous research-to-queue loop:
 python3 -m app.cartoon_autopilot
 ```
 
-Run the durable 16-stage control-plane wiring:
+Run the durable 16-stage control plane. With no command it starts a new run; `--help` only prints usage:
 
 ```bash
-python3 -m app.cartoon_factory_orchestrator
+python3 -m app.cartoon_factory_orchestrator            # run (default)
+python3 -m app.cartoon_factory_orchestrator resume <run_id>
+python3 -m app.cartoon_factory_orchestrator repair <run_id> 9_animation_engine
+python3 -m app.cartoon_factory_orchestrator status <run_id>
+python3 -m app.cartoon_factory_orchestrator metrics    # every published run, daily
 ```
 
-Each run is checkpointed under `artifacts/cartoon/runs/<run_id>/run.json`. A failed run can be resumed, and a failed stage can be repaired without redoing successful earlier stages. The publish stage is intentionally an approval-first outbox.
+Exit codes: `0` completed or success, `1` the run failed or a metrics refresh errored, `2` unknown run or usage error.
+
+Each run is checkpointed under `artifacts/cartoon/runs/<run_id>/run.json`, with file paths stored relative to the repository. A failed run can be resumed, and a failed stage can be repaired without redoing successful earlier stages. The publish stage is intentionally an approval-first outbox.
 
 After reviewing a queued episode, publish it (dry run unless `NOVA_ENABLE_REAL_PUBLISH=true` and platform credentials are set):
 
 ```bash
 python3 -m app.publish_approved --run-id <run_id> --platforms youtube,instagram,tiktok --made-for-kids no --approve
 ```
+
+Publishing is safe to repeat: a platform that already has a published id for the run is skipped, and each upload is recorded as soon as it succeeds. Uploads are private by default (`YOUTUBE_PRIVACY_STATUS=private`, `TIKTOK_PRIVACY_LEVEL=SELF_ONLY`). Credentials: YouTube uses `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET` and `YOUTUBE_REFRESH_TOKEN`, TikTok uses `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` and `TIKTOK_REFRESH_TOKEN`, and Instagram uses a non-expiring `INSTAGRAM_ACCESS_TOKEN` with `INSTAGRAM_USER_ID`. Public YouTube view counts need only `YOUTUBE_API_KEY`. The CLI entry points read `.env` from the repository root. Values already set in the shell take precedence.
+
+To approve an episode made by the GitHub daily run, download its artifact into a separate folder and copy only the episode and its run record into this checkout, so nothing local is overwritten: `gh run download <run_id> -n nova-episode-<run_id> -D /tmp/ep`, then copy `/tmp/ep/runs/<run_id>/` to `artifacts/cartoon/runs/<run_id>/` and the episode `.mp4` to `artifacts/cartoon/`.
 
 Check which trend sources are live, and rebuild the MOMO/BUBU action packs after a character sheet changes:
 
