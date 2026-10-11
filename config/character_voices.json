@@ -1,27 +1,42 @@
 {
   "version": 1,
-  "notes": "Per-character voice identity. local_voice is the macOS `say` voice; espeak_voice is the eSpeak NG voice/variant used on Linux and CI. pitch_scale and rate_scale shape each character on top of the per-beat delivery profiles. runway_voice is sent to Runway when NOVA_VOICE_BACKEND=runway; Brodie is the current testing voice, so replace it per character once final voices are chosen.",
+  "notes": "Per-character voice identity. local_voice is the macOS `say` voice; espeak_voice is the eSpeak NG voice/variant used on Linux and CI. pitch_scale and rate_scale shape each character on top of the per-beat delivery profiles. runway_voice is sent to Runway when NOVA_VOICE_BACKEND=runway; Brodie is the current testing voice, so replace it per character once final voices are chosen. runway_speech_voice is the Runway speech preset chosen per character for generate_speech (eleven_v3); it must be mapped to the API preset id before the API backend uses it.",
   "characters": {
     "PIP": {
       "local_voice": "Eddy (English (US))",
       "espeak_voice": "en-us+m7",
       "pitch_scale": 1.06,
       "rate_scale": 1.04,
-      "runway_voice": {"type": "runway-preset", "presetId": "Brodie"}
+      "runway_voice": {
+        "type": "runway-preset",
+        "presetId": "Brodie"
+      },
+      "runway_speech_voice": "Xylar",
+      "runway_speech_voice_note": "robotic, modulated: fits the robot"
     },
     "MOMO": {
       "local_voice": "Eddy (English (US))",
       "espeak_voice": "en-us+m3",
       "pitch_scale": 0.94,
       "rate_scale": 0.92,
-      "runway_voice": {"type": "runway-preset", "presetId": "Brodie"}
+      "runway_voice": {
+        "type": "runway-preset",
+        "presetId": "Brodie"
+      },
+      "runway_speech_voice": "Mabel",
+      "runway_speech_voice_note": "relaxed, deadpan: fits the lazy cat"
     },
     "BUBU": {
       "local_voice": "Eddy (English (US))",
       "espeak_voice": "en-us+f4",
-      "pitch_scale": 1.10,
+      "pitch_scale": 1.1,
       "rate_scale": 1.06,
-      "runway_voice": {"type": "runway-preset", "presetId": "Brodie"}
+      "runway_voice": {
+        "type": "runway-preset",
+        "presetId": "Brodie"
+      },
+      "runway_speech_voice": "Pip",
+      "runway_speech_voice_note": "cute, young: fits the bird"
     }
   }
 }
