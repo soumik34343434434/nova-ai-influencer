@@ -38,7 +38,7 @@ PAD_Y = round(H * (OVERSCAN - 1.0) / 2.0)
 # (x0, y0, x1, y1) as fractions of the 1080x1920 frame.
 SAFE_ZONE = (0.06, 0.12, 0.84, 0.76)
 REACTION_MOTION_GAIN = 2.0  # extra movement on reaction beats (close-up shots read as static otherwise)
-IDLE_BREATH_PX = 7.0  # whole-character rise/fall (px) so holds keep changing frame to frame
+IDLE_BREATH_PX = 12.0  # whole-character rise/fall (px) so holds keep changing frame to frame
 IDLE_BREATH_HZ = 1.2
 
 
