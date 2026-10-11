@@ -37,6 +37,7 @@ PAD_Y = round(H * (OVERSCAN - 1.0) / 2.0)
 # Platform UI covers the outer frame; all text must stay inside this box
 # (x0, y0, x1, y1) as fractions of the 1080x1920 frame.
 SAFE_ZONE = (0.06, 0.12, 0.84, 0.76)
+REACTION_MOTION_GAIN = 1.6  # extra movement on reaction beats (close-up shots read as static otherwise)
 IDLE_BREATH_PX = 7.0  # whole-character rise/fall (px) so holds keep changing frame to frame
 IDLE_BREATH_HZ = 1.2
 
@@ -1136,6 +1137,9 @@ def motion_frame(
     """
     tuning = render_tuning or {}
     motion_gain = float(tuning.get("motion_gain", 1.0))
+    if beat == "reaction":
+        # Close-up reactions have little body to move; give them a clear read.
+        motion_gain *= REACTION_MOTION_GAIN
     camera_gain = float(tuning.get("camera_gain", 1.0))
     shake_gain = float(tuning.get("shake_gain", 1.0))
     caption_y = int(tuning.get("caption_y", CAPTION_TOP))
