@@ -50,7 +50,7 @@ CAPTION_TOP = 240  # top band above the characters' heads and inside the safe zo
 CAPTION_ZONE = (90, 230, 990, 500)  # reserved text area that must not touch a character (close-up heads start near y=520)
 CAPTION_MAX_WIDTH = 720  # centred on W/2, so the block stays inside SAFE_ZONE
 CAPTION_SIZES = (64, 58, 52, 46)
-DISCLOSURE_TOP = int(H * SAFE_ZONE[1]) + 12
+DISCLOSURE_TOP = int(H * SAFE_ZONE[3]) - 80  # bottom of the safe zone, clear of the caption band at the top
 HOOK_FULL_CAPTION_SECONDS = 0.8  # the hook caption is fully readable within this
 HOOK_SNAP_ZOOM = 0.10  # punch-in that settles over the first hook beat
 TRANSITION_OVERSCAN = 1.06
