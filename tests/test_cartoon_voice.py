@@ -100,7 +100,9 @@ def test_shot_duration_is_allowed_to_follow_voice_performance():
         {"duration": 1.35},
     ]
     out = _performance_durations(perf, [2.3, 2.3, 2.3, 2.8], ["setup", "escalation", "reaction", "punchline"])
-    assert out == [1.58, 1.2, 1.62, 2.21]
+    # Tails after each line are short now (dead air was 38% of the runtime), so
+    # shots follow the speech closely; the punchline keeps its deadpan hold.
+    assert out == [1.55, 1.2, 1.5, 2.21]
     assert sum(out) < 8.0
 
 
