@@ -1,35 +1,109 @@
 name: NOVA CI
 
+# Runs on every branch push and on every pull request. Pull-request branches
+# therefore run twice (push and pull_request); the per-PR concurrency group cancels
+# superseded pull-request runs.
 on:
-  pull_request:
   push:
-    branches:
-      - main
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: nova-ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out the repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install lint tools
+        run: python -m pip install ruff==0.16.8 actionlint-py==1.7.12.25
+
+      - name: Blocking checks (syntax errors and undefined names)
+        run: ruff check --no-cache --select E9,F63,F7,F82 app tests scripts
+
+      - name: Pyflakes report (non-blocking until the existing hits are cleared)
+        continue-on-error: true
+        run: ruff check --no-cache --select F app tests scripts
+
+      - name: Validate workflow files
+        run: actionlint
+
+  test:
+    name: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
           cache-dependency-path: requirements.txt
-      - name: Ensure media tools
+
+      - name: Install media tools
         run: |
           if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v espeak-ng >/dev/null 2>&1; then
-            # Try the runner's existing apt index first; only refresh it when needed.
-            if ! timeout 120s sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng; then
-              timeout 120s sudo apt-get update -y
-              timeout 120s sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng
+            if ! timeout 180s sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng fonts-noto-color-emoji; then
+              timeout 180s sudo apt-get update -y
+              timeout 180s sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng fonts-noto-color-emoji
             fi
           fi
-      - run: pip install --prefer-binary -r requirements.txt
-      - run: pytest -q
-      - run: NOVA_MODE=backtest python -m app.orchestrator
+
+      - name: Install Python dependencies
+        run: python -m pip install --prefer-binary -r requirements.txt
+
+      - name: Run the test suite
+        run: python -m pytest -q -p no:cacheprovider --durations=15
+
+  persona-backtest:
+    # The legacy persona pipeline's backtest. It is informational only: one
+    # synthetic trend still exercises every phase, and a failure never blocks merges.
+    name: persona backtest (non-blocking)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install speech engine and Python dependencies
+        run: |
+          sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng || (sudo apt-get update -y && sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng)
+          python -m pip install --prefer-binary -r requirements.txt
+
+      - name: Run the persona backtest
+        env:
+          NOVA_MODE: backtest
+          NOVA_BACKTEST_TRENDS: "1"
+        run: python -m app.orchestrator

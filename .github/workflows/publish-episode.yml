@@ -1,0 +1,118 @@
+name: NOVA publish episode
+
+# Publishes one reviewed episode to the platforms it names. Nothing publishes on a
+# schedule or on a push: a person starts this workflow with the factory run id from
+# the review issue.
+#
+# The publish job runs in the "publish" environment. The repository owner must
+# configure required reviewers for that environment (Settings > Environments);
+# that approval is the gate before any platform account is touched. Platform
+# credentials are read only inside that job.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Factory run id from the review issue
+        required: true
+        type: string
+      platforms:
+        description: Comma-separated platforms, for example youtube,tiktok,instagram
+        required: true
+        default: youtube
+        type: string
+      made_for_kids:
+        description: Is the episode made for kids?
+        required: true
+        default: "no"
+        type: choice
+        options:
+          - "no"
+          - "yes"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nova-factory-state
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: publish
+    permissions:
+      contents: write  # push factory-state after the publish attempt
+    env:
+      RUN_ID: ${{ inputs.run_id }}
+      PLATFORMS: ${{ inputs.platforms }}
+      MADE_FOR_KIDS: ${{ inputs.made_for_kids }}
+    steps:
+      - name: Validate inputs
+        run: |
+          if [[ ! "$RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "run_id must contain only letters, digits, dots, dashes and underscores" >&2
+            exit 1
+          fi
+          if [[ ! "$PLATFORMS" =~ ^[a-z]+(,[a-z]+)*$ ]]; then
+            echo "platforms must be a comma-separated list of lowercase names" >&2
+            exit 1
+          fi
+
+      - name: Check out the repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Check out factory state
+        uses: actions/checkout@v6
+        with:
+          ref: factory-state
+          path: state-branch
+          fetch-depth: 1
+          persist-credentials: true  # the only step that pushes state
+
+      - name: Install Python dependencies
+        run: python -m pip install --prefer-binary -r requirements.txt
+
+      - name: Restore factory memory
+        run: python scripts/state_sync.py pull --state-dir state-branch
+
+      - name: Download the approved episode
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          video="$(python scripts/state_sync.py episode-video --state-dir state-branch --run-id "$RUN_ID")"
+          mkdir -p "$(dirname "$video")"
+          gh release download "episode-$RUN_ID" --pattern "$(basename "$video")" \
+            --dir "$(dirname "$video")" --clobber
+          test -s "$video"
+          echo "Episode file ready: $video"
+
+      - name: Publish
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
+        run: >-
+          python -m app.publish_approved --run-id "$RUN_ID" --platforms "$PLATFORMS"
+          --made-for-kids "$MADE_FOR_KIDS" --approve
+
+      - name: Store publish results
+        if: always()
+        run: |
+          python scripts/state_sync.py push --state-dir state-branch \
+            --message "Publish attempt for run ${RUN_ID}"
+          git -C state-branch push origin HEAD:factory-state

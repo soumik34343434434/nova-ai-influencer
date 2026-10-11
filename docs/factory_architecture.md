@@ -33,6 +33,15 @@ that a reviewable 1080×1920 episode with audio comes out.
 | 18 | Analytics | `15_analytics` | `providers/platform_analytics.py`, `experiment_system.py` |
 | 19 | Learning AI | `16_learning` | `learning_v2.py`, `agent_memory.py` |
 
+## Running it without anyone in the loop
+
+`python3 -m app.cartoon_factory_orchestrator` runs all 16 stages and exits
+non-zero if a stage fails. `.github/workflows/cartoon-factory.yml` does the
+same on GitHub's runners every day (and on demand from the Actions tab),
+carries the learning files between runs, and uploads the episode, its run
+record and the publish queue as the run's artifacts. It uses only free
+sources and local rendering, and posts nothing: episodes wait for approval.
+
 ## How the stages connect
 
 - **Ideas are always renderable.** Each character's action pack lists the
@@ -82,9 +91,66 @@ that a reviewable 1080×1920 episode with audio comes out.
 
 | Service | Switch | Needs |
 |---|---|---|
-| Runway video | `NOVA_CARTOON_ANIMATION_BACKEND=runway`, `NOVA_RUNWAY_EXECUTE=true` | `RUNWAYML_API_SECRET`, `NOVA_RUNWAY_MAX_CREDITS` ≥ the plan's billed estimate |
+| Runway video | `NOVA_CARTOON_ANIMATION_BACKEND=runway`, `NOVA_RUNWAY_EXECUTE=true` | `RUNWAYML_API_SECRET`; `NOVA_RUNWAY_MAX_CREDITS` (per episode, repairs included) and `NOVA_RUNWAY_DAILY_CREDITS` |
 | Runway voice | `NOVA_VOICE_BACKEND=runway` | `RUNWAYML_API_SECRET`, `RUNWAY_AUDIO_CONFIG_ID`; voices in `config/character_voices.json` |
 | YouTube / Instagram / TikTok posting | `NOVA_ENABLE_REAL_PUBLISH=true` + `--approve` + `--made-for-kids` | `YOUTUBE_ACCESS_TOKEN`; `INSTAGRAM_ACCESS_TOKEN` + `INSTAGRAM_USER_ID`; `TIKTOK_ACCESS_TOKEN` |
 | YouTube / TikTok / Instagram trends | key present | `YOUTUBE_API_KEY`; `TIKTOK_RESEARCH_ACCESS_TOKEN`; Instagram Graph credentials + Public Content Access |
 
 Check which trend sources are live with `python3 -m app.agents.trend_intelligence_v2`.
+
+## Runway credit safeguards
+
+Runway credits are spent only when every check passes, in this order:
+
+1. Execution is enabled and the API key is set.
+2. The request fits the episode cap including what the episode already spent
+   (repairs count) and the daily cap including everything spent today.
+3. A no-cost preflight passes: every start image exists, every model maps to a
+   Runway API id, every prompt fits Runway's limit, and the API and clip
+   download hosts are reachable, so no clip is generated that can't be used.
+
+Every submitted shot is reserved in, then recorded in,
+`artifacts/cartoon/runway_credit_ledger.json` under a file lock, and every
+write is atomic. A ledger that cannot be read blocks spending instead of
+counting as zero. A stage retry is safe: each plan's task ids and downloaded
+clips are kept in `artifacts/cartoon/<slug>_runway/plan_<hash>/manifest.json`,
+so retries reuse clips and poll submitted tasks rather than paying again. A
+Runway-made reel that fails video QA stops and reports instead of
+regenerating shots, unless `NOVA_RUNWAY_PAID_REPAIRS=true`; a paid repair
+counts against the episode cap and is only adopted when the Editor passes it.
+To see what an episode would cost and every reason it would be refused,
+without spending anything (exit code 2 means execution would be refused):
+
+```bash
+python3 -m app.providers.runway_video quote artifacts/cartoon/<episode>.runway_plan.json --run-id <run_id>
+```
+
+Quote the plan's `total_credits`, not the `estimated_total_credits` stored in
+the plan file: Runway bills every clip in 5 s or 10 s units.
+
+Runway bills the API and the web app from separate credit pools: credits on a
+Standard/Pro web plan cannot be spent with an API key. To use web-app credits:
+
+1. Run the factory once with the default `pillow` backend, or otherwise
+   produce the episode's `*.runway_plan.json`. Storyboard shots are planned
+   per run, so a plan only exists after its animation stage has run.
+2. Write the handoff for that plan. It records the expected file names, the
+   compacted prompts and start images, and the plan's hash:
+
+   ```bash
+   python3 -m app.providers.runway_video handoff artifacts/cartoon/<slug>.runway_plan.json artifacts/cartoon/web_clips/<run_id>
+   ```
+
+3. In the web app, make one clip per shot from that handoff and save it as
+   `shot_00.mp4`, `shot_01.mp4`, ... in that folder. Each clip must be portrait
+   at the plan's aspect ratio and at least as long as the planned shot.
+4. Re-run the animation stage with `NOVA_CARTOON_ANIMATION_BACKEND=runway` and
+   `NOVA_RUNWAY_CLIPS_DIR` set to that folder, for example
+   `python3 -m app.cartoon_factory_orchestrator repair <run_id> animation_engine`.
+   The folder is refused unless its handoff matches this plan, and each clip is
+   probed with ffprobe. Nothing is spent, and the Editor and video QA then run
+   as usual.
+
+Each shot's Runway clip is 5 s or 10 s. The prompt tells the model where the
+action completes in that clip and to hold the final pose, and the Editor trims
+from the start, so the planned action is always inside the kept footage.

@@ -6,8 +6,10 @@ outbox entry; a platform adapter can consume it without changing upstream work.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -30,19 +32,28 @@ from app.agent_memory import (
     update_experiment_learning,
     upsert_experiment,
 )
-from app.providers.platform_analytics import collect_platform_metrics, metric_to_record
-from app.trend_history import snapshot as snapshot_trends, attach_historical_signals
+from app.providers.platform_analytics import (
+    InstagramInsightsClient,
+    TikTokClient,
+    YouTubeClient,
+    collect_platform_metrics,
+    metric_to_record,
+)
+from app.trend_history import snapshot as snapshot_trends, attach_historical_signals, recent_rows as recent_trend_rows
 from app.agents.cartoon_jury import CartoonIdeaJury, jury_to_dict
 from app.agents.cartoon_animatic import render_animatic
 from app.agents.cartoon_animatic_judge import AnimaticJudge
 from app.agents.cartoon_motion_qa import CartoonMotionQA
 from app.agents.cartoon_quality import CartoonQuality
 from app.agents.final_qa import FinalQAAggregator
-from app.agents.cartoon_research import discover, rank, ResearchSignal
+from app.agents.media_qa import MediaQA
+from app.agents.cartoon_research import EVERGREEN_TITLES, ResearchSignal, discover_report, evergreen_signals
+from app.agents.cartoon_safety import public_text_problems, sanitize_topic
 from app.agents.storyboard import build_storyboard
 from app.agents.story_engine import StoryEngine
 from app.agents.script_engine import ScriptEngine
-from app.cartoon_control import CartoonControlPlane, CartoonRun, CartoonRunStore, CartoonStage
+from app.cartoon_control import CartoonControlPlane, CartoonRun, CartoonRunStore, CartoonStage, stage_status
+from app.env import load_env
 from app.providers.cartoon_animation import render_cartoon_motion, rerender_cartoon_shots
 from app.providers.blender_animation import BlenderAnimationProvider
 from app.providers.ai_performance import (
@@ -56,6 +67,10 @@ from app.providers.reel_editor import assemble_reel, verify_reel
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = ROOT / "artifacts" / "cartoon"
 OUTBOX = ARTIFACTS / "publish_queue.json"
+# Enough recent history to keep a month of daily episodes out of today's pool.
+RECENT_MEMORY_LIMIT = 200
+# Trend rows that must remain after removing recently used trends before the filter applies.
+MIN_FRESH_TREND_ROWS = 5
 
 
 # Visual QA -> Repair AI loop budget (override with NOVA_MAX_REPAIR_ATTEMPTS).
@@ -72,6 +87,48 @@ def _save(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False))
 
 
+def _guard_public_text(candidate: dict[str, Any]) -> None:
+    """Fail closed: unsafe viewer-facing text never reaches the publish queue or a platform title."""
+    problems = public_text_problems(str(candidate.get("title", "")), str(candidate.get("caption", "")))
+    if problems:
+        raise RuntimeError("Publish blocked: viewer-facing text failed the family-safety filter: " + ", ".join(problems))
+
+
+def _recent_episode_memory(limit: int = RECENT_MEMORY_LIMIT) -> tuple[list[str], list[str], list[str]]:
+    """Titles and trend ids of queued episodes, plus recent research topics from trend history."""
+    titles: list[str] = []
+    trend_ids: list[str] = []
+    queue: Any = []
+    if OUTBOX.exists():
+        try:
+            queue = json.loads(OUTBOX.read_text())
+        except (OSError, json.JSONDecodeError):
+            queue = []
+    for item in (queue[-limit:] if isinstance(queue, list) else []):
+        if not isinstance(item, dict):
+            continue
+        if item.get("title"):
+            titles.append(str(item["title"]))
+        trend = str((item.get("experiment_metadata") or {}).get("trend_id", ""))
+        if trend:
+            trend_ids.append(trend)
+    topics = [str(row.get("title", "")) for row in recent_trend_rows(limit) if row.get("title")]
+    return titles, trend_ids, topics
+
+
+def _screen_social_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Replace unsafe or real-person titles from social connectors with evergreen premises."""
+    replaced = 0
+    for row in rows:
+        title, status = sanitize_topic(str(row.get("title", "")), EVERGREEN_TITLES,
+                                       f"social|{row.get('source_type', '')}|{row.get('url', '')}")
+        if status != "ok":
+            replaced += 1
+            row["title"] = title
+            row["safety_status"] = status
+    return rows, replaced
+
+
 class CartoonFactoryOrchestrator:
     """End-to-end stage wiring with durable checkpoints and repair."""
 
@@ -84,6 +141,7 @@ class CartoonFactoryOrchestrator:
         self.story_engine = StoryEngine()
         self.script_engine = ScriptEngine()
         self.final_qa = FinalQAAggregator(self.quality, self.story_engine)
+        self.media_qa = MediaQA()
         self.plane = CartoonControlPlane(max_retries=1)
         self._register()
 
@@ -178,29 +236,61 @@ class CartoonFactoryOrchestrator:
         return [ResearchSignal(**row) for row in run.payload.get("research_signals", [])]
 
     def _research(self, run: CartoonRun) -> dict[str, Any]:
-        signals = discover(limit=30)
+        recent_titles, recent_trend_ids, recent_topics = _recent_episode_memory()
+        signals, source_status = discover_report(limit=30, recent_topics=recent_topics)
         base_rows = [asdict(x) for x in signals]
         social_rows, connector_status = discover_social_trends()
+        social_rows, social_replaced = _screen_social_rows(social_rows)
+        if base_rows:
+            mode = "live"
+        elif social_rows:
+            mode = "social_only"
+        else:
+            mode = "degraded_evergreen"
+        if mode == "degraded_evergreen":
+            # No live signal at all: a varied, date-rotated safe pool instead of one fixed idea.
+            base_rows = [asdict(x) for x in evergreen_signals(recent_titles=recent_topics + recent_titles, count=8)]
+        if mode != "live":
+            print(f"[research] degraded mode={mode}: sources={source_status} social={connector_status}", file=sys.stderr)
         combined = base_rows + social_rows
         trend_v2 = [signal_to_dict(x) for x in enrich_signals(combined)]
         trend_v2 = attach_historical_signals(trend_v2)
         snapshot_trends(trend_v2)
+        research_status = {
+            "mode": mode,
+            "sources": source_status,
+            "social_connectors": connector_status,
+            "social_topics_replaced": social_replaced,
+        }
         self.plane.store.set_payload(
             run,
             research_signals=base_rows,
             trend_signals_v2=trend_v2,
             social_connector_status=connector_status,
+            research_status=research_status,
+            recent_titles=recent_titles,
+            recent_trend_ids=recent_trend_ids,
         )
         return {
             "count": len(signals),
             "social_records": len(social_rows),
+            "evergreen_records": len(base_rows) if mode == "degraded_evergreen" else 0,
             "trend_signals_v2": len(trend_v2),
-            "source": "google_news+gdelt+optional_social_connectors",
+            "mode": mode,
+            "degraded": mode != "live",
+            "sources_ok": sorted(label for label, value in source_status.items() if value.startswith("ok")),
+            "sources": source_status,
+            "social_connectors": connector_status,
         }
 
     def _trend_intelligence(self, run: CartoonRun) -> dict[str, Any]:
         trend_rows = list(run.payload.get("trend_signals_v2", []))
         trend_rows.sort(key=lambda x: (float(x.get("opportunity_score", 0.0)), float(x.get("velocity_score", 0.0))), reverse=True)
+        # Do not re-make an episode from a trend that already produced one, unless that leaves too little.
+        recent_ids = set(run.payload.get("recent_trend_ids", []))
+        fresh_rows = [row for row in trend_rows if row.get("trend_id") not in recent_ids]
+        if len(fresh_rows) >= MIN_FRESH_TREND_ROWS:
+            trend_rows = fresh_rows
         memory = build_strategy_memory()
         policy = dict(run.payload.get("next_loop_plan", {}).get("policy", {}))
         formats = rank_format_candidates(trend_rows[:20], memory=memory, limit=40)
@@ -267,7 +357,7 @@ class CartoonFactoryOrchestrator:
         for idea in candidates:
             candidate = dict(idea)
             candidate["premise_slug"] = candidate.get("idea_id", "idea")
-            candidate["caption"] = f"{candidate.get('title','')} — original cartoon short."
+            candidate["caption"] = f"{candidate.get('hook', '')} An original cartoon short."
             candidate["hook_pattern"] = str(candidate.get("hook_pattern") or "")
             if not candidate["hook_pattern"]:
                 candidate["hook_pattern"] = str((candidate.get("hook_patterns") or [""])[0])
@@ -574,6 +664,7 @@ class CartoonFactoryOrchestrator:
                 fps=24,
                 shot_specs=shot_specs,
                 character=candidate.get("character"),
+                scene=candidate.get("scene"),
             )
         motion_metadata = output.with_suffix(".motion.json")
         effective_durations = durations
@@ -600,11 +691,20 @@ class CartoonFactoryOrchestrator:
             if not plan_path:
                 raise RuntimeError("Runway backend needs one storyboard shot per beat to build a plan")
             plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
-            hosted = runway_video.execute_plan(plan, ARTIFACTS / f"{slug}_runway")
+            clips_dir = os.environ.get("NOVA_RUNWAY_CLIPS_DIR", "").strip()
+            if clips_dir:
+                # Clips made in the Runway web app / connector for this plan.
+                hosted = runway_video.import_clips(plan, Path(clips_dir))
+            else:
+                hosted = runway_video.execute_plan(plan, ARTIFACTS / f"{slug}_runway", run_id=run.run_id, kind="generate")
             clips = [hosted["clips"][index] for index in sorted(hosted["clips"])]
             self.plane.store.set_payload(run, shot_clips=clips, runway_execution={
                 k: v for k, v in hosted.items() if k != "clips"
             }, animation_backend="runway")
+        else:
+            # A local render replaces any hosted clips from an earlier attempt;
+            # keeping them would assemble the old Runway shots and block the free repair.
+            self.plane.store.set_payload(run, shot_clips=None, runway_execution=None, animation_backend=backend)
         return {
             "video": str(output),
             "renderer": "blender-cutout-performance-rig-v5" if backend == "blender" and candidate.get("character") in {"PIP", "MOMO", "BUBU"} else "cartoon-motion-3.6",
@@ -616,7 +716,10 @@ class CartoonFactoryOrchestrator:
 
     def _rerender_for_motion_qa(self, run: CartoonRun, motion_result: dict[str, Any]) -> dict[str, Any]:
         """Surgically rerender failed shots plus their dependent outgoing bridges."""
-        attempt = int(run.payload.get("motion_repair_attempts", 0)) + 1
+        # A paid repair that was interrupted keeps its attempt number, so the retry
+        # resumes the same Runway manifest instead of paying for the shots again.
+        pending = run.payload.get("motion_repair_pending") or {}
+        attempt = int(pending.get("attempt") or int(run.payload.get("motion_repair_attempts", 0)) + 1)
         if attempt > self._max_repair_attempts():
             raise RuntimeError(f"Motion QA repair budget exhausted after {attempt - 1} attempt(s)")
 
@@ -677,7 +780,16 @@ class CartoonFactoryOrchestrator:
             except (OSError, json.JSONDecodeError, TypeError, ValueError):
                 runway_repair_path = None
 
-        if run.payload.get("shot_clips") and runway_repair_path:
+        if run.payload.get("shot_clips"):
+            # A hosted reel is never silently re-rendered locally, and a paid
+            # regeneration only happens when the owner has opted in.
+            if os.environ.get("NOVA_RUNWAY_PAID_REPAIRS", "false").strip().lower() != "true":
+                raise RuntimeError(
+                    "Runway reel failed video QA (" + ", ".join(reasons) + "); paid repairs are off "
+                    "(NOVA_RUNWAY_PAID_REPAIRS=false), so no credits were spent"
+                )
+            if not runway_repair_path:
+                raise RuntimeError("Runway reel failed video QA but no repair plan could be built")
             return self._repair_hosted_shots(run, attempt, reasons, target_shots, plan, Path(runway_repair_path))
 
         tuning = {
@@ -725,23 +837,38 @@ class CartoonFactoryOrchestrator:
 
     def _repair_hosted_shots(self, run: CartoonRun, attempt: int, reasons: list[str], target_shots: list[int],
                              plan: dict[str, Any], repair_plan_path: Path) -> dict[str, Any]:
-        """Targeted hosted repair: regenerate only failing shots, then re-cut the reel."""
+        """Targeted hosted repair: regenerate only failing shots, then re-cut the reel.
+
+        The paid clips are stored in ``shot_clips`` before the re-cut, so a failed
+        assembly is retried without paying again. A reel that fails the editor's
+        checks is never adopted as the episode video.
+        """
         candidate = run.payload["winner"]["candidate"]
         repair_plan = json.loads(repair_plan_path.read_text(encoding="utf-8"))
-        result = runway_video.execute_plan(repair_plan, ARTIFACTS / f"{candidate['premise_slug']}_runway_repair_{attempt}")
+        runway_plan = json.loads(Path(run.payload["runway_plan"]).read_text(encoding="utf-8"))
+        pending = {"attempt": attempt, "reasons": reasons, "target_shots": target_shots,
+                   "repair_plan": str(repair_plan_path)}
+        self.plane.store.set_payload(run, motion_repair_pending=pending)
+        result = runway_video.execute_plan(repair_plan, ARTIFACTS / f"{candidate['premise_slug']}_runway_repair_{attempt}",
+                                           run_id=run.run_id, kind="repair")
+        # shot_clips is ordered by shot number; map each replacement to its slot.
+        order = sorted(int(shot.get("shot_index", position)) for position, shot in enumerate(runway_plan.get("shots", [])))
         clips = list(run.payload["shot_clips"])
         for shot, clip in result["clips"].items():
-            clips[int(shot)] = clip
+            clips[order.index(int(shot))] = clip
+        self.plane.store.set_payload(run, shot_clips=clips, motion_repair_pending=pending)
         audio = run.payload.get("audio_metadata", {}).get("audio_source")
         output = ARTIFACTS / f"{candidate['premise_slug']}_edited_r{attempt}.mp4"
         report = assemble_reel([Path(c) for c in clips], run.payload["edit_plan"], output,
                                audio=Path(audio) if audio else None)
+        if not report["passed"]:
+            raise RuntimeError("Hosted repair: reel does not match the edit plan: " + ", ".join(report["reasons"]))
         history = list(run.payload.get("motion_repair_history", []))
         history.append({"attempt": attempt, "reasons": reasons, "target_shots": target_shots, "plan": plan,
                         "video": str(output), "strategy": "hosted-targeted-regeneration"})
-        self.plane.store.set_payload(run, shot_clips=clips, video=str(output), editor=report,
+        self.plane.store.set_payload(run, video=str(output), editor=report,
                                      motion_repair_attempts=attempt, motion_repair_target_shots=target_shots,
-                                     motion_repair_history=history)
+                                     motion_repair_history=history, motion_repair_pending=None)
         return {"attempt": attempt, "plan": plan, "target_shots": target_shots, "video": str(output),
                 "strategy": "hosted-targeted-regeneration"}
 
@@ -866,6 +993,9 @@ class CartoonFactoryOrchestrator:
             repairs.append(repair)
             video = Path(repair["video"])
 
+        # Measured mp4 checks (loudness, silence, edges, freezes, cuts, captions)
+        # run once the rerender loop settles; their failures block at publish.
+        media = MediaQA.combine(media, self.media_qa.evaluate(video))
         final_qa = self._final_qa(run, media, motion)
         record_provider_observation(
             provider=str(run.payload.get("animation_backend", "pillow")),
@@ -900,6 +1030,7 @@ class CartoonFactoryOrchestrator:
         if not isinstance(gate, dict) or gate.get("publish_gate", {}).get("decision") != "allow":
             raise RuntimeError("Publish blocked: final QA publish-gate evidence is missing or failed")
         candidate = run.payload["winner"]["candidate"]
+        _guard_public_text(candidate)
         experiment = ensure_experiment_identity(run.payload, run.run_id)
         item = {
             "run_id": run.run_id,
@@ -1048,6 +1179,105 @@ class CartoonFactoryOrchestrator:
         return result
 
 
-if __name__ == "__main__":
-    run = CartoonFactoryOrchestrator().run()
+def published_run_ids() -> list[str]:
+    """Runs with at least one bound platform content id, i.e. episodes that have metrics to learn from."""
+    found = []
+    for run_id in CartoonRunStore.run_ids():
+        try:
+            run = CartoonRunStore(run_id).load()
+        except (OSError, ValueError, KeyError):
+            continue  # an unreadable checkpoint is reported by its own run, not here
+        if run.payload.get("published_content_map"):
+            found.append(run_id)
+    return found
+
+
+def refresh_all_metrics(run_ids: list[str] | None = None) -> dict[str, Any]:
+    """Refresh platform metrics and learning for every published run (or the given runs).
+
+    Without analytics credentials nothing is fabricated: each published run
+    records ``metrics_unavailable`` and learning is left as it was. One failing
+    run does not stop the others.
+    """
+    connectors = [InstagramInsightsClient().status(), YouTubeClient().status(), TikTokClient().status()]
+    configured = any(status.enabled for status in connectors)
+    rows: list[dict[str, Any]] = []
+    engine: CartoonFactoryOrchestrator | None = None
+    for run_id in published_run_ids() if run_ids is None else run_ids:
+        if not configured:
+            store = CartoonRunStore(run_id)
+            run = store.load()
+            store.set_payload(run, platform_metrics_status={
+                "status": "metrics_unavailable",
+                "detail": "no analytics credentials configured",
+                "connectors": [asdict(status) for status in connectors],
+            }, metrics_pending=True)
+            rows.append({"run_id": run_id, "status": "metrics_unavailable"})
+            continue
+        try:
+            engine = engine or CartoonFactoryOrchestrator()
+            run = engine.refresh_metrics_and_learning(run_id)
+            rows.append({"run_id": run_id, "status": run.status,
+                         "metrics": run.payload.get("platform_metrics_status", {}).get("status", "")})
+        except Exception as exc:  # isolate: one bad run must not block the rest
+            rows.append({"run_id": run_id, "status": "error", "error": f"{type(exc).__name__}: {exc}"})
+    return {"configured": configured, "connectors": [asdict(status) for status in connectors], "runs": rows}
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m app.cartoon_factory_orchestrator",
+        description="Run, resume, repair, inspect or measure the cartoon factory. No command means run.",
+        epilog="Exit codes: 0 completed or success, 1 run failed or metrics error, 2 unknown run or usage error.",
+    )
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND")
+    commands.add_parser("run", help="start a new episode (the default)")
+    resume = commands.add_parser("resume", help="continue a failed or interrupted run")
+    resume.add_argument("run_id")
+    repair = commands.add_parser("repair", help="re-run one stage and every stage after it")
+    repair.add_argument("run_id")
+    repair.add_argument("stage", choices=[stage.value for stage in CartoonStage])
+    status = commands.add_parser("status", help="print a run's stage status as JSON")
+    status.add_argument("run_id")
+    metrics = commands.add_parser("metrics", help="refresh platform metrics and learning for published runs")
+    metrics.add_argument("--run-id", help="refresh only this run")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)  # --help exits here, before any run starts
+    load_env()
+    command = args.command or "run"
+    try:
+        if command == "metrics":
+            run_ids = None
+            if args.run_id:
+                if args.run_id not in published_run_ids():
+                    print(f"cartoon factory: run {args.run_id} has no bound platform content", file=sys.stderr)
+                    return 2
+                run_ids = [args.run_id]
+            report = refresh_all_metrics(run_ids)
+            print(json.dumps(report, indent=2))
+            return 1 if any(row["status"] in {"error", "failed"} for row in report["runs"]) else 0
+        if command == "status":
+            run = CartoonRunStore(args.run_id).load()
+            print(json.dumps({"run_id": run.run_id, "status": run.status, "current_stage": run.current_stage,
+                              "stage_status": stage_status(run)}, indent=2))
+            return 0
+        factory = CartoonFactoryOrchestrator()
+        if command == "run":
+            run = factory.run()
+        elif command == "resume":
+            run = factory.resume(args.run_id)
+        else:
+            run = factory.repair(args.run_id, CartoonStage(args.stage))
+    except FileNotFoundError as exc:
+        print(f"cartoon factory: {exc}", file=sys.stderr)
+        return 2
     print(json.dumps({"run_id": run.run_id, "status": run.status, "current_stage": run.current_stage}, indent=2))
+    # Non-zero unless the run completed, so schedulers (GitHub Actions, cron) see failures.
+    return 0 if run.status == "completed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

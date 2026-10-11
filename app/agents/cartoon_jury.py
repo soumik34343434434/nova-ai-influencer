@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass
+from .cartoon_safety import public_text_problems
 from .idea_prediction import predict_idea
 
 
@@ -135,12 +136,9 @@ class CartoonIdeaJury:
         return JudgeScore("visual", min(score, 1.0), reasons)
 
     def _originality_safety(self, draft: dict, text: str) -> JudgeScore:
-        forbidden = (
-            "celebrity", "lookalike", "private person", "real child", "minor",
-            "repost", "face swap", "weapon", "self harm", "sexual", "hate",
-            "copyrighted character",
-        )
-        unsafe = any(term in text for term in forbidden)
+        viewer_text = [str(draft.get(key, "")) for key in ("title", "hook", "caption")]
+        viewer_text += [str(row.get("voice", "")) for row in draft.get("beats", []) if isinstance(row, dict)]
+        unsafe = bool(public_text_problems(*viewer_text))
         character = str(draft.get("character", ""))
         score = 0.20 if unsafe else 0.80
         if character in {"PIP", "MOMO", "BUBU"} and not unsafe:

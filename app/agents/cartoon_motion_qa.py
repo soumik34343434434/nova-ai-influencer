@@ -11,6 +11,17 @@ import cv2
 import numpy as np
 
 
+# Setup and punchline shots are calm by design (the setup holds on the character
+# and the punchline holds on the reaction), so low mean motion there is advisory.
+CALM_BEATS = frozenset({"setup", "punchline"})
+
+
+def _base_reason(reason: str) -> str:
+    """Strip a trailing ``_shot_N`` scope from a diagnostic."""
+    head, sep, tail = reason.rpartition("_shot_")
+    return head if sep and tail.isdigit() else reason
+
+
 class CartoonMotionQA:
     """Cheap video-level motion gate; no generative model required."""
 
@@ -48,7 +59,7 @@ class CartoonMotionQA:
         matched: dict[str, list[str]] = {}
         unknown: list[str] = []
         for reason in reasons:
-            base = reason.rsplit("_shot_", 1)[0] if "_shot_" in reason and reason.rsplit("_shot_", 1)[1].isdigit() else reason
+            base = _base_reason(reason)
             found = [domain for domain, (keys, _) in rules.items() if base in keys.split()]
             if found:
                 for domain in found:
@@ -58,6 +69,7 @@ class CartoonMotionQA:
         instructions = [rules[d][1] for d in rules if d in matched]
         if unknown:
             instructions.append("Make a conservative continuity-preserving correction for the reported issue; do not redesign the shot.")
+        bases = {_base_reason(reason) for reason in reasons}
         plan: dict[str, Any] = {
             "motion_gain": 1.0,
             "camera_gain": 1.0,
@@ -68,19 +80,19 @@ class CartoonMotionQA:
             "jpeg_quality": 91,
             "crf": 23,
         }
-        if any(reason in reasons for reason in ("insufficient_character_motion", "too_many_near_duplicate_frames")):
+        if bases & {"insufficient_character_motion", "too_many_near_duplicate_frames"}:
             plan["motion_gain"] = 1.35
             plan["camera_gain"] = 1.25
-        if "possible_pose_popping" in reasons:
+        if "possible_pose_popping" in bases:
             plan["motion_gain"] = min(plan["motion_gain"], 0.84)
             plan["camera_gain"] = min(plan["camera_gain"], 0.92)
             plan["shake_gain"] = 0.60
             plan["transition_seconds"] = 0.26
-        if "excessive_transition_spike" in reasons:
+        if "excessive_transition_spike" in bases:
             plan["camera_gain"] = min(plan["camera_gain"], 0.90)
             plan["shake_gain"] = 0.55
             plan["transition_seconds"] = 0.14
-        if any(reason in reasons for reason in ("excessive_blur", "video_decode_failed", "possible_black_frames")):
+        if bases & {"excessive_blur", "video_decode_failed", "possible_black_frames"}:
             plan["jpeg_quality"] = 94
             plan["crf"] = 18
         if any(reason.startswith("caption_character_collision_") for reason in reasons):
@@ -89,7 +101,7 @@ class CartoonMotionQA:
         if all(reason in {"motion_qa_below_threshold"} for reason in reasons):
             plan["motion_gain"] = 1.15
             plan["camera_gain"] = 1.10
-        if "possible_pose_popping" in reasons or "excessive_transition_spike" in reasons:
+        if bases & {"possible_pose_popping", "excessive_transition_spike"}:
             # Continuity failures dominate motion amplification to prevent
             # contradictory requests in combined diagnostics.
             plan["motion_gain"] = min(plan["motion_gain"], 0.84)
@@ -396,8 +408,12 @@ class CartoonMotionQA:
                 / max(1, len(shot_diffs))
             )
             shot_reasons: list[str] = []
+            advisory_reasons: list[str] = []
             if shot_mean < self.min_motion:
-                shot_reasons.append("insufficient_character_motion")
+                if shot_beat in CALM_BEATS:
+                    advisory_reasons.append("insufficient_character_motion")
+                else:
+                    shot_reasons.append("insufficient_character_motion")
             if shot_p95 > self.max_internal_p95:
                 shot_reasons.append("possible_pose_popping")
             if shot_transition > self.max_transition_spike:
@@ -422,6 +438,7 @@ class CartoonMotionQA:
                 "dark_frame_ratio": round(shot_dark, 3),
                 "near_duplicate_ratio": round(shot_duplicate, 3),
                 "reasons": shot_reasons,
+                "advisory_reasons": advisory_reasons,
             })
 
         for reason in self._caption_collisions(metadata):
@@ -456,6 +473,12 @@ class CartoonMotionQA:
             )
             if worst is not None:
                 repair_shots.add(int(worst["shot"]))
+
+        # Per-shot motion failures used to stay in shot_results only, so QA passed
+        # with failing shots. They now block under a shot-scoped reason, which the
+        # repair planner routes to the failing shots only.
+        for row in shot_results:
+            reasons.extend(f"{reason}_shot_{row['shot']}" for reason in row["reasons"])
 
         if mean_motion < self.min_motion:
             reasons.append("insufficient_character_motion")

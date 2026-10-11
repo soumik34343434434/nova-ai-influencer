@@ -1,0 +1,97 @@
+name: NOVA metrics and learning
+
+# Daily refresh of platform performance for every published run, feeding the
+# learning memory that shapes the next episodes. Runs without credentials record
+# "metrics_unavailable" instead of failing, so the schedule stays green until the
+# platform tokens exist.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 6 * * *"  # daily, about 11:53 IST
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nova-factory-state
+  cancel-in-progress: false
+
+jobs:
+  metrics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write  # push the refreshed factory state
+      actions: read    # read the factory's run history for the staleness check
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Fail loudly if the daily factory has stopped succeeding
+        # Billing blocks and disabled schedules fail silently otherwise. A failed
+        # job here emails the repository owner through GitHub's usual notifications.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last="$(gh run list --workflow cartoon-factory.yml --branch main --status success \
+            --limit 1 --json createdAt --jq '.[0].createdAt // ""')"
+          if [ -z "$last" ]; then
+            echo "No successful factory run on main yet." >&2
+            exit 1
+          fi
+          python - "$last" <<'PY'
+          import datetime, sys
+          last = datetime.datetime.fromisoformat(sys.argv[1].replace("Z", "+00:00"))
+          age = datetime.datetime.now(datetime.timezone.utc) - last
+          print(f"Last successful factory run: {last.isoformat()} ({age.days} days ago)")
+          if age > datetime.timedelta(days=2):
+              sys.exit("The factory has not succeeded for more than 2 days.")
+          PY
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Ensure the factory-state branch exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/state_sync.py ensure-branch
+
+      - name: Check out factory state
+        uses: actions/checkout@v6
+        with:
+          ref: factory-state
+          path: state-branch
+          fetch-depth: 1
+          persist-credentials: true  # the only step that pushes state
+
+      - name: Install Python dependencies
+        run: python -m pip install --prefer-binary -r requirements.txt
+
+      - name: Restore factory memory
+        run: python scripts/state_sync.py pull --state-dir state-branch
+
+      - name: Refresh metrics and learning
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
+        run: python -m app.cartoon_factory_orchestrator metrics
+
+      - name: Store refreshed factory state
+        if: always()
+        run: |
+          python scripts/state_sync.py push --state-dir state-branch \
+            --message "Metrics and learning refresh"
+          git -C state-branch push origin HEAD:factory-state

@@ -5,7 +5,7 @@ Every adapter is fail-closed. A real upload happens only when all of these hold
 
 * the job was explicitly approved by a person (``approved=True``);
 * ``NOVA_ENABLE_REAL_PUBLISH=true``;
-* the platform's credentials are configured (``required_env`` below);
+* the platform's credentials are configured (``missing_env()`` is empty);
 * the job carries an explicit audience decision (``metadata["made_for_kids"]``),
   because platform audience classification is a human review step.
 
@@ -15,6 +15,7 @@ in the caption. HTTP is injectable so the adapters are testable offline.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import math
 import os
@@ -25,6 +26,8 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+
+from app.providers import oauth_tokens
 
 # (method, url, headers, body) -> (status, response headers, response body)
 Http = Callable[[str, str, dict[str, str], "bytes | None"], tuple[int, dict[str, str], bytes]]
@@ -57,7 +60,6 @@ def disclosed_caption(caption: str) -> str:
 class LivePublisherBase:
     platform = ""
     provider = ""
-    required_env: tuple[str, ...] = ()
 
     def __init__(self, http: Http | None = None, *, poll_seconds: float = 5.0, timeout_seconds: float = 600.0):
         self.http = http or urllib_http
@@ -65,8 +67,17 @@ class LivePublisherBase:
         self.timeout_seconds = timeout_seconds
 
     @classmethod
+    def missing_env(cls) -> list[str]:
+        """Environment names this adapter still needs; empty when it can authenticate."""
+        return oauth_tokens.missing_env(cls.platform)
+
+    @classmethod
     def configured(cls) -> bool:
-        return all(os.getenv(name, "").strip() for name in cls.required_env)
+        return not cls.missing_env()
+
+    def _token(self) -> str:
+        # Refreshed lazily through the same HTTP layer as the upload itself.
+        return oauth_tokens.get_access_token(self.platform, self.http)
 
     def publish(self, job: Any, *, dry_run: bool = True) -> Any:
         from app.providers.publisher import (
@@ -88,7 +99,11 @@ class LivePublisherBase:
             content_id = self._upload(job)
         except PublishError:
             raise
-        except (TimeoutError, ConnectionError) as exc:
+        except FileNotFoundError as exc:
+            raise PublishError(f"{self.platform}: episode video unavailable: {exc}", retryable=False) from exc
+        except (OSError, http.client.HTTPException) as exc:
+            # Connection-phase failures (DNS, TLS, refused, reset, timeout) are OSError
+            # subclasses or URLError, which is not a ConnectionError. They are transient.
             raise PublishError(f"{self.platform}: {exc}", retryable=True) from exc
         return PublishResult(job.platform, "published", content_id=content_id,
                              published_at=datetime.now(timezone.utc).isoformat(),
@@ -111,13 +126,14 @@ class YouTubeShortsPublisher(LivePublisherBase):
 
     platform = "youtube"
     provider = "youtube_data_api_v3"
-    required_env = ("YOUTUBE_ACCESS_TOKEN",)
     UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status"
 
     def _upload(self, job: Any) -> str:
         from app.providers.publisher import PublishError
 
-        token = os.environ["YOUTUBE_ACCESS_TOKEN"].strip()
+        # Privacy default: uploads stay private until a person changes
+        # YOUTUBE_PRIVACY_STATUS (public or unlisted) after reviewing the episode.
+        token = self._token()
         data = Path(job.video_path).read_bytes()
         metadata = {
             "snippet": {
@@ -153,12 +169,17 @@ class InstagramReelsPublisher(LivePublisherBase):
 
     platform = "instagram"
     provider = "instagram_graph_api"
-    required_env = ("INSTAGRAM_ACCESS_TOKEN", "INSTAGRAM_USER_ID")
+
+    @classmethod
+    def missing_env(cls) -> list[str]:
+        # INSTAGRAM_ACCESS_TOKEN must be a non-expiring Page or system-user token; see
+        # oauth_tokens for why there is no refresh flow for Instagram.
+        return [name for name in ("INSTAGRAM_ACCESS_TOKEN", "INSTAGRAM_USER_ID") if not os.getenv(name, "").strip()]
 
     def _upload(self, job: Any) -> str:
         from app.providers.publisher import PublishError
 
-        token = os.environ["INSTAGRAM_ACCESS_TOKEN"].strip()
+        token = self._token()
         user = os.environ["INSTAGRAM_USER_ID"].strip()
         version = os.getenv("INSTAGRAM_GRAPH_VERSION", "v26.0")
         graph = f"https://graph.facebook.com/{version}"
@@ -209,7 +230,6 @@ class TikTokPublisher(LivePublisherBase):
 
     platform = "tiktok"
     provider = "tiktok_content_posting_api"
-    required_env = ("TIKTOK_ACCESS_TOKEN",)
     INIT_URL = "https://open.tiktokapis.com/v2/post/publish/video/init/"
     STATUS_URL = "https://open.tiktokapis.com/v2/post/publish/status/fetch/"
     SINGLE_CHUNK_LIMIT = 64 * 1024 * 1024
@@ -218,7 +238,7 @@ class TikTokPublisher(LivePublisherBase):
     def _upload(self, job: Any) -> str:
         from app.providers.publisher import PublishError
 
-        token = os.environ["TIKTOK_ACCESS_TOKEN"].strip()
+        token = self._token()
         data = Path(job.video_path).read_bytes()
         size = len(data)
         chunk = size if size <= self.SINGLE_CHUNK_LIMIT else self.CHUNK
@@ -227,7 +247,8 @@ class TikTokPublisher(LivePublisherBase):
         payload = {
             "post_info": {
                 "title": disclosed_caption(job.caption)[:2200],
-                # Unaudited TikTok apps may only post privately.
+                # Privacy default: SELF_ONLY, because unaudited TikTok apps may only post
+                # privately. A person widens it with TIKTOK_PRIVACY_LEVEL after review.
                 "privacy_level": os.getenv("TIKTOK_PRIVACY_LEVEL", "SELF_ONLY"),
                 "disable_duet": False,
                 "disable_comment": False,

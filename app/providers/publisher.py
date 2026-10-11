@@ -221,7 +221,7 @@ def assert_publish_allowed(job: PublishJob, *, dry_run: bool) -> None:
     adapter = LIVE_PUBLISHERS.get(job.platform)
     if adapter is None or not adapter.configured():
         # No adapter, or its credentials are missing: never fall through to an upload.
-        missing = [name for name in (adapter.required_env if adapter else ()) if not os.getenv(name, "").strip()]
+        missing = adapter.missing_env() if adapter else []
         raise PermissionError("no_real_publisher_configured" + (f":{job.platform}:missing={','.join(missing)}" if missing else f":{job.platform}"))
 
 

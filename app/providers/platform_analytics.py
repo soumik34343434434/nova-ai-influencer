@@ -13,6 +13,8 @@ from typing import Any, Iterable
 
 import httpx
 
+from app.providers import oauth_tokens
+
 
 @dataclass
 class PlatformMetricSnapshot:
@@ -129,17 +131,28 @@ class InstagramInsightsClient:
 
 
 class YouTubeClient:
-    """YouTube Data API + optional Analytics API for the owned channel."""
+    """YouTube Data API + optional Analytics API for the owned channel.
+
+    Public view and like counts need only YOUTUBE_API_KEY, which does not expire.
+    Owner analytics (retention, watch time) use the OAuth refresh flow in
+    ``oauth_tokens`` (YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN).
+    """
 
     def __init__(self, api_key: str | None = None, access_token: str | None = None) -> None:
         self.api_key = api_key or os.getenv("YOUTUBE_API_KEY", "")
-        self.access_token = access_token or os.getenv("YOUTUBE_ACCESS_TOKEN", "")
+        self.access_token = access_token or ""  # explicit override only; env tokens refresh lazily
         self.channel_id = os.getenv("YOUTUBE_CHANNEL_ID", "")
 
+    def _owner_token(self) -> str:
+        return self.access_token or oauth_tokens.try_access_token("youtube")
+
+    def has_owner_access(self) -> bool:
+        return bool(self._owner_token())
+
     def status(self) -> ConnectorStatus:
-        if self.api_key or self.access_token:
+        if self.api_key or self.access_token or oauth_tokens.has_credentials("youtube"):
             return ConnectorStatus("youtube", True, "configured")
-        return ConnectorStatus("youtube", False, "missing_credentials", "Set YOUTUBE_API_KEY for public stats or YOUTUBE_ACCESS_TOKEN for owner analytics")
+        return ConnectorStatus("youtube", False, "missing_credentials", "Set YOUTUBE_API_KEY for public stats, or YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET and YOUTUBE_REFRESH_TOKEN for owner analytics")
 
     def fetch_video_stats(self, video_ids: Iterable[str], timeout: float = 12.0) -> list[PlatformMetricSnapshot]:
         ids = [str(x) for x in video_ids if x]
@@ -172,7 +185,8 @@ class YouTubeClient:
         return out
 
     def fetch_owner_analytics(self, video_id: str, days: int = 28, timeout: float = 15.0) -> PlatformMetricSnapshot | None:
-        if not self.access_token:
+        token = self._owner_token()
+        if not token:
             return None
         end = datetime.now(timezone.utc).date()
         start = end - timedelta(days=max(1, days))
@@ -183,10 +197,10 @@ class YouTubeClient:
             "metrics": "views,likes,comments,shares,averageViewDuration,averageViewPercentage,subscribersGained,estimatedMinutesWatched",
             "dimensions": "video",
             "filters": f"video=={video_id}",
-            "access_token": self.access_token,
         }
         try:
-            response = httpx.get("https://youtubeanalytics.googleapis.com/v2/reports", params=params, timeout=timeout)
+            response = httpx.get("https://youtubeanalytics.googleapis.com/v2/reports", params=params,
+                                 headers={"Authorization": f"Bearer {token}"}, timeout=timeout)
             response.raise_for_status()
             data = response.json()
             headers = [h["name"] for h in data.get("columnHeaders", [])]
@@ -215,14 +229,14 @@ class YouTubeClient:
 
 
 class TikTokClient:
-    """TikTok Display API video statistics for the connected creator."""
+    """TikTok video statistics for the connected creator (refreshed via oauth_tokens)."""
 
     def __init__(self, access_token: str | None = None) -> None:
-        self.access_token = access_token or os.getenv("TIKTOK_ACCESS_TOKEN", "")
+        self.access_token = access_token or ""  # explicit override only; env tokens refresh lazily
 
     def status(self) -> ConnectorStatus:
-        if not self.access_token:
-            return ConnectorStatus("tiktok", False, "missing_credentials", "Set TIKTOK_ACCESS_TOKEN")
+        if not (self.access_token or oauth_tokens.has_credentials("tiktok")):
+            return ConnectorStatus("tiktok", False, "missing_credentials", "Set TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET and TIKTOK_REFRESH_TOKEN")
         return ConnectorStatus("tiktok", True, "configured")
 
     def fetch_video_stats(self, video_ids: Iterable[str], timeout: float = 12.0) -> list[PlatformMetricSnapshot]:
@@ -231,12 +245,15 @@ class TikTokClient:
         ids = [str(x) for x in video_ids if x]
         if not ids:
             return []
+        token = self.access_token or oauth_tokens.try_access_token("tiktok")
+        if not token:
+            return []
         fields = "id,title,video_description,create_time,duration,like_count,comment_count,share_count,view_count,is_aigc"
         try:
             response = httpx.post(
                 "https://open.tiktokapis.com/v2/video/query/",
                 params={"fields": fields},
-                headers=_headers(self.access_token),
+                headers=_headers(token),
                 json={"filters": {"video_ids": ids[:20]}},
                 timeout=timeout,
             )
@@ -276,7 +293,7 @@ def collect_platform_metrics(content_map: dict[str, dict[str, Any]] | None = Non
     statuses.append(asdict(yt.status()))
     if yt.api_key:
         records.extend(yt.fetch_video_stats(content_map.get("youtube", {}).keys()))
-    if yt.access_token:
+    if yt.has_owner_access():
         for video_id in content_map.get("youtube", {}).keys():
             owner = yt.fetch_owner_analytics(video_id)
             if owner:
@@ -284,7 +301,7 @@ def collect_platform_metrics(content_map: dict[str, dict[str, Any]] | None = Non
 
     tt = TikTokClient()
     statuses.append(asdict(tt.status()))
-    if tt.access_token:
+    if tt.status().enabled:
         records.extend(tt.fetch_video_stats(content_map.get("tiktok", {}).keys()))
 
     # De-duplicate provider snapshots by platform/content id, preferring rows with

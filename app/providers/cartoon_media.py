@@ -8,11 +8,13 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from app.providers.cartoon_audio import make_sfx, make_voice
+from app.providers.cartoon_audio import loudness_normalize, make_music_bed, make_sfx, make_voice
 from app.providers.cartoon_voice import prepare_voice_performance
 
 
 W, H = 1080, 1920
+# SFX bus level relative to the dialog (dialog is unity); SFX sit well under speech.
+SFX_BUS_GAIN = 0.45
 
 
 def _font(size: int):
@@ -107,7 +109,12 @@ def _audio_for_shots(
     voice_start_fractions: list[float] | None = None,
     voice_performance: list[dict] | None = None,
 ) -> Path | None:
-    """Build audio from the same per-shot clock used by the animation engine."""
+    """Build the episode mix on the same per-shot clock as the animation engine.
+
+    Dialog and SFX are summed without amix's 1/N scaling (which made the mix about
+    24 dB too quiet), a soft procedural music bed is ducked under the dialog, and
+    the result is loudness-normalised to -14 LUFS with a -1.5 dBTP true-peak ceiling.
+    """
     work.mkdir(parents=True, exist_ok=True)
     total = sum(durations)
     peak_fractions = sfx_peak_fractions or [0.0] * len(durations)
@@ -115,7 +122,8 @@ def _audio_for_shots(
 
     inputs: list[str] = []
     filters: list[str] = []
-    labels: list[str] = []
+    voice_labels: list[str] = []
+    sfx_labels: list[str] = []
     input_index = 0
     elapsed = 0.0
 
@@ -140,7 +148,7 @@ def _audio_for_shots(
                     f"[{input_index}:a]atempo={tempo:.5f},apad,atrim=0:{available:.3f},adelay={delay}|{delay},volume=0.95[v{i}]"
                 )
                 inputs.extend(["-i", str(path)])
-                labels.append(f"[v{i}]")
+                voice_labels.append(f"[v{i}]")
                 input_index += 1
         elapsed += duration
 
@@ -154,24 +162,42 @@ def _audio_for_shots(
             delay_seconds = elapsed + max(0.0, duration * fraction - sfx_duration * 0.35)
             delay = round(delay_seconds * 1000)
             inputs.extend(["-i", str(path)])
-            filters.append(f"[{input_index}:a]adelay={delay}|{delay},volume=0.32[s{i}]")
-            labels.append(f"[s{i}]")
+            filters.append(f"[{input_index}:a]adelay={delay}|{delay},volume={SFX_BUS_GAIN:.3f}[s{i}]")
+            sfx_labels.append(f"[s{i}]")
             input_index += 1
         elapsed += duration
 
-    if not labels:
+    if not voice_labels and not sfx_labels:
         return None
 
+    mix_inputs: list[str] = []
+    if voice_labels:
+        bed = work / "music_bed.wav"
+        make_music_bed(total, bed)
+        bed_index = input_index
+        inputs.extend(["-i", str(bed)])
+        filters.append(f"{''.join(voice_labels)}amix=inputs={len(voice_labels)}:duration=longest:normalize=0[vmix]")
+        filters.append("[vmix]asplit=2[vkey][vdry]")
+        # The bed ducks under the dialog itself, so it stays soft but never fights the words.
+        filters.append(f"[{bed_index}:a]atrim=0:{total:.3f}[bed]")
+        filters.append("[bed][vkey]sidechaincompress=threshold=0.02:ratio=4:attack=15:release=300[duck]")
+        mix_inputs += ["[vdry]", "[duck]"]
+    if sfx_labels:
+        filters.append(f"{''.join(sfx_labels)}amix=inputs={len(sfx_labels)}:duration=longest:normalize=0[fmix]")
+        mix_inputs.append("[fmix]")
     filters.append(
-        f"{''.join(labels)}amix=inputs={len(labels)}:duration=longest,atrim=0:{total:.3f}[mix]"
+        f"{''.join(mix_inputs)}amix=inputs={len(mix_inputs)}:duration=longest:normalize=0,atrim=0:{total:.3f}[mix]"
     )
-    final_audio = work / "episode_audio.wav"
+    raw_mix = work / "episode_mix_raw.wav"
     subprocess.run(
         [ffmpeg, "-y", *inputs,
          "-filter_complex", ";".join(filters),
-         "-map", "[mix]", "-ar", "44100", "-ac", "1", str(final_audio)],
+         "-map", "[mix]", "-ar", "44100", "-ac", "1", str(raw_mix)],
         check=True, capture_output=True, text=True,
     )
+    final_audio = work / "episode_audio.wav"
+    loudness_normalize(raw_mix, final_audio)
+    raw_mix.unlink(missing_ok=True)
     return final_audio
 
 

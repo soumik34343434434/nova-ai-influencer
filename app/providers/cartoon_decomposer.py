@@ -48,6 +48,28 @@ REGIONS = {
         (0.29, 0.55, 0.55, 0.74), (0.64, 0.52, 0.83, 0.73),
         (0.29, 0.49, 0.45, 0.74),
     ),
+    # BUBU: blue bird, wings are blue with a yellow edge. Boxes from the
+    # labelled grid of the flattened action art.
+    "bubu_wave_hello.png": ActionRegions(
+        (0.17, 0.38, 0.84, 0.82), (0.30, 0.38, 0.80, 0.60),
+        (0.16, 0.48, 0.33, 0.72), (0.74, 0.60, 0.84, 0.76),
+        (0.0, 0.0, 0.01, 0.01),
+    ),
+    "bubu_panic_run.png": ActionRegions(
+        (0.12, 0.40, 0.88, 0.80), (0.28, 0.44, 0.70, 0.62),
+        (0.12, 0.56, 0.28, 0.70), (0.64, 0.55, 0.88, 0.70),
+        (0.0, 0.0, 0.01, 0.01),
+    ),
+    "bubu_worried_close.png": ActionRegions(
+        (0.18, 0.27, 0.82, 0.78), (0.22, 0.27, 0.80, 0.60),
+        (0.18, 0.58, 0.30, 0.74), (0.72, 0.58, 0.82, 0.74),
+        (0.0, 0.0, 0.01, 0.01),
+    ),
+    "bubu_deadpan.png": ActionRegions(
+        (0.22, 0.39, 0.80, 0.82), (0.30, 0.40, 0.74, 0.60),
+        (0.20, 0.58, 0.34, 0.74), (0.70, 0.58, 0.82, 0.74),
+        (0.0, 0.0, 0.01, 0.01),
+    ),
 }
 
 
@@ -160,8 +182,6 @@ def _body_plate(src: Image.Image, alpha: np.ndarray, masks: list[np.ndarray]) ->
 
 
 def decompose_action(path: Path, output_dir: Path, character: str = "PIP") -> dict:
-    if character != "PIP":
-        raise ValueError("Only PIP action decomposition is currently supported")
     regions = REGIONS.get(path.name)
     if not regions:
         raise ValueError(f"No decomposition manifest for {path.name}")

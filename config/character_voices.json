@@ -1,27 +1,48 @@
 {
-  "version": 1,
-  "notes": "Per-character voice identity. local_voice is the macOS `say` voice; espeak_voice is the eSpeak NG voice/variant used on Linux and CI. pitch_scale and rate_scale shape each character on top of the per-beat delivery profiles. runway_voice is sent to Runway when NOVA_VOICE_BACKEND=runway; Brodie is the current testing voice, so replace it per character once final voices are chosen.",
+  "version": 2,
+  "notes": "Per-character voice identity. kokoro_voice is the Kokoro-82M voice (default backend when its package and models are cached); local_voice is the macOS `say` voice; espeak_voice is the eSpeak NG voice used on Linux when Kokoro is unavailable. pitch_scale and rate_scale shape each character on top of the per-beat delivery profiles; pitch_scale applies to say and eSpeak only, since Kokoro keeps its own pitch. spoken_name is what the TTS engine says for the character (captions keep the brand spelling). runway_voice is sent to Runway when NOVA_VOICE_BACKEND=runway; Brodie is the current testing voice, so replace it per character once final voices are chosen. Casting is provisional until the owner signs off.",
   "characters": {
     "PIP": {
+      "kokoro_voice": "am_puck",
+      "spoken_name": "Pip",
       "local_voice": "Eddy (English (US))",
       "espeak_voice": "en-us+m7",
       "pitch_scale": 1.06,
       "rate_scale": 1.04,
-      "runway_voice": {"type": "runway-preset", "presetId": "Brodie"}
+      "runway_voice": {
+        "type": "runway-preset",
+        "presetId": "Brodie"
+      },
+      "runway_speech_voice": "Xylar",
+      "runway_speech_voice_note": "robotic, modulated: fits the robot"
     },
     "MOMO": {
+      "kokoro_voice": "bm_george",
+      "spoken_name": "Momo",
       "local_voice": "Eddy (English (US))",
       "espeak_voice": "en-us+m3",
       "pitch_scale": 0.94,
       "rate_scale": 0.92,
-      "runway_voice": {"type": "runway-preset", "presetId": "Brodie"}
+      "runway_voice": {
+        "type": "runway-preset",
+        "presetId": "Brodie"
+      },
+      "runway_speech_voice": "Mabel",
+      "runway_speech_voice_note": "relaxed, deadpan: fits the lazy cat"
     },
     "BUBU": {
+      "kokoro_voice": "af_bella",
+      "spoken_name": "Bubu",
       "local_voice": "Eddy (English (US))",
       "espeak_voice": "en-us+f4",
-      "pitch_scale": 1.10,
+      "pitch_scale": 1.1,
       "rate_scale": 1.06,
-      "runway_voice": {"type": "runway-preset", "presetId": "Brodie"}
+      "runway_voice": {
+        "type": "runway-preset",
+        "presetId": "Brodie"
+      },
+      "runway_speech_voice": "Pip",
+      "runway_speech_voice_note": "cute, young: fits the bird"
     }
   }
 }

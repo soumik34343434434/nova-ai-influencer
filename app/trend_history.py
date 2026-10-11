@@ -45,6 +45,11 @@ def snapshot(signals: Iterable[dict[str, Any]], max_rows: int = 5000) -> list[di
     return rows
 
 
+def recent_rows(limit: int = 200) -> list[dict[str, Any]]:
+    """The latest snapshot rows, newest last, for de-duplicating against recent episodes."""
+    return _load()[-max(0, limit):]
+
+
 def attach_historical_signals(signals: Iterable[dict[str, Any]], history: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     history = history if history is not None else _load()
     by_id: dict[str, list[dict[str, Any]]] = {}
@@ -54,9 +59,11 @@ def attach_historical_signals(signals: Iterable[dict[str, Any]], history: list[d
     enriched = []
     for signal in signals:
         item = dict(signal)
+        # Attachment runs before this run's snapshot is written, so the newest
+        # stored row is the previous run's observation (not two runs ago).
         past = by_id.get(str(item.get("trend_id", "")), [])
-        if len(past) >= 2:
-            previous = past[-2]
+        if past:
+            previous = past[-1]
             current_views = int(item.get("views", 0) or 0)
             previous_views = int(previous.get("views", 0) or 0)
             if previous_views > 0:
@@ -68,17 +75,10 @@ def attach_historical_signals(signals: Iterable[dict[str, Any]], history: list[d
                 )
             repeats = len(past)
             item["historical_snapshot_count"] = repeats
-            # More repeated appearances across snapshots increase saturation,
-            # but acceleration can temporarily offset the penalty.
+            # Repeats across earlier runs add a penalty on top of the in-run proxy.
+            # A max() with the in-run proxy would let the penalty cancel out.
             item["saturation_score"] = round(
-                min(
-                    1.0,
-                    max(
-                        float(item.get("saturation_score", 0.0)),
-                        min(1.0, repeats / 8.0) * 0.65
-                        + 0.35 * max(0.0, 1.0 - float(item.get("velocity_score", 0.0))),
-                    ),
-                ),
+                min(1.0, float(item.get("saturation_score", 0.0)) + 0.35 * min(1.0, repeats / 8.0)),
                 4,
             )
             item.update(recompute_opportunity_score(item))

@@ -49,8 +49,8 @@ def build_edit_plan(beats: list[dict[str, Any]], durations: list[float] | None =
                 "start_seconds": start,
                 "end_seconds": end,
                 "placement": "lower_third_safe",
-                "anchor": {"x": 0.5, "y": 0.72},
-                "safe_bounds": {"x_min": 0.08, "x_max": 0.92, "y_min": 0.58, "y_max": 0.82},
+                "anchor": {"x": 0.5, "y": 0.615},
+                "safe_bounds": {"x_min": 0.06, "x_max": 0.84, "y_min": 0.12, "y_max": 0.76},
             },
         }
         shots.append(shot)

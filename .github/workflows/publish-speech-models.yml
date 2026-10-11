@@ -1,0 +1,38 @@
+name: NOVA publish speech models
+
+# One-time (and on demand) mirror of open speech models into a GitHub release,
+# so the factory can fetch them on the runners without a third-party host.
+# Each model is downloaded from its official source, checksummed, and uploaded
+# to the release `speech-models-v1`. Nothing else is published by this workflow.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download Whisper base (faster-whisper, MIT)
+        run: |
+          set -euo pipefail
+          mkdir -p models/whisper-base
+          base=https://huggingface.co/Systran/faster-whisper-base/resolve/main
+          for f in model.bin config.json tokenizer.json vocabulary.txt; do
+            curl -fsSL --retry 3 -o "models/whisper-base/$f" "$base/$f"
+          done
+          tar -C models -czf whisper-base.tar.gz whisper-base
+          sha256sum whisper-base.tar.gz | tee whisper-base.tar.gz.sha256
+          ls -la whisper-base.tar.gz
+      - name: Upload to release speech-models-v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view speech-models-v1 >/dev/null 2>&1; then
+            gh release create speech-models-v1 --title "Speech models v1" \
+              --notes "Open-licence speech models mirrored for the NOVA factory. whisper-base: faster-whisper conversion of OpenAI Whisper base (MIT)."
+          fi
+          gh release upload speech-models-v1 whisper-base.tar.gz whisper-base.tar.gz.sha256 --clobber

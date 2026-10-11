@@ -1,10 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.api.auth import require_token
 
 from app.db.session import SessionLocal
 from app.services.content_service import latest_draft
 from app.services.media_service import build_local_video
 
-router = APIRouter(prefix="/media", tags=["media"])
+router = APIRouter(prefix="/media", tags=["media"], dependencies=[Depends(require_token)])
 
 @router.post("/build-latest")
 def build_latest_video():

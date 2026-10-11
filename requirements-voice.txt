@@ -1,0 +1,5 @@
+# Optional free neural voice (Kokoro-82M, Apache-2.0 weights; kokoro-onnx is MIT).
+# Needs Python >=3.10,<3.14 and the system libespeak-ng + espeak-ng-data packages
+# (apt: espeak-ng). Model files are downloaded by `python -m app.providers.kokoro_voice fetch`.
+# phonemizer (a transitive dependency) is GPL-3.0; review that before distributing binaries.
+kokoro-onnx==0.6.1
