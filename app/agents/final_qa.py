@@ -15,6 +15,24 @@ def _domain(score: float | None, reasons: list[str], *, blocking: bool, missing:
     }
 
 
+def _media_domains(media: dict[str, Any]) -> dict[str, list[str]]:
+    """Group measured media reasons by domain; legacy media reports count as technical."""
+    domains = media.get("domains")
+    if not isinstance(domains, dict):
+        return {"technical": list(media.get("reasons") or []), "audio": [], "video": [], "captions": []}
+    return {name: list(domains.get(name) or []) for name in ("technical", "audio", "video", "captions")}
+
+
+def _with_blocking(result: dict[str, Any], reasons: list[str]) -> dict[str, Any]:
+    """Attach measured blocking reasons to a domain result."""
+    extra = [reason for reason in dict.fromkeys(reasons) if reason not in result["reasons"]]
+    if extra:
+        result["reasons"] = [*result["reasons"], *extra]
+        result["failures"] = [*result["failures"], *({"reason": reason, "severity": "blocking"} for reason in extra)]
+        result["passed"] = False
+    return result
+
+
 class FinalQAAggregator:
     """Combine established checks into one stable, explicit publish decision."""
 
@@ -55,9 +73,12 @@ class FinalQAAggregator:
             domains["motion"] = _domain(None, ["motion_qa_evidence_missing"], blocking=True, missing=True)
 
         media = payload.get("final_media_qa") or payload.get("video_qa", {}).get("media")
+        media_domains = _media_domains(media) if isinstance(media, dict) else {"technical": [], "audio": [], "video": [], "captions": []}
         if isinstance(media, dict):
-            media_reasons = list(media.get("reasons") or [])
-            domains["technical_validity"] = _domain(1.0 if media.get("passed") else 0.0, media_reasons or ([] if media.get("passed") else ["media_check_failed"]), blocking=True)
+            technical_reasons = [*media_domains["technical"], *media_domains["video"]]
+            if not media.get("passed") and not any(media_domains.values()):
+                technical_reasons = ["media_check_failed"]
+            domains["technical_validity"] = _domain(1.0 if media.get("passed") else 0.0, technical_reasons, blocking=True)
         else:
             domains["technical_validity"] = _domain(None, ["media_qa_evidence_missing"], blocking=True, missing=True)
 
@@ -90,6 +111,9 @@ class FinalQAAggregator:
                 domains["captions"] = _domain(None, ["caption_quality_evidence_missing"], blocking=True, missing=True)
         else:
             domains["captions"] = _domain(None, ["caption_quality_evidence_missing"], blocking=True, missing=True)
+        # The script score never sees the rendered text, so truncated or off-zone
+        # captions and the disclosure are checked on the mp4 and block here.
+        domains["captions"] = _with_blocking(domains["captions"], media_domains["captions"])
 
         audio_score = motion.get("audio_sync_score") if isinstance(motion, dict) else None
         audio_reasons = list(motion.get("reasons") or []) if isinstance(motion, dict) else []
@@ -98,6 +122,8 @@ class FinalQAAggregator:
             domains["audio_sync"] = _domain(None, ["audio_sync_evidence_missing"], blocking=True, missing=True)
         else:
             domains["audio_sync"] = _domain(audio_score, sync_reasons, blocking=True)
+        # Loudness, true peak, silence and speech rate are measured on the mp4.
+        domains["audio_sync"] = _with_blocking(domains["audio_sync"], media_domains["audio"])
 
         video = payload.get("video")
         artifact_reasons = []
