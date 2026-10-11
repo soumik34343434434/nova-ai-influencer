@@ -574,6 +574,7 @@ class CartoonFactoryOrchestrator:
                 fps=24,
                 shot_specs=shot_specs,
                 character=candidate.get("character"),
+                scene=candidate.get("scene"),
             )
         motion_metadata = output.with_suffix(".motion.json")
         effective_durations = durations
