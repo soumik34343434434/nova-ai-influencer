@@ -43,8 +43,8 @@ IDLE_BREATH_HZ = 1.2
 
 def _idle_bob(progress: float, shot_seconds: float) -> float:
     return IDLE_BREATH_PX * math.sin(math.tau * IDLE_BREATH_HZ * progress * shot_seconds)
-CAPTION_TOP = 260  # top band above the characters' heads and clear of platform UI
-CAPTION_ZONE = (90, 240, 990, 640)  # reserved text area that must not touch a character
+CAPTION_TOP = 200  # top band above the characters' heads and clear of platform UI
+CAPTION_ZONE = (90, 170, 990, 500)  # reserved text area that must not touch a character (close-up heads start near y=520)
 CAPTION_MAX_WIDTH = 720  # centred on W/2, so the block stays inside SAFE_ZONE
 CAPTION_SIZES = (64, 58, 52, 46)
 DISCLOSURE_TOP = int(H * SAFE_ZONE[1]) + 12
