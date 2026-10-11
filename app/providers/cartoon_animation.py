@@ -37,6 +37,8 @@ PAD_Y = round(H * (OVERSCAN - 1.0) / 2.0)
 # Platform UI covers the outer frame; all text must stay inside this box
 # (x0, y0, x1, y1) as fractions of the 1080x1920 frame.
 SAFE_ZONE = (0.06, 0.12, 0.84, 0.76)
+IDLE_BREATH_PX = 1.4  # head rise/fall (px) during holds; see _apply_rig_performance
+IDLE_BREATH_HZ = 0.6
 CAPTION_TOP = 260  # top band above the characters' heads and clear of platform UI
 CAPTION_ZONE = (90, 240, 990, 640)  # reserved text area that must not touch a character
 CAPTION_MAX_WIDTH = 720  # centred on W/2, so the block stays inside SAFE_ZONE
@@ -871,7 +873,7 @@ def _apply_rig_performance(
     # Holds were near-identical frames (failing the duplicate-frame check) and
     # this keeps them alive without faking a pose change.
     if shot_seconds:
-        dy += 1.4 * math.sin(math.tau * 0.6 * progress * shot_seconds)
+        dy += IDLE_BREATH_PX * math.sin(math.tau * IDLE_BREATH_HZ * progress * shot_seconds)
     cover = frame.filter(ImageFilter.GaussianBlur(11))
     base = Image.composite(cover, frame, rig.cover_mask).convert("RGB")
     rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
