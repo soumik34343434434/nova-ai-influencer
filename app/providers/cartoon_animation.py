@@ -28,6 +28,8 @@ from app.providers.cartoon_rig import CharacterRig, get_rig
 from app.providers.cartoon_voice import prepare_voice_performance
 
 W, H = 1080, 1920
+# Decomposed character layers (generated on first use). Module-level so tests can redirect it.
+RIG_DIR = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
 MOTION_ENGINE = "cartoon-motion-3.7"
 # Every frame is rendered on a canvas this much larger than the frame and then
 # center-cropped, so rotation, squash and shake can never expose the edge.
@@ -44,8 +46,8 @@ IDLE_BREATH_HZ = 2.0
 
 def _idle_bob(progress: float, shot_seconds: float) -> float:
     return IDLE_BREATH_PX * math.sin(math.tau * IDLE_BREATH_HZ * progress * shot_seconds)
-CAPTION_TOP = 200  # top band above the characters' heads and clear of platform UI
-CAPTION_ZONE = (90, 170, 990, 500)  # reserved text area that must not touch a character (close-up heads start near y=520)
+CAPTION_TOP = 240  # top band above the characters' heads and inside the safe zone (y >= 12%)
+CAPTION_ZONE = (90, 230, 990, 500)  # reserved text area that must not touch a character (close-up heads start near y=520)
 CAPTION_MAX_WIDTH = 720  # centred on W/2, so the block stays inside SAFE_ZONE
 CAPTION_SIZES = (64, 58, 52, 46)
 DISCLOSURE_TOP = int(H * SAFE_ZONE[1]) + 12
@@ -383,7 +385,7 @@ def _endpoint_character_parts(image: Path, rig: CharacterRig, beat: str, progres
     """Build endpoint character parts in final-camera coordinates."""
     if beat == "punchline" and progress >= 0.72:
         progress = 0.72
-    rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
+    rig_dir = RIG_DIR
     layers = load_action_layers(image, rig_dir)
 
     torso = layers["torso"]
@@ -881,7 +883,7 @@ def _apply_rig_performance(
         dy += _idle_bob(progress, shot_seconds)
     cover = frame.filter(ImageFilter.GaussianBlur(11))
     base = Image.composite(cover, frame, rig.cover_mask).convert("RGB")
-    rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
+    rig_dir = RIG_DIR
     try:
         head_layer = load_action_layers(Path(rig.source), rig_dir)["head"]
     except (OSError, ValueError, KeyError):
@@ -1156,7 +1158,7 @@ def motion_frame(
         p = 0.72
     if rig is not None:
         try:
-            rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
+            rig_dir = RIG_DIR
             layers = load_action_layers(image, rig_dir)
             base = _backdrop_over(layers["body_plate"].convert("RGB"), background_key, setting)
             bob = _idle_bob(p, duration)
