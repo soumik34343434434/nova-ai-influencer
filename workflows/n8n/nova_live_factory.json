@@ -324,7 +324,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/12_video_qa",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/12_editor_engine",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -337,7 +337,7 @@
         "options": {}
       },
       "id": "nova-stage-12",
-      "name": "12 Video QA",
+      "name": "12 Editor",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -348,7 +348,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/13_publish",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/13_video_qa",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -361,7 +361,7 @@
         "options": {}
       },
       "id": "nova-stage-13",
-      "name": "13 Publish",
+      "name": "13 Video QA",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -372,7 +372,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/14_analytics",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/14_publish",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -385,7 +385,7 @@
         "options": {}
       },
       "id": "nova-stage-14",
-      "name": "14 Analytics",
+      "name": "14 Publish",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -396,7 +396,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/15_learning",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/15_analytics",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -409,11 +409,35 @@
         "options": {}
       },
       "id": "nova-stage-15",
-      "name": "15 Learning",
+      "name": "15 Analytics",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
         4480,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/n8n/runs/{{$node[\"Create NOVA Run\"].json[\"run_id\"]}}/stages/16_learning",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-NOVA-API-Key",
+              "value": "={{$env.NOVA_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nova-stage-16",
+      "name": "16 Learning",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4760,
         400
       ]
     },
@@ -437,7 +461,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        4480,
+        5040,
         400
       ]
     }
@@ -590,47 +614,58 @@
       "main": [
         [
           {
-            "node": "12 Video QA",
+            "node": "12 Editor",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "12 Video QA": {
+    "12 Editor": {
       "main": [
         [
           {
-            "node": "13 Publish",
+            "node": "13 Video QA",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "13 Publish": {
+    "13 Video QA": {
       "main": [
         [
           {
-            "node": "14 Analytics",
+            "node": "14 Publish",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "14 Analytics": {
+    "14 Publish": {
       "main": [
         [
           {
-            "node": "15 Learning",
+            "node": "15 Analytics",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "15 Learning": {
+    "15 Analytics": {
+      "main": [
+        [
+          {
+            "node": "16 Learning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "16 Learning": {
       "main": [
         [
           {
@@ -646,7 +681,6 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "f5b9de13-9f6c-4dc2-b13c-b1d0d5bde2cc",
   "meta": {
     "templateCredsSetupCompleted": true
   },
