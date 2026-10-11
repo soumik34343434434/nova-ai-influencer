@@ -852,6 +852,7 @@ def _apply_rig_performance(
     motion_gain: float = 1.0,
     performance: dict | None = None,
     background_key: Image.Image | None = None,
+    shot_seconds: float | None = None,
 ) -> Image.Image:
     dx, dy, scale, rotation = head_motion(progress, beat, performance)
     root = kinematic_state(progress, beat, performance)
@@ -869,7 +870,8 @@ def _apply_rig_performance(
     # Idle breath: a slow 1.4 px rise and fall of the head through every shot.
     # Holds were near-identical frames (failing the duplicate-frame check) and
     # this keeps them alive without faking a pose change.
-    dy += 1.4 * math.sin(math.tau * 0.6 * progress * duration)
+    if shot_seconds:
+        dy += 1.4 * math.sin(math.tau * 0.6 * progress * shot_seconds)
     cover = frame.filter(ImageFilter.GaussianBlur(11))
     base = Image.composite(cover, frame, rig.cover_mask).convert("RGB")
     rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
@@ -1152,7 +1154,7 @@ def motion_frame(
             base = _apply_arm_layer(base, layers["right_arm"], p, beat, "right", motion_gain=motion_gain, performance=voice_performance, source_name=image.name)
         except (OSError, ValueError):
             pass
-        base = _apply_rig_performance(base, rig, p, beat, motion_gain=motion_gain, performance=voice_performance, background_key=background_key)
+        base = _apply_rig_performance(base, rig, p, beat, motion_gain=motion_gain, performance=voice_performance, background_key=background_key, shot_seconds=duration)
     eased = _ease_in_out(p)
     energy = profile.energy * motion_gain
 
