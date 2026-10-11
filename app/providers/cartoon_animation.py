@@ -37,8 +37,12 @@ PAD_Y = round(H * (OVERSCAN - 1.0) / 2.0)
 # Platform UI covers the outer frame; all text must stay inside this box
 # (x0, y0, x1, y1) as fractions of the 1080x1920 frame.
 SAFE_ZONE = (0.06, 0.12, 0.84, 0.76)
-IDLE_BREATH_PX = 1.4  # head rise/fall (px) during holds; see _apply_rig_performance
-IDLE_BREATH_HZ = 0.6
+IDLE_BREATH_PX = 7.0  # whole-character rise/fall (px) so holds keep changing frame to frame
+IDLE_BREATH_HZ = 1.2
+
+
+def _idle_bob(progress: float, shot_seconds: float) -> float:
+    return IDLE_BREATH_PX * math.sin(math.tau * IDLE_BREATH_HZ * progress * shot_seconds)
 CAPTION_TOP = 260  # top band above the characters' heads and clear of platform UI
 CAPTION_ZONE = (90, 240, 990, 640)  # reserved text area that must not touch a character
 CAPTION_MAX_WIDTH = 720  # centred on W/2, so the block stays inside SAFE_ZONE
@@ -873,7 +877,7 @@ def _apply_rig_performance(
     # Holds were near-identical frames (failing the duplicate-frame check) and
     # this keeps them alive without faking a pose change.
     if shot_seconds:
-        dy += IDLE_BREATH_PX * math.sin(math.tau * IDLE_BREATH_HZ * progress * shot_seconds)
+        dy += _idle_bob(progress, shot_seconds)
     cover = frame.filter(ImageFilter.GaussianBlur(11))
     base = Image.composite(cover, frame, rig.cover_mask).convert("RGB")
     rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
@@ -890,7 +894,7 @@ def _apply_rig_performance(
     return _apply_face_performance(base, rig, progress, beat, motion_gain=motion_gain, performance=performance, background_key=background_key)
 
 
-def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, motion_gain: float = 1.0, performance: dict | None = None, source_name: str | None = None) -> Image.Image:
+def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, motion_gain: float = 1.0, performance: dict | None = None, source_name: str | None = None, idle_dy: float = 0.0) -> Image.Image:
     """Move the body root with the same impulse used by head/arms/camera."""
     alpha = layer.getchannel("A")
     bbox = alpha.getbbox()
@@ -900,7 +904,7 @@ def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, 
     crop = layer.crop((x0, y0, x1, y1))
     state = kinematic_state(progress, beat, performance)
     dx = state["root_dx"] * motion_gain
-    dy = state["root_dy"] * motion_gain
+    dy = state["root_dy"] * motion_gain + idle_dy
     scale = 1.0 + (state["root_scale"] - 1.0) * motion_gain
     rotation = state["root_rot"] * motion_gain
     crop = crop.resize((max(2, int(crop.width * scale)), max(2, int(crop.height * scale))), Image.Resampling.BICUBIC)
@@ -912,7 +916,7 @@ def _apply_torso_layer(frame: Image.Image, layer: Image.Image, progress: float, 
     return base
 
 
-def _apply_arm_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, side: str, motion_gain: float = 1.0, performance: dict | None = None, source_name: str | None = None) -> Image.Image:
+def _apply_arm_layer(frame: Image.Image, layer: Image.Image, progress: float, beat: str, side: str, motion_gain: float = 1.0, performance: dict | None = None, source_name: str | None = None, idle_dy: float = 0.0) -> Image.Image:
     alpha = layer.getchannel("A")
     bbox = alpha.getbbox()
     if not bbox:
@@ -921,7 +925,7 @@ def _apply_arm_layer(frame: Image.Image, layer: Image.Image, progress: float, be
     crop = layer.crop((x0, y0, x1, y1))
     dx, dy, scale, rotation = arm_motion(progress, beat, side, performance)
     dx *= motion_gain
-    dy *= motion_gain
+    dy = dy * motion_gain + idle_dy
     scale = 1.0 + (scale - 1.0) * motion_gain
     rotation *= motion_gain
     crop = crop.resize((max(2, int(crop.width * scale)), max(2, int(crop.height * scale))), Image.Resampling.BICUBIC)
@@ -1151,9 +1155,10 @@ def motion_frame(
             rig_dir = Path(__file__).resolve().parents[2] / "artifacts" / "cartoon" / "pip_rig_v2"
             layers = load_action_layers(image, rig_dir)
             base = _backdrop_over(layers["body_plate"].convert("RGB"), background_key, setting)
-            base = _apply_torso_layer(base, layers["torso"], p, beat, motion_gain=motion_gain, performance=voice_performance, source_name=image.name)
-            base = _apply_arm_layer(base, layers["left_arm"], p, beat, "left", motion_gain=motion_gain, performance=voice_performance, source_name=image.name)
-            base = _apply_arm_layer(base, layers["right_arm"], p, beat, "right", motion_gain=motion_gain, performance=voice_performance, source_name=image.name)
+            bob = _idle_bob(p, duration)
+            base = _apply_torso_layer(base, layers["torso"], p, beat, motion_gain=motion_gain, performance=voice_performance, source_name=image.name, idle_dy=bob)
+            base = _apply_arm_layer(base, layers["left_arm"], p, beat, "left", motion_gain=motion_gain, performance=voice_performance, source_name=image.name, idle_dy=bob)
+            base = _apply_arm_layer(base, layers["right_arm"], p, beat, "right", motion_gain=motion_gain, performance=voice_performance, source_name=image.name, idle_dy=bob)
         except (OSError, ValueError):
             pass
         base = _apply_rig_performance(base, rig, p, beat, motion_gain=motion_gain, performance=voice_performance, background_key=background_key, shot_seconds=duration)
